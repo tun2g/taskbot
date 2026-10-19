@@ -3,13 +3,14 @@ import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useGroup, useGroupMembers } from '@/api/groups';
-import { type ApiTaskFilters, BOARD_LIMIT, useCreateTask, useTasksList, useUpdateTask } from '@/api/tasks';
+import { type ApiTaskFilters, BOARD_LIMIT, useCreateTask, useTasksList, useTaskStats } from '@/api/tasks';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
 
 import { type BoardSearch, rememberBoardSearch } from './board-search';
 import { TasksContent } from './tasks.content';
+import { useUndoableTaskChange } from './use-undoable-change';
 
 export function TasksContainer() {
   const { groupId } = useParams({ from: '/$groupId/tasks/' });
@@ -31,17 +32,19 @@ export function TasksContainer() {
       type: search.type,
       assigneeId: search.assignee,
       priority: search.priority,
+      due: search.due,
       status: listOnly && !category ? search.status : undefined,
       category: category && category !== 'open' ? category : undefined,
       open: category === 'open' ? true : undefined,
       search: search.q,
       limit: BOARD_LIMIT,
     };
-  }, [search.type, search.assignee, search.priority, search.status, search.category, search.q, view]);
+  }, [search.type, search.assignee, search.priority, search.due, search.status, search.category, search.q, view]);
   const hasActiveFilters = !!(
     filters.type ||
     filters.assigneeId ||
     filters.priority ||
+    filters.due ||
     filters.status ||
     filters.category ||
     filters.open ||
@@ -52,7 +55,8 @@ export function TasksContainer() {
   const { data: members = [] } = useGroupMembers(groupId);
   const tasks = useTasksList(groupId, filters);
   const createTask = useCreateTask(groupId);
-  const updateTask = useUpdateTask(groupId);
+  const stats = useTaskStats(groupId);
+  const { changeStatus, changeAssignee } = useUndoableTaskChange(groupId, members);
 
   const setSearch = useCallback(
     (patch: Partial<BoardSearch>, options?: { replace?: boolean }) => {
@@ -66,6 +70,7 @@ export function TasksContainer() {
       type: undefined,
       assignee: undefined,
       priority: undefined,
+      due: undefined,
       status: undefined,
       category: undefined,
       q: undefined,
@@ -76,25 +81,9 @@ export function TasksContainer() {
     navigate({ to: '/$groupId/tasks/$taskId', params: { groupId, taskId: task._id } });
   };
 
-  const notifyError = (task: ITask, err: unknown) => {
-    toast.error(`Couldn't update #${task.taskNumber}: ${getErrorMessage(err)}`);
-  };
-
-  const handleStatusChange = (task: ITask, status: TaskStatus) => {
-    if (task.status === status) return;
-    updateTask.mutate(
-      { taskId: task._id, input: { status }, optimistic: { status } },
-      { onError: (err) => notifyError(task, err), onSuccess: () => haptic('success') },
-    );
-  };
-
-  const handleAssigneeChange = (task: ITask, assigneeId: string | null) => {
-    const member = assigneeId ? members.find((m) => m._id === assigneeId) : null;
-    updateTask.mutate(
-      { taskId: task._id, input: { assigneeId }, optimistic: { assigneeId: member ?? assigneeId } },
-      { onError: (err) => notifyError(task, err), onSuccess: () => haptic('success') },
-    );
-  };
+  // Optimistic, with a "Moved #12 to … · Undo" toast (errors roll back and toast).
+  const handleStatusChange = (task: ITask, status: TaskStatus) => void changeStatus(task, status);
+  const handleAssigneeChange = (task: ITask, assigneeId: string | null) => void changeAssignee(task, assigneeId);
 
   const handleCreateTask = async (input: CreateTaskInput): Promise<string | null> => {
     try {
@@ -128,6 +117,7 @@ export function TasksContainer() {
       error={tasks.isError ? getErrorMessage(tasks.error) : null}
       onRetry={() => tasks.refetch()}
       hasActiveFilters={hasActiveFilters}
+      overdueCount={stats.data?.overdue ?? 0}
       onSearchChange={setSearch}
       onClearFilters={clearFilters}
       onBack={() => navigate({ to: '/' })}

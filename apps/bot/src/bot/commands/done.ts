@@ -64,7 +64,7 @@ export class DoneCommand {
         const task = await taskService.getTaskByNumber(group._id, taskNumber);
 
         if (!task) {
-          await ctx.reply(`❌ Task #${taskNumber} not found in this group. Use /tasks to see the open ones.`);
+          await ctx.reply(`❌ Task #${taskNumber} not found in this group. Use /list to see the open ones.`);
           return;
         }
 

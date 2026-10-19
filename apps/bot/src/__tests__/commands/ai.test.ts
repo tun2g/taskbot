@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { AI_PRIVATE_MESSAGE, AiCommand } from 'src/bot/commands/ai';
+import { AI_PRIVATE_MESSAGE, AiCommand, UPDATE_WHICH_TASK_MESSAGE } from 'src/bot/commands/ai';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
 import { taskService } from 'src/database/services/task.service';
@@ -71,8 +71,54 @@ describe('AiCommand', () => {
     (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
   });
 
-  it('registers /ai', () => {
-    expect(command.register().has('ai')).toBe(true);
+  it('registers /ai and /update', () => {
+    const map = command.register();
+    expect(map.has('ai')).toBe(true);
+    expect(map.has('update')).toBe(true);
+  });
+
+  describe('/update', () => {
+    it('shows its own usage when empty', async () => {
+      const c = ctx('/update');
+      await command.onAi(c, 'update');
+      expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Update a task in plain words'), expect.any(Object));
+      expect(aiCommandService.plan).not.toHaveBeenCalled();
+    });
+
+    it('asks which task when there is no card reply and no #number', async () => {
+      const c = ctx('/update chuyển sang in review');
+      await command.onAi(c, 'update');
+      expect(c.reply).toHaveBeenCalledWith(UPDATE_WHICH_TASK_MESSAGE, expect.any(Object));
+      expect(aiCommandService.plan).not.toHaveBeenCalled();
+    });
+
+    it('plans an update for "#12" and tells the AI not to create tasks', async () => {
+      (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+      (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'reply', reply: { text: '✅ #12' } });
+      const c = ctx('/update@TBot #12 hạn thứ 6');
+      await command.onAi(c, 'update');
+      const context = (aiCommandService.plan as jest.Mock).mock.calls[0][0];
+      expect(context.request).toBe('Update this task (do not create new tasks): #12 hạn thứ 6');
+      expect(context.referencedNumbers).toEqual([12]);
+    });
+
+    it('works when replying to a task card', async () => {
+      (taskService.getTaskByCardMessage as jest.Mock).mockResolvedValue({ _id: 't1', taskNumber: 3, title: 'X', status: 'todo' });
+      (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+      (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'reply', reply: { text: '✅ #3' } });
+      const c = ctx('/update giao cho @an', { reply_to_message: { message_id: 5, text: 'card' } });
+      await command.onAi(c, 'update');
+      expect(aiCommandService.plan).toHaveBeenCalled();
+    });
+
+    it('never creates tasks, even if the AI plans it', async () => {
+      (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+      (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'create', useReply: false });
+      const c = ctx('/update #12 tạo thêm task test');
+      await command.onAi(c, 'update');
+      expect(createTasksFromInput).not.toHaveBeenCalled();
+      expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('use /new'), expect.any(Object));
+    });
   });
 
   it('explains it works in groups when used privately', async () => {

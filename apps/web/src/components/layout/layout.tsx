@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import { getTelegramWebApp, isInTelegram } from '@/lib/telegram';
+import { setPageBack } from '@/lib/back-button';
+import { isInTelegram } from '@/lib/telegram';
 
 interface LayoutProps {
   title?: ReactNode;
@@ -20,19 +21,8 @@ function useTelegramBackButton(onBack?: () => void) {
   const enabled = !!onBack;
 
   useEffect(() => {
-    const webApp = getTelegramWebApp();
-    if (!webApp || !isInTelegram()) return;
-    if (!enabled) {
-      webApp.BackButton.hide();
-      return;
-    }
-    const handler = () => handlerRef.current?.();
-    webApp.BackButton.onClick(handler);
-    webApp.BackButton.show();
-    return () => {
-      webApp.BackButton.offClick(handler);
-      webApp.BackButton.hide();
-    };
+    if (!enabled || !isInTelegram()) return;
+    return setPageBack(() => handlerRef.current?.());
   }, [enabled]);
 }
 
@@ -65,7 +55,10 @@ export function Layout({ title, subtitle, children, onBack, actions, fab, width 
         </div>
       </header>
 
-      <main className={`mx-auto w-full flex-1 ${maxW}`} style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
+      <main
+        className={`mx-auto w-full flex-1 ${maxW}`}
+        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+      >
         {children}
       </main>
 

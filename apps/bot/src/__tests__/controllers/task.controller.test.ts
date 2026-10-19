@@ -134,6 +134,65 @@ describe('TaskController', () => {
       const { res } = await run({ status: 'invalid_status' });
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    describe('due filter', () => {
+      const runDue = async (due: string, extra: Record<string, string> = {}, tz = 'Asia/Ho_Chi_Minh') => {
+        const { req, res } = createMockReqRes({
+          params: { groupId: groupId.toString() },
+          query: { due, ...extra },
+          group: { ...group, timezone: tz },
+        });
+        (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 0 });
+        await controller.listTasks(req, res);
+        return { res, filters: (taskService.getTasksByGroup as jest.Mock).mock.calls[0]?.[1] };
+      };
+
+      beforeEach(() => {
+        // 2026-10-19 20:00Z is already Oct 20 in Ho Chi Minh (UTC+7)
+        jest.useFakeTimers({ now: new Date('2026-10-19T20:00:00.000Z'), doNotFake: ['nextTick', 'setImmediate'] });
+      });
+      afterEach(() => jest.useRealTimers());
+
+      it('overdue = due before today (group tz) and not closed', async () => {
+        const { filters } = await runDue('overdue');
+        expect(filters.dueTo.toISOString()).toBe('2026-10-20T00:00:00.000Z');
+        expect(filters.dueFrom).toBeUndefined();
+        expect(filters.statuses).toEqual(['backlog', 'todo', 'in_progress', 'in_review', 'pending']);
+      });
+
+      it('overdue combined with a closed status matches nothing', async () => {
+        const { filters } = await runDue('overdue', { status: 'done' });
+        expect(filters.statuses).toEqual([]);
+      });
+
+      it('today = [today, tomorrow) and keeps every status', async () => {
+        const { filters } = await runDue('today');
+        expect(filters.dueFrom.toISOString()).toBe('2026-10-20T00:00:00.000Z');
+        expect(filters.dueTo.toISOString()).toBe('2026-10-21T00:00:00.000Z');
+        expect(filters.statuses).toBeUndefined();
+      });
+
+      it('week = today … today+6', async () => {
+        const { filters } = await runDue('week', {}, 'UTC');
+        expect(filters.dueFrom.toISOString()).toBe('2026-10-19T00:00:00.000Z');
+        expect(filters.dueTo.toISOString()).toBe('2026-10-26T00:00:00.000Z');
+      });
+
+      it('none = no due date', async () => {
+        const { filters } = await runDue('none');
+        expect(filters.dueNone).toBe(true);
+        expect(filters.dueFrom).toBeUndefined();
+        expect(filters.dueTo).toBeUndefined();
+      });
+
+      it('rejects an unknown due value', async () => {
+        const { res } = await runDue('later');
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'The due filter must be overdue, today, week or none.' }),
+        );
+      });
+    });
   });
 
   describe('createTask', () => {

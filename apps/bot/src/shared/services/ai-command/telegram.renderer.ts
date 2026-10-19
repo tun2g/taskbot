@@ -34,14 +34,14 @@ export type AiOutcome =
   | { kind: 'reply'; reply: AiReply; updates?: UpdateOutcome[] }
   | { kind: 'create'; useReply: boolean };
 
-export const AI_UNAVAILABLE_MESSAGE = '🤖 AI is unavailable right now — use the card buttons or /task, /tasks, /done.';
+export const AI_UNAVAILABLE_MESSAGE = '🤖 AI is unavailable right now — use the card buttons or /new, /list, /done.';
 export const WHICH_TASK_MESSAGE = '🤔 Which task? Reply to its card or write #number.';
 export const DELETE_REFUSAL_MESSAGE = '🗑 I don’t delete tasks from chat. To delete, use 🗑 on the task card (⋯ More → 🗑 Delete).';
 
 export function telegramMissText(miss: TargetMiss): string {
   switch (miss.reason) {
     case 'missing':
-      return `❌ There's no task #${miss.number} in this group. Check the number with /tasks.`;
+      return `❌ There's no task #${miss.number} in this group. Check the number with /list.`;
     case 'no_match':
       return `🤔 I couldn't find a task matching “${escapeHtml(shorten(miss.search, 40))}”. Reply to its card or write #number.`;
     case 'ambiguous': {

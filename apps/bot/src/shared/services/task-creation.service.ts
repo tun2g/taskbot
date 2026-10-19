@@ -345,17 +345,17 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
     switch (result.status) {
       case 'rate_limited':
         await progress.finish(
-          '⏳ AI is busy in this group — too many requests in the last 10 minutes. Try again in a few minutes, or reply to a single message with /task.',
+          '⏳ AI is busy in this group — too many requests in the last 10 minutes. Try again in a few minutes, or reply to a single message with /new.',
         );
         return;
       case 'no_items':
         await progress.finish(
           `🤷 No action items in ${messages.length === 1 ? 'that message' : `those ${messages.length} messages`}. ` +
-            'Reply to a specific message with /task to create one anyway.',
+            'Reply to a specific message with /new to create one anyway.',
         );
         return;
       case 'save_failed':
-        await progress.finish("❌ I couldn't save the task. Please try /task again in a moment.");
+        await progress.finish("❌ I couldn't save the task. Please try /new again in a moment.");
         return;
       default:
         await replyCreated(ctx, progress, input, result);
@@ -363,7 +363,7 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
   } catch (error) {
     logger.error(`Task creation pipeline failed: ${error instanceof Error ? error.stack : error}`);
     try {
-      await progress.finish('❌ Something went wrong and no task was created. Please try /task again in a moment.');
+      await progress.finish('❌ Something went wrong and no task was created. Please try /new again in a moment.');
     } catch (replyError) {
       logger.error(`Could not send task creation error reply: ${replyError}`);
     }
@@ -424,7 +424,10 @@ async function replyCreated(
   };
   await callbackDataStorageService.setCallbackData(key, BATCH_CALLBACK_PREFIX, batch);
 
-  const source = messages.length === 1 ? 'this message' : `${messages.length} messages`;
+  // The source label links to the (first) source message, so it doubles as the cross-topic fallback link.
+  const sourceLabel = messages.length === 1 ? 'this message' : `${messages.length} messages`;
+  const sourceUrl = eventSource ? messageLink(chatId, eventSource.messageId, eventSource.threadId) : '';
+  const source = sourceUrl ? `<a href="${sourceUrl}">${sourceLabel}</a>` : sourceLabel;
   const lines = [`<b>🤖 Created ${created.length} tasks from ${source}</b>`, '', ...createdSummaryLines(created)];
   if (warnings.length) lines.push('', ...warnings.map(escapeHtml));
 
@@ -439,6 +442,6 @@ async function replyCreated(
       link_preview_options: { is_disabled: true },
       reply_markup: { inline_keyboard: [row] },
     },
-    true,
+    !sourceUrl,
   );
 }

@@ -49,14 +49,20 @@ TIMEZONE=UTC
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Welcome + (in DM) an "Open Task Board" Mini App button |
-| `/help` | List commands |
-| `/task` | Create a task — **groups only** (reply to a message, or `/task <title> [@user]`) |
-| `/tasks` | List/filter tasks (`mine`, `todo`, `in_progress`, `done`, `@user`) |
+| `/new` | Create tasks — **groups only**. `/new <text> [@user]`, reply `/new` (`/new <note>`), reply `/new all`, `/new 10`. AI may split one message into several tasks |
+| `/list` | List/filter tasks (`open`, `review`, `pending`, `done`, `bug`…, `@user`). Replying to a message offers "📝 Create tasks from that message" |
+| `/mytasks` | Your open tasks (= `/list mine`) |
+| `/update` | Change one task in plain words — reply `/update …` to its card or `/update #12 …` (status, assignee, priority, type, due date, title, description). Never creates tasks |
+| `/ai` | Plain-language requests: assign, change status/priority/due, ask "what's on my plate?" |
 | `/done` | Complete a task — `/done #123` or reply to a task card with `/done` |
+| `/members` | Who can be assigned; members not listed tap "✋ I'm here" (bots can't list group members) |
+| `/start` | In DM: your groups with buttons to open each board |
+| `/help` | Interactive guide |
 | `/settopic` | Admins, in a group with Topics: post task events (cards, status lines, digest) in this topic. Otherwise they go to a “Task events” topic the bot creates (needs admin + Manage topics) |
 
-Inline task cards support status transitions, priority cycling, an assignee picker (group members), and delete (creator/admin only). Delete permission is enforced via `getChatMember`.
+`/task`, `/create` and `/tasks` still work as hidden aliases (not in the menu; `/task` vs `/tasks` was easy to mix up).
+
+Inline task cards support status transitions, priority and type pickers, an assignee picker (group members), and delete with confirmation (creator/admin only). Delete permission is enforced via `getChatMember`.
 
 ## REST API
 

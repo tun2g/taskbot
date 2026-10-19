@@ -3,6 +3,7 @@ import { isClosedStatus } from '@tbot/shared';
 import { useEffect, useState } from 'react';
 
 import { Avatar, StatusLozenge, TypeIcon } from '@/components/ui/badges';
+import { FormattedText } from '@/components/ui/formatted-text';
 import { DueChip } from '@/pages/tasks/components/due-chip';
 
 import type { AssistantMessage, UserMessage } from './ai-chat-store';
@@ -123,7 +124,7 @@ export function AssistantBubble({ message, timeZone, onOpenTask, onViewAll, onUn
             }`}
           >
             {note && <p className="mb-0.5 text-xs font-medium text-tg-hint">{note}</p>}
-            {r.text && <p className="whitespace-pre-wrap break-words">{r.text}</p>}
+            {r.text && <FormattedText text={r.text} />}
           </div>
         )}
 

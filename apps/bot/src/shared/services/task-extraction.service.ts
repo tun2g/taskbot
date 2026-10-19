@@ -3,10 +3,17 @@ import { z } from 'zod';
 import logger from 'src/shared/logger/logger';
 import { aiService, AIUnavailableError, parseJsonLoose } from 'src/shared/services/ai/ai.service';
 import { BufferedMention, BufferedMessage } from 'src/shared/services/message-buffer.service';
+import {
+  cleanTitle,
+  describeTemplatesForPrompt,
+  detectLanguage,
+  renderTemplate,
+  TemplateDetails,
+} from 'src/shared/services/task-templates';
 
 export const MAX_EXTRACTED_TASKS = 20;
 const TITLE_MAX = 200; // DB limit; the prompt asks for ≤ 120
-const DESCRIPTION_MAX = 1000;
+const DESCRIPTION_MAX = 2000;
 const FALLBACK_DESCRIPTION_MAX = 4000;
 
 export interface ExtractionMember {
@@ -61,6 +68,12 @@ export const extractedTaskSchema = z.object({
     .min(1)
     .transform((t) => t.slice(0, TITLE_MAX)),
   description: optionalString.transform((v) => v?.slice(0, DESCRIPTION_MAX)),
+  // Template fields for the task's type; rendered into `description` by code
+  details: z
+    .record(z.string(), z.union([z.string(), z.array(z.string())]))
+    .nullish()
+    .catch(undefined)
+    .transform((v) => (v ?? undefined) as TemplateDetails | undefined),
   type: z.enum(TASK_TYPE_VALUES).catch(DEFAULT_TASK_TYPE),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).nullish().catch(undefined).transform((v) => v ?? undefined),
   assignee: optionalString,
@@ -85,12 +98,15 @@ const TYPE_RULES = TASK_TYPE_ORDER.map((t) => `"${t}" = ${TASK_TYPE_HINTS[t].toL
 const SYSTEM_PROMPT = `You turn Telegram group chat messages into well-formed work items for a team task board.
 
 Return ONLY JSON of this shape:
-{"tasks":[{"title":string,"description":string?,"type":${TASK_TYPE_VALUES.map((t) => `"${t}"`).join('|')},"priority":"low"|"medium"|"high"|"urgent"?,"assignee":string?,"dueDate":"YYYY-MM-DD"?,"sourceMessageIds":number[]}]}
+{"tasks":[{"title":string,"details":{...template fields},"type":${TASK_TYPE_VALUES.map((t) => `"${t}"`).join('|')},"priority":"low"|"medium"|"high"|"urgent"?,"assignee":string?,"dueDate":"YYYY-MM-DD"?,"sourceMessageIds":number[]}]}
 
 Rules:
 - One task per distinct actionable item (something someone must do, fix, build, decide or answer). Skip greetings, chit-chat, thanks, status chatter and items that are already done. Merge duplicates. At most 20 tasks. If nothing is actionable, return {"tasks":[]}.
-- title: imperative and specific ("Fix login crash on iOS 17", "Gửi báo giá cho khách A"), at most 120 characters, written in the SAME language as the source messages. No trailing period, no @mentions, no dates in the title.
-- description: a short summary of context and acceptance criteria taken ONLY from the messages (at most 1000 characters, same language as the messages). Never invent facts, names, numbers or deadlines. Omit it if there is nothing beyond the title.
+- title: REWRITE it as a clean work-item title — never copy the chat message. Start with a verb, name the specific object and where ("Fix login crash on iOS 17", "Gửi báo giá cho khách A", "Gắn quảng cáo lên trang chủ"). At most 80 characters, SAME language as the messages. No @mentions, no dates, no urgency words (put urgency in priority), no chat filler ("nhé", "ơi", "giúp em", "please"), no trailing period.
+- details: fill the TEMPLATE for the task's type (below) with facts taken ONLY from the messages, in the SAME language as the messages. Fields marked [] are arrays of short bullet strings; others are one sentence. Leave a field out when the messages say nothing about it — never write "N/A", never invent facts, names, numbers, devices or deadlines. "doneWhen" restates what was asked as checkable outcomes; do not add new requirements.
+
+Templates (field (what to put there)):
+${describeTemplatesForPrompt()}
 - type: pick the best fit — ${TYPE_RULES}. Use "task" when unsure.
 - priority: include ONLY when urgency is stated explicitly (e.g. "urgent", "gấp", "ASAP", "khẩn", "low priority"); otherwise omit it.
 - assignee: the person the messages say should do it, copied exactly as written (e.g. "@an" or "Hùng"). Prefer a name from the member list when it clearly refers to them. Omit if nobody is named. Never assign to someone just because they wrote the message.
@@ -164,21 +180,28 @@ export function buildExtractionPrompt(input: ExtractionInput): string {
 type ParsedExtraction = z.infer<typeof extractionResponseSchema>;
 
 /** Dedupes, caps at MAX_EXTRACTED_TASKS and keeps only source ids that were in the input. */
-export function normalizeExtractedTasks(data: ParsedExtraction, validMessageIds: number[]): ExtractedTask[] {
+export function normalizeExtractedTasks(
+  data: ParsedExtraction,
+  validMessageIds: number[],
+  language: 'vi' | 'en' = 'en',
+): ExtractedTask[] {
   const valid = new Set(validMessageIds);
   const seenTitles = new Set<string>();
   const tasks: ExtractedTask[] = [];
   for (const task of data.tasks) {
-    const key = task.title.toLowerCase().replace(/\s+/g, ' ');
+    const title = cleanTitle(task.title);
+    const description =
+      (task.details && renderTemplate(task.type, task.details, language)) || task.description || undefined;
+    const key = title.toLowerCase().replace(/\s+/g, ' ');
     if (seenTitles.has(key)) continue;
     seenTitles.add(key);
     let ids = Array.from(new Set(task.sourceMessageIds.filter((id) => valid.has(id))));
     if (ids.length === 0) ids = validMessageIds.length === 1 ? [...validMessageIds] : [];
     tasks.push({
-      title: task.title,
+      title,
       type: task.type,
       sourceMessageIds: ids,
-      ...(task.description ? { description: task.description } : {}),
+      ...(description ? { description: description.slice(0, DESCRIPTION_MAX) } : {}),
       ...(task.priority ? { priority: task.priority } : {}),
       ...(task.assignee ? { assignee: task.assignee } : {}),
       ...(task.dueDate ? { dueDate: task.dueDate } : {}),
@@ -189,9 +212,13 @@ export function normalizeExtractedTasks(data: ParsedExtraction, validMessageIds:
 }
 
 /** Parses and validates raw model output. Returns null when it is not usable. */
-export function parseExtractionResponse(raw: string, validMessageIds: number[]): ExtractedTask[] | null {
+export function parseExtractionResponse(
+  raw: string,
+  validMessageIds: number[],
+  language: 'vi' | 'en' = 'en',
+): ExtractedTask[] | null {
   const result = extractionResponseSchema.safeParse(parseJsonLoose(raw));
-  return result.success ? normalizeExtractedTasks(result.data, validMessageIds) : null;
+  return result.success ? normalizeExtractedTasks(result.data, validMessageIds, language) : null;
 }
 
 /**
@@ -277,7 +304,11 @@ export class TaskExtractionService {
     const request = { system: SYSTEM_PROMPT, user: buildExtractionPrompt(input), temperature: 0.2 };
     try {
       const data = await aiService.generateJson(request, extractionResponseSchema, { retries: 1 });
-      return { tasks: normalizeExtractedTasks(data, input.messages.map((m) => m.messageId)), source: 'ai' };
+      const language = detectLanguage(input.messages.map((m) => m.text).join('\n'));
+      return {
+        tasks: normalizeExtractedTasks(data, input.messages.map((m) => m.messageId), language),
+        source: 'ai',
+      };
     } catch (error) {
       if (!(error instanceof AIUnavailableError)) throw error;
       if (error.reason !== 'unconfigured') logger.warn(`Task extraction fell back to a basic task: ${error.message}`);

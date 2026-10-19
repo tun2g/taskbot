@@ -21,6 +21,8 @@ export interface PromptTask {
   priority?: string;
   assignee?: string | null;
   dueDate?: string | null;
+  /** Current description, so "add to the description" can keep what's there. */
+  description?: string | null;
 }
 
 export interface AiPromptInput {
@@ -55,13 +57,14 @@ Return ONLY a JSON object: {"actions":[ ...1 to ${MAX_AI_MUTATIONS} actions... ]
 
 Action shapes:
 - {"action":"create_tasks","useReply":boolean} — the user wants NEW tasks. The request text (and the replied message when useReply is true) is the material; another component extracts titles, assignees and due dates from it. Use one create_tasks action even for several tasks.
-- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?}}
+- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?,"description"?}}
     status: one of ${TASK_STATUS_ORDER.join(', ')}
     type: one of ${TASK_TYPE_ORDER.join(', ')}
     priority: one of ${TASK_PRIORITY_ORDER.join(', ')}
     assignee: the person exactly as written ("@an", "Hùng"), or null to unassign. "me"/"tôi"/"mình"/"em" = the requester.
     dueDate: "YYYY-MM-DD" (resolve relative dates with the calendar below) or null to clear it.
-    title: only when the user explicitly renames the task.
+    title: only when the user explicitly renames the task. Write it as a clean work-item title (verb first, no chat filler).
+    description: only when the user asks to change the description/details/notes. Return the FULL new text, same language as the task: to add something, keep the existing description and append the addition; to rewrite, keep its facts. null clears it.
     Include ONLY the fields the user asked to change.
 - {"action":"delete_task","taskRef":...} — the user asked to delete/remove a task.
 - {"action":"bulk"} — the user asked to change MANY tasks at once (e.g. "all tasks of @an", "mọi task quá hạn").
@@ -112,7 +115,8 @@ function taskLabel(t: PromptTask): string {
   if (t.priority) parts.push(`priority ${t.priority}`);
   parts.push(`assignee ${t.assignee || 'none'}`);
   if (t.dueDate) parts.push(`due ${t.dueDate}`);
-  return parts.join(' · ');
+  const label = parts.join(' · ');
+  return t.description ? `${label}\n    description: ${JSON.stringify(t.description.slice(0, 800))}` : label;
 }
 
 /** The next 7 days with weekday names so the model can resolve "thứ 6", "next Monday", "mai". */

@@ -1,19 +1,14 @@
 import type { CreateTaskInput, IUser } from '@tbot/shared';
-import {
-  DEFAULT_TASK_PRIORITY,
-  DEFAULT_TASK_TYPE,
-  TASK_PRIORITY_LABELS,
-  TASK_PRIORITY_ORDER,
-  TASK_TYPE_HINTS,
-  TASK_TYPE_LABELS,
-  TASK_TYPE_ORDER,
-  TaskPriority,
-  TaskType,
-} from '@tbot/shared';
-import { type FormEvent, useEffect, useState } from 'react';
+import { DEFAULT_TASK_PRIORITY, DEFAULT_TASK_TYPE, TASK_TYPE_HINTS, TaskPriority, TaskType } from '@tbot/shared';
+import { type FormEvent, useState } from 'react';
 
-import { buttonPrimary, fieldInput, fieldLabel } from '@/components/ui/state';
-import { displayName } from '@/lib/user';
+import { SelectMenu } from '@/components/ui/select-menu';
+import { PRIORITY_OPTIONS, TYPE_OPTIONS } from '@/components/ui/task-options';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
+import { ErrorBox, FormField, Input, Textarea } from '@/components/ui/input';
+
+import { AssigneePicker } from '../../task-detail/components/assignee-picker';
 
 interface CreateTaskModalProps {
   isOpen: boolean;
@@ -32,13 +27,6 @@ export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading 
   const [assigneeId, setAssigneeId] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -67,119 +55,85 @@ export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal aria-labelledby="create-task-title">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="pb-safe relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-4 shadow-xl sm:rounded-xl">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 id="create-task-title" className="text-lg font-semibold text-tg-text">
-            Create task
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-xl text-tg-hint active:bg-tg-secondary"
-          >
-            ✕
-          </button>
+    <Dialog title="Create task" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <FormField label="Type" htmlFor="new-type" hint={TASK_TYPE_HINTS[type]}>
+          <div className="sm:w-1/2">
+            <SelectMenu<TaskType>
+              id="new-type"
+              variant="field"
+              appearance="input"
+              title="Type"
+              value={type}
+              onChange={(t) => t && setType(t)}
+              options={TYPE_OPTIONS}
+              menuWidth={300}
+            />
+          </div>
+        </FormField>
+
+        <FormField label="Summary" htmlFor="new-title" required>
+          <Input
+            id="new-title"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            maxLength={200}
+            autoFocus
+          />
+        </FormField>
+
+        <FormField label="Description" htmlFor="new-description">
+          <Textarea
+            id="new-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            maxLength={2000}
+          />
+        </FormField>
+
+        <FormField label="Assignee" htmlFor="new-assignee">
+          <AssigneePicker
+            id="new-assignee"
+            appearance="input"
+            members={members}
+            assignee={assigneeId || null}
+            onSelect={(id) => setAssigneeId(id ?? '')}
+          />
+        </FormField>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Priority" htmlFor="new-priority">
+            <SelectMenu<TaskPriority>
+              id="new-priority"
+              variant="field"
+              appearance="input"
+              title="Priority"
+              value={priority}
+              onChange={(p) => p && setPriority(p)}
+              options={PRIORITY_OPTIONS}
+            />
+          </FormField>
+          <FormField label="Due date" htmlFor="new-due">
+            <Input id="new-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </FormField>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label htmlFor="new-type" className={fieldLabel}>
-              Type
-            </label>
-            <select id="new-type" value={type} onChange={(e) => setType(e.target.value as TaskType)} className={`${fieldInput} sm:w-1/2`}>
-              {TASK_TYPE_ORDER.map((t) => (
-                <option key={t} value={t}>
-                  {TASK_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-tg-hint">{TASK_TYPE_HINTS[type]}</p>
-          </div>
+        {error && <ErrorBox>{error}</ErrorBox>}
 
-          <div>
-            <label htmlFor="new-title" className={fieldLabel}>
-              Summary <span className="text-tg-destructive">*</span>
-            </label>
-            <input
-              id="new-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              maxLength={200}
-              autoFocus
-              className={fieldInput}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="new-description" className={fieldLabel}>
-              Description
-            </label>
-            <textarea
-              id="new-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              maxLength={2000}
-              className={`${fieldInput} resize-y py-2.5`}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="new-assignee" className={fieldLabel}>
-              Assignee
-            </label>
-            <select id="new-assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={fieldInput}>
-              <option value="">Unassigned</option>
-              {members.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {displayName(m)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="new-priority" className={fieldLabel}>
-                Priority
-              </label>
-              <select
-                id="new-priority"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className={fieldInput}
-              >
-                {TASK_PRIORITY_ORDER.map((p) => (
-                  <option key={p} value={p}>
-                    {TASK_PRIORITY_LABELS[p]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="new-due" className={fieldLabel}>
-                Due date
-              </label>
-              <input id="new-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={fieldInput} />
-            </div>
-          </div>
-
-          {error && (
-            <p role="alert" className="tint-danger rounded-xl p-3 text-sm">
-              {error}
-            </p>
-          )}
-
-          <button type="submit" disabled={!title.trim() || isLoading} className={`${buttonPrimary} w-full sm:ml-auto sm:w-auto`}>
-            {isLoading ? 'Creating…' : 'Create'}
-          </button>
-        </form>
-      </div>
-    </div>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!title.trim()}
+          loading={isLoading}
+          loadingText="Creating…"
+          className="w-full sm:ml-auto sm:w-auto"
+        >
+          Create
+        </Button>
+      </form>
+    </Dialog>
   );
 }

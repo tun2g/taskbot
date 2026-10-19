@@ -7,6 +7,9 @@ import {
   TaskStatusCategory,
   TaskType,
 } from '@tbot/shared';
+import type { TaskDueFilter } from '@tbot/shared';
+
+export const DUE_FILTERS: TaskDueFilter[] = ['overdue', 'today', 'week', 'none'];
 
 /** List-view status filter by category; `open` = every status that isn't closed. */
 export type StatusCategoryFilter = 'open' | TaskStatusCategory;
@@ -31,6 +34,8 @@ export interface BoardSearch {
   /** A member `_id`, `"me"` or `"none"` (unassigned). */
   assignee?: string;
   priority?: TaskPriority;
+  /** Due window by calendar day in the group's timezone (overdue = past due and still open). */
+  due?: TaskDueFilter;
   /** List view only: one status… */
   status?: TaskStatus;
   /** …or a category (mutually exclusive with `status`). */
@@ -58,6 +63,7 @@ export function validateBoardSearch(search: Record<string, unknown>): BoardSearc
     type: oneOf(search.type, TASK_TYPE_ORDER),
     assignee,
     priority: oneOf(search.priority, TASK_PRIORITY_ORDER),
+    due: oneOf(search.due, DUE_FILTERS),
     status: oneOf(search.status, TASK_STATUS_ORDER),
     category: oneOf(search.category, CATEGORY_FILTERS),
     q: q || undefined,

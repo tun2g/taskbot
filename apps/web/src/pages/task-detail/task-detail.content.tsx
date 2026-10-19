@@ -1,29 +1,18 @@
 import type { ITask, ITaskActivity, IUser, UpdateTaskInput } from '@tbot/shared';
-import {
-  isClosedStatus,
-  TASK_PRIORITY_LABELS,
-  TASK_PRIORITY_ORDER,
-  TASK_STATUS_CATEGORY,
-  TASK_STATUS_CATEGORY_LABELS,
-  TASK_STATUS_HINTS,
-  TASK_STATUS_LABELS,
-  TASK_STATUS_ORDER,
-  TASK_TYPE_HINTS,
-  TASK_TYPE_LABELS,
-  TASK_TYPE_ORDER,
-  TaskPriority,
-  TaskStatus,
-  TaskStatusCategory,
-  TaskType,
-} from '@tbot/shared';
+import { isClosedStatus, TaskPriority, TaskStatus, TaskType } from '@tbot/shared';
 import { type ReactNode, useState } from 'react';
 
 import { AiChatPanel } from '@/components/ai-chat/ai-chat-panel';
 import { AskAiButton, useAskAi } from '@/components/ai-chat/ask-ai';
 import { Layout } from '@/components/layout/layout';
-import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
+import { Avatar, TypeIcon } from '@/components/ui/badges';
+import { SelectMenu } from '@/components/ui/select-menu';
+import { PRIORITY_OPTIONS, STATUS_SECTIONS, TYPE_OPTIONS } from '@/components/ui/task-options';
+import { FormattedText } from '@/components/ui/formatted-text';
 import { Skeleton } from '@/components/ui/skeleton';
-import { buttonPrimary, buttonSecondary, StateMessage } from '@/components/ui/state';
+import { StateMessage } from '@/components/ui/state';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { dueLabel, dueState, formatDate, formatRelative, toDueDay } from '@/lib/dates';
 import { displayName, getUserId } from '@/lib/user';
 
@@ -31,22 +20,8 @@ import { ActivityTimeline } from './components/activity-timeline';
 import { AssigneePicker } from './components/assignee-picker';
 import { DeleteDialog } from './components/delete-dialog';
 import { EditableText } from './components/editable-text';
-import { OptionPicker } from './components/option-picker';
 import { getSourceMessages, SourceMessages } from './components/source-messages';
 import type { SaveResult } from './task-detail.container';
-
-const STATUS_GROUPS = [TaskStatusCategory.TODO, TaskStatusCategory.IN_PROGRESS, TaskStatusCategory.DONE].map((cat) => ({
-  label: TASK_STATUS_CATEGORY_LABELS[cat],
-  options: TASK_STATUS_ORDER.filter((s) => TASK_STATUS_CATEGORY[s] === cat).map((s) => ({
-    value: s,
-    label: TASK_STATUS_LABELS[s],
-    hint: TASK_STATUS_HINTS[s],
-  })),
-}));
-
-const TYPE_GROUPS = [
-  { options: TASK_TYPE_ORDER.map((t) => ({ value: t, label: TASK_TYPE_LABELS[t], hint: TASK_TYPE_HINTS[t] })) },
-];
 
 const dueTextClass = {
   overdue: 'text-tg-destructive font-semibold',
@@ -54,10 +29,6 @@ const dueTextClass = {
   upcoming: 'text-tg-hint',
   none: 'text-tg-hint',
 };
-
-const PRIORITY_OPTIONS = [
-  { options: TASK_PRIORITY_ORDER.map((p) => ({ value: p, label: TASK_PRIORITY_LABELS[p] })) },
-];
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
   return (
@@ -127,13 +98,13 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
           action={
             <>
               {loadError && (
-                <button type="button" onClick={onRetry} className={buttonSecondary}>
+                <Button variant="secondary" onClick={onRetry}>
                   Retry
-                </button>
+                </Button>
               )}
-              <button type="button" onClick={onBack} className={buttonPrimary}>
+              <Button variant="primary" onClick={onBack}>
                 Back to board
-              </button>
+              </Button>
             </>
           }
         />
@@ -164,47 +135,39 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
   );
 
   const details = (
-    <section aria-labelledby="details-heading" className="rounded-lg border border-tg-separator bg-tg-section">
-      <h2 id="details-heading" className="border-b border-tg-separator px-4 py-2.5 text-sm font-semibold text-tg-text">
-        Details
-      </h2>
+    <Card title="Details" titleId="details-heading">
       <div className="flex flex-col gap-1 px-4 py-3">
-        <Field label="Status">
-          <OptionPicker<TaskStatus>
-            ariaLabel="Status"
+        <Field label="Status" htmlFor="detail-status">
+          <SelectMenu<TaskStatus>
+            id="detail-status"
+            title="Status"
             value={task.status}
-            groups={STATUS_GROUPS}
-            onChange={saveStatus}
-            renderOption={(o) => <StatusLozenge status={o.value} />}
+            onChange={(s) => s && saveStatus(s)}
+            sections={STATUS_SECTIONS}
+            searchable={false}
+            menuWidth={280}
           />
         </Field>
         <Field label="Assignee" htmlFor="detail-assignee">
           <AssigneePicker id="detail-assignee" members={members} assignee={task.assigneeId} onSelect={saveAssignee} />
         </Field>
-        <Field label="Type">
-          <OptionPicker<TaskType>
-            ariaLabel="Type"
+        <Field label="Type" htmlFor="detail-type">
+          <SelectMenu<TaskType>
+            id="detail-type"
+            title="Type"
             value={task.type ?? TaskType.TASK}
-            groups={TYPE_GROUPS}
-            onChange={(type) => onUpdate({ type }, { type })}
-            renderOption={(o) => (
-              <span className="text-sm text-tg-text">
-                <TypeIcon type={o.value} withLabel />
-              </span>
-            )}
+            onChange={(type) => type && onUpdate({ type }, { type })}
+            options={TYPE_OPTIONS}
+            menuWidth={300}
           />
         </Field>
-        <Field label="Priority">
-          <OptionPicker<TaskPriority>
-            ariaLabel="Priority"
+        <Field label="Priority" htmlFor="detail-priority">
+          <SelectMenu<TaskPriority>
+            id="detail-priority"
+            title="Priority"
             value={task.priority}
-            groups={PRIORITY_OPTIONS}
-            onChange={(priority) => onUpdate({ priority }, { priority })}
-            renderOption={(o) => (
-              <span className="text-sm text-tg-text">
-                <PriorityIcon priority={o.value} withLabel />
-              </span>
-            )}
+            onChange={(priority) => priority && onUpdate({ priority }, { priority })}
+            options={PRIORITY_OPTIONS}
           />
         </Field>
         <Field label="Due date" htmlFor="detail-due">
@@ -220,13 +183,14 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
               className="-ml-2 min-h-11 min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-tg-text outline-none hover:bg-tg-secondary focus:ring-2 focus:ring-tg-link"
             />
             {dueDay && (
-              <button
-                type="button"
+              <Button
+                variant="link"
+                size="sm"
+                aria-label="Clear due date"
                 onClick={() => onUpdate({ dueDate: null }, { dueDate: null })}
-                className="min-h-11 rounded-md px-2 text-sm text-tg-link hover:bg-tg-secondary"
               >
                 Clear
-              </button>
+              </Button>
             )}
           </div>
           {due !== 'none' && (due === 'overdue' || due === 'today') && (
@@ -254,12 +218,13 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
             <dt>Resolved</dt>
             <dd title={formatDate(task.completedAt)}>
               {formatRelative(task.completedAt)}
-              {getUserId(task.completedBy) && ` by ${displayName(task.completedBy, { members, fallback: 'a group member' })}`}
+              {getUserId(task.completedBy) &&
+                ` by ${displayName(task.completedBy, { members, fallback: 'a group member' })}`}
             </dd>
           </div>
         )}
       </dl>
-    </section>
+    </Card>
   );
 
   return (
@@ -291,8 +256,11 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
             placeholder="Add a description…"
             multiline
             maxLength={2000}
-            onSave={(description) => onUpdate({ description: description || null }, { description: description || null })}
-            displayClassName="text-sm text-tg-text"
+            onSave={(description) =>
+              onUpdate({ description: description || null }, { description: description || null })
+            }
+            displayClassName="text-sm leading-relaxed text-tg-text"
+            renderValue={(v) => <FormattedText text={v} />}
           />
 
           <SourceMessages messages={sources} />
@@ -306,16 +274,18 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
           />
 
           <div className="border-t border-tg-separator pt-3">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="🗑"
               onClick={() => {
                 props.onClearDeleteError();
                 setShowDelete(true);
               }}
-              className="min-h-11 rounded-md px-3 text-sm font-medium text-tg-destructive hover:bg-tg-secondary"
+              className="text-tg-destructive"
             >
-              🗑 Delete task
-            </button>
+              Delete task
+            </Button>
           </div>
         </div>
       </div>

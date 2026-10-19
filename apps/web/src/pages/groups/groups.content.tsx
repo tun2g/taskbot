@@ -2,8 +2,10 @@ import type { IGroupSummary } from '@tbot/shared';
 
 import { Layout } from '@/components/layout/layout';
 import { Skeleton } from '@/components/ui/skeleton';
-import { buttonLink, buttonPrimary, StateMessage } from '@/components/ui/state';
+import { StateMessage } from '@/components/ui/state';
+import { Button } from '@/components/ui/button';
 
+import type { BoardSearch } from '../tasks/board-search';
 import { GroupCard } from './components/group-card';
 
 interface GroupsContentProps {
@@ -12,26 +14,34 @@ interface GroupsContentProps {
   error: string | null;
   onRetry: () => void;
   isRetrying: boolean;
-  onOpenGroup: (groupId: string) => void;
+  onOpenGroup: (groupId: string, search?: BoardSearch) => void;
   onSignOut?: () => void;
 }
 
-export function GroupsContent({ groups, isLoading, error, onRetry, isRetrying, onOpenGroup, onSignOut }: GroupsContentProps) {
+export function GroupsContent({
+  groups,
+  isLoading,
+  error,
+  onRetry,
+  isRetrying,
+  onOpenGroup,
+  onSignOut,
+}: GroupsContentProps) {
   return (
     <Layout
       title="Your groups"
       actions={
         onSignOut && (
-          <button type="button" onClick={onSignOut} className={buttonLink}>
+          <Button variant="link" onClick={onSignOut}>
             Sign out
-          </button>
+          </Button>
         )
       }
     >
       {isLoading ? (
         <div className="grid gap-3 p-4 sm:grid-cols-2">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-36 rounded-2xl" />
+            <Skeleton key={i} className="h-40 rounded-lg" />
           ))}
         </div>
       ) : error ? (
@@ -40,9 +50,9 @@ export function GroupsContent({ groups, isLoading, error, onRetry, isRetrying, o
           title="Couldn't load your groups"
           body={error}
           action={
-            <button type="button" onClick={onRetry} disabled={isRetrying} className={buttonPrimary}>
+            <Button variant="primary" onClick={onRetry} disabled={isRetrying}>
               {isRetrying ? 'Retrying…' : 'Retry'}
-            </button>
+            </Button>
           }
         />
       ) : groups.length === 0 ? (
@@ -53,7 +63,7 @@ export function GroupsContent({ groups, isLoading, error, onRetry, isRetrying, o
             <ol className="mt-1 list-decimal space-y-1.5 pl-5 text-left">
               <li>Add the bot to a Telegram group.</li>
               <li>
-                Send <code>/task fix the login page</code> in the group — or mention the bot in a message.
+                Send <code>/new fix the login page</code> in the group — or mention the bot in a message.
               </li>
               <li>Come back here: the group's board appears once you're a member.</li>
             </ol>

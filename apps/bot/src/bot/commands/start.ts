@@ -44,7 +44,7 @@ export class StartCommand {
           `Hi ${name}! I turn group chat messages into tasks, but you're not in a group with me yet.`,
           '',
           '1. Add me to your team group',
-          '2. Send `/task Fix login on iOS` there',
+          '2. Send `/new Fix login on iOS` there',
           '3. Come back here with /start to open the board',
           '',
           "You'll also get a DM here when someone assigns you a task.",
@@ -71,7 +71,7 @@ export class StartCommand {
         '📋 *Your task boards*',
         rows.length
           ? `Hi ${name}! Pick a group to open its board:`
-          : `You're in ${groups.length} group(s) with me. Use /tasks inside a group to see its tasks.`,
+          : `You're in ${groups.length} group(s) with me. Use /list inside a group to see its tasks.`,
         '',
         "I'll DM you here when someone assigns you a task or one of yours changes.",
       ].join('\n');
@@ -89,8 +89,8 @@ export class StartCommand {
   private async startInGroup(ctx: BotContext) {
     const text = [
       "👋 *I'm ready.* Create tasks right here:",
-      '• `/task Fix login on iOS @an`',
-      '• Reply to a message with /task',
+      '• `/new Fix login on iOS @an`',
+      '• Reply to a message with /new',
       '',
       ...(isForumChat(ctx)
         ? [

@@ -27,6 +27,12 @@ export interface TaskFilters {
   /** `null` matches unassigned tasks. */
   assigneeId?: mongoose.Types.ObjectId | null;
   priority?: string;
+  /** Due date on or after this instant (inclusive). */
+  dueFrom?: Date;
+  /** Due date strictly before this instant (exclusive). */
+  dueTo?: Date;
+  /** Only tasks without a due date (ignores dueFrom / dueTo). */
+  dueNone?: boolean;
   search?: string;
   page?: number;
   limit?: number;
@@ -74,6 +80,14 @@ export class TaskService {
       if (filters.type) query.type = filters.type;
       if (filters.assigneeId !== undefined) query.assigneeId = filters.assigneeId;
       if (filters.priority) query.priority = filters.priority;
+      if (filters.dueNone) {
+        query.dueDate = null;
+      } else if (filters.dueFrom || filters.dueTo) {
+        const range: Record<string, Date | null> = { $ne: null };
+        if (filters.dueFrom) range.$gte = filters.dueFrom;
+        if (filters.dueTo) range.$lt = filters.dueTo;
+        query.dueDate = range;
+      }
       if (filters.search) {
         const search = filters.search.trim();
         const numberMatch = search.match(/^#?(\d+)$/);

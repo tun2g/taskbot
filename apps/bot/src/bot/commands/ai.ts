@@ -10,6 +10,7 @@ import {
   buildAiContext,
   CardEditor,
   checkUserAiRateLimit,
+  extractTaskNumbers,
 } from 'src/shared/services/ai-command.service';
 import type { AiOutcome } from 'src/shared/services/ai-command/telegram.renderer';
 import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
@@ -46,6 +47,15 @@ export const AI_USAGE_MESSAGE =
   '<code>/ai tạo task fix login cho @an hạn thứ 6</code>\n' +
   'Reply to a task card: <code>/ai chuyển task này cho @an</code>';
 
+export const UPDATE_USAGE_MESSAGE =
+  '<b>✏️ Update a task in plain words</b>\n' +
+  'Reply to its card: <code>/update chuyển sang in review, giao cho @an</code>\n' +
+  'Or by number: <code>/update #12 hạn thứ 6, priority cao</code>\n' +
+  '<code>/update #12 thêm vào mô tả: test cả Android</code>';
+
+export const UPDATE_WHICH_TASK_MESSAGE =
+  '🤔 Which task? Reply to its card with /update, or write the number: <code>/update #12 …</code>';
+
 export const AI_PRIVATE_MESSAGE =
   '🤖 /ai works inside a group. Add me to your team group, then try <code>/ai tôi còn task nào?</code> there.';
 
@@ -59,11 +69,13 @@ export class AiCommand {
   }
 
   register() {
-    this.map.set('ai', this.onAi.bind(this));
+    this.map.set('ai', (ctx) => this.onAi(ctx));
+    this.map.set('update', (ctx) => this.onAi(ctx, 'update'));
     return this.map;
   }
 
-  async onAi(ctx: BotContext) {
+  /** `mode: 'update'` (/update) only changes existing tasks and needs an explicit target. */
+  async onAi(ctx: BotContext, mode: 'ai' | 'update' = 'ai') {
     let stopTyping = () => {};
     try {
       const chat = ctx.chat;
@@ -75,9 +87,9 @@ export class AiCommand {
         return;
       }
 
-      const request = messageText(message).replace(/^\/ai(@\w+)?/i, '').trim();
+      const request = messageText(message).replace(/^\/(ai|update)(@\w+)?/i, '').trim();
       if (!request) {
-        await this.send(ctx, { text: AI_USAGE_MESSAGE });
+        await this.send(ctx, { text: mode === 'update' ? UPDATE_USAGE_MESSAGE : AI_USAGE_MESSAGE });
         return;
       }
 
@@ -108,7 +120,7 @@ export class AiCommand {
       }
       if (!(await checkGroupAiRateLimit(chat.id))) {
         await this.send(ctx, {
-          text: '⏳ AI is busy in this group — try again in a few minutes. Meanwhile use the card buttons or /tasks, /done.',
+          text: '⏳ AI is busy in this group — try again in a few minutes. Meanwhile use the card buttons or /list, /done.',
         });
         return;
       }
@@ -118,8 +130,14 @@ export class AiCommand {
       const replyTask = reply ? await taskService.getTaskByCardMessage(chat.id, reply.message_id) : null;
       const replyText = reply && !replyTask ? messageText(reply as CommandMessage) : '';
 
+      // /update never guesses: the task is the replied card or a number the user wrote
+      if (mode === 'update' && !replyTask && extractTaskNumbers(request).length === 0) {
+        await this.send(ctx, { text: UPDATE_WHICH_TASK_MESSAGE });
+        return;
+      }
+
       const context = await buildAiContext({
-        request,
+        request: mode === 'update' ? `Update this task (do not create new tasks): ${request}` : request,
         requester: user,
         group,
         replyTask,
@@ -140,6 +158,11 @@ export class AiCommand {
       const outcome = await aiCommandService.execute(context, plan, ctx.telegram as unknown as CardEditor);
       stopTyping();
 
+      if (outcome.kind === 'create' && mode === 'update') {
+        await this.send(ctx, { text: 'ℹ️ /update only changes existing tasks — use /new to create one.' });
+        return;
+      }
+
       if (outcome.kind === 'create') {
         // The creation pipeline posts the single reply (task card, or summary with ↩️ Undo).
         const messages: BufferedMessage[] = [];
@@ -159,7 +182,7 @@ export class AiCommand {
       logger.error(`Error in /ai command: ${error instanceof Error ? error.stack : error}`);
       try {
         await this.send(ctx, {
-          text: '❌ Something went wrong. Check the task on the board or with /tasks, then try again.',
+          text: '❌ Something went wrong. Check the task on the board or with /list, then try again.',
         });
       } catch (replyError) {
         logger.error(`Could not send /ai error reply: ${replyError}`);

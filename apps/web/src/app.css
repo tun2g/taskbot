@@ -185,3 +185,73 @@ body {
     right: calc(400px + 1.25rem + env(safe-area-inset-right));
   }
 }
+
+/* ---------- Interaction polish ---------- */
+/* 14px base text on body only — rem (Tailwind spacing) stays 16px. */
+body {
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus rings only for keyboard users. */
+:where(button, a, [role='button'], [role='option'], [tabindex], input[type='checkbox']):focus {
+  outline: none;
+}
+:where(button, a, [role='button'], [tabindex]):focus-visible,
+.focus-ring:focus-visible {
+  outline: 2px solid var(--tg-theme-link-color);
+  outline-offset: 2px;
+}
+input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--tg-theme-link-color);
+  outline-offset: 2px;
+}
+
+/* Soft hover / keyboard-active tint for menu rows. */
+.tint-hover {
+  background: color-mix(in srgb, var(--tg-theme-link-color) 10%, transparent);
+}
+@media (hover: hover) {
+  .hover-tint:hover {
+    background: color-mix(in srgb, var(--tg-theme-link-color) 8%, transparent);
+  }
+}
+
+@keyframes tbot-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes tbot-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tbot-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+.tbot-pop-in {
+  animation: tbot-pop-in 120ms ease-out;
+}
+.tbot-fade-in {
+  animation: tbot-fade-in 150ms ease-out;
+}
+.tbot-sheet-in {
+  animation: tbot-sheet-in 150ms ease-out;
+  transition: transform 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

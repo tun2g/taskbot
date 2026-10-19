@@ -65,6 +65,8 @@ export interface UpdateTaskInput {
   dueDate?: string | null;
 }
 
+export type TaskDueFilter = 'overdue' | 'today' | 'week' | 'none';
+
 export interface TaskFilters {
   status?: TaskStatus;
   /** All statuses in a Jira-style category (to do / in progress / done). */
@@ -75,6 +77,11 @@ export interface TaskFilters {
   /** A user `_id`, `"me"` for the caller, or `"none"` for unassigned tasks. */
   assigneeId?: string;
   priority?: TaskPriority;
+  /**
+   * Due-date window, by calendar day in the group's timezone:
+   * `overdue` = before today and not closed · `today` · `week` = today … today+6 · `none` = no due date.
+   */
+  due?: TaskDueFilter;
   search?: string;
   page?: number;
   limit?: number;

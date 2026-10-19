@@ -373,7 +373,7 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
                 type="button"
                 onClick={() => setDismissedTaskId(context._id)}
                 aria-label={`Stop asking about #${context.taskNumber}`}
-                className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full"
+                className="focus-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
               >
                 ✕
               </button>

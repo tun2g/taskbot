@@ -212,6 +212,45 @@ describe('TaskService', () => {
     });
   });
 
+  describe('getTasksByGroup due filter', () => {
+    const mockChain = () => {
+      const chain = { sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+      (Task.find as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnValue(chain) });
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+    };
+    const from = new Date('2026-10-19T00:00:00.000Z');
+    const to = new Date('2026-10-26T00:00:00.000Z');
+
+    it('should apply a dueFrom/dueTo range (inclusive from, exclusive to)', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, { dueFrom: from, dueTo: to });
+      expect(Task.find).toHaveBeenCalledWith(
+        expect.objectContaining({ dueDate: { $ne: null, $gte: from, $lt: to } }),
+      );
+      expect(Task.countDocuments).toHaveBeenCalledWith(
+        expect.objectContaining({ dueDate: { $ne: null, $gte: from, $lt: to } }),
+      );
+    });
+
+    it('should apply only an upper bound for overdue', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, { dueTo: from });
+      expect(Task.find).toHaveBeenCalledWith(expect.objectContaining({ dueDate: { $ne: null, $lt: from } }));
+    });
+
+    it('should match tasks without a due date for dueNone', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, { dueNone: true, dueFrom: from });
+      expect(Task.find).toHaveBeenCalledWith(expect.objectContaining({ dueDate: null }));
+    });
+
+    it('should not filter by due date by default', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, {});
+      expect((Task.find as jest.Mock).mock.calls[0][0]).not.toHaveProperty('dueDate');
+    });
+  });
+
   describe('getTasksByGroup statuses filter', () => {
     const mockChain = () => {
       const chain = { sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };

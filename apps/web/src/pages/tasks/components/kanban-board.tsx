@@ -93,7 +93,9 @@ export function KanbanBoard({ columns, renderCard, onMove, footer }: KanbanBoard
       </div>
       {footer}
       <DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>
-        {active ? <div className="w-[min(78vw,300px)] cursor-grabbing">{renderCard(active.task, { isOverlay: true })}</div> : null}
+        {active ? (
+          <div className="w-[min(78vw,300px)] cursor-grabbing">{renderCard(active.task, { isOverlay: true })}</div>
+        ) : null}
       </DragOverlay>
     </DndContext>
   );
@@ -122,17 +124,22 @@ function Column({
         highlight ? 'tint-selected ring-2 ring-tg-link' : dropTarget ? 'ring-1 ring-tg-link/40' : ''
       }`}
     >
-      <header className="flex min-h-10 items-center gap-2 px-3 pb-1 pt-2.5">
+      <header className="flex min-h-10 items-center gap-2 px-3 pb-1.5 pt-2.5">
         <h2 className="flex min-w-0 items-center gap-2 truncate text-xs font-semibold uppercase tracking-wide text-tg-hint">
           {column.title}
         </h2>
-        <span className="text-xs font-semibold text-tg-hint">{column.count}</span>
+        <span
+          className="min-w-5 rounded-full bg-tg-bg px-1.5 text-center text-[11px] font-semibold leading-5 text-tg-hint"
+          aria-label={`${column.count} task${column.count === 1 ? '' : 's'}`}
+        >
+          {column.count}
+        </span>
       </header>
       <div className="flex min-h-24 flex-1 flex-col gap-1.5 px-1.5 pb-1.5">
         {column.tasks.length === 0 ? (
           <p
-            className={`flex flex-1 items-center justify-center rounded-md px-2 py-6 text-center text-xs text-tg-hint ${
-              dropTarget ? 'border border-dashed border-tg-link/60' : ''
+            className={`flex flex-1 items-center justify-center rounded-md border border-dashed px-2 py-6 text-center text-xs text-tg-hint transition-colors ${
+              dropTarget ? 'border-tg-link/60 text-tg-link' : 'border-tg-separator'
             }`}
           >
             {dropTarget ? 'Drop here' : (column.emptyText ?? 'No tasks')}

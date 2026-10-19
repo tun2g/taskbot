@@ -9,6 +9,7 @@ import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
 
 import { recallBoardSearch } from '../tasks/board-search';
+import { useUndoableTaskChange } from '../tasks/use-undoable-change';
 import { TaskDetailContent } from './task-detail.content';
 
 export type SaveResult = { ok: true } | { ok: false; message: string };
@@ -23,6 +24,7 @@ export function TaskDetailContainer() {
   const activity = useTaskActivity(taskId);
   const { data: members = [] } = useGroupMembers(groupId);
   const updateTask = useUpdateTask(groupId);
+  const quick = useUndoableTaskChange(groupId, members);
   const deleteTask = useDeleteTask(groupId);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -31,6 +33,14 @@ export function TaskDetailContainer() {
   };
 
   const handleUpdate = async (input: UpdateTaskInput, optimistic?: Partial<ITask>): Promise<SaveResult> => {
+    // Status and assignee changes get an "Undo" toast, like on the board.
+    const keys = Object.keys(input);
+    if (task.data && keys.length === 1 && input.status !== undefined) {
+      return quick.changeStatus(task.data, input.status);
+    }
+    if (task.data && keys.length === 1 && input.assigneeId !== undefined) {
+      return quick.changeAssignee(task.data, input.assigneeId);
+    }
     try {
       await updateTask.mutateAsync({ taskId, input, optimistic });
       haptic('success');
@@ -73,7 +83,7 @@ export function TaskDetailContainer() {
       onRetryActivity={() => activity.refetch()}
       onBack={handleBack}
       onUpdate={handleUpdate}
-      isUpdating={updateTask.isPending}
+      isUpdating={updateTask.isPending || quick.updateTask.isPending}
       onDelete={handleDelete}
       isDeleting={deleteTask.isPending}
       deleteError={deleteError}

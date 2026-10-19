@@ -22,6 +22,7 @@ import {
   createTaskSchema,
   formatDueDate,
   parseDueDate,
+  TaskDueFilter,
   taskQuerySchema,
   updateTaskSchema,
 } from 'src/api/validation';
@@ -98,6 +99,26 @@ export function resolveStatusFilter(query: {
   return statuses;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Translate `due` into a dueDate range. Due dates are stored at 00:00Z of their calendar day,
+ * and "today" is the group's local date (as 00:00Z), so day comparisons are plain Date ranges.
+ * `overdue` also implies "not closed" — see resolveStatusFilter's `open`.
+ */
+export function resolveDueFilter(
+  due: TaskDueFilter | undefined,
+  timeZone: string,
+  now: Date = new Date(),
+): Pick<TaskFilters, 'dueFrom' | 'dueTo' | 'dueNone'> {
+  if (!due) return {};
+  if (due === 'none') return { dueNone: true };
+  const today = overdueCutoff(timeZone, now);
+  if (due === 'overdue') return { dueTo: today };
+  if (due === 'today') return { dueFrom: today, dueTo: new Date(today.getTime() + DAY_MS) };
+  return { dueFrom: today, dueTo: new Date(today.getTime() + 7 * DAY_MS) };
+}
+
 function notifyUnassigned(task: ITask, previous: UserLike, changedBy: UserLike) {
   // Provided by the notification service when available.
   const svc = notificationService as typeof notificationService & {
@@ -120,11 +141,17 @@ export class TaskController {
       return;
     }
 
-    const { assigneeId, status, category, open, ...rest } = queryResult.data;
+    const { assigneeId, status, category, open, due, ...rest } = queryResult.data;
     const filters: TaskFilters = { ...rest };
-    const statuses = resolveStatusFilter({ status, category, open });
+    // Overdue only counts tasks that are still open (done/cancelled are never overdue).
+    const statuses = resolveStatusFilter({ status, category, open: open || due === 'overdue' });
     if (statuses) {
       filters.statuses = statuses;
+    }
+    if (due) {
+      const group =
+        due === 'none' ? null : (authReq.group ?? (await groupService.findGroupById(new mongoose.Types.ObjectId(groupId))));
+      Object.assign(filters, resolveDueFilter(due, resolveGroupTimezone(group?.timezone)));
     }
     if (assigneeId === 'me') {
       if (!authReq.user) {

@@ -64,7 +64,7 @@ describe('TasksCommand', () => {
 
     await command.onTasks(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('⚠️ /tasks can only be used in group chats.');
+    expect(ctx.reply).toHaveBeenCalledWith('⚠️ /list can only be used in group chats.');
   });
 
   it('should show no-tasks message when empty', async () => {
@@ -146,6 +146,33 @@ describe('TasksCommand', () => {
       expect.objectContaining({ assigneeId: mockUserId }),
     );
     expect(ctx.reply.mock.calls[0][0]).toContain('Your open tasks');
+  });
+
+  it.each(['/mytasks', '/mytasks@TBot', '/list mine'])('%s shows the caller\'s open tasks', async (text) => {
+    const ctx = createMockCtx({ message: { text } });
+    (taskService.getTaskStats as jest.Mock).mockResolvedValue(stats({ todo: 1 }));
+    (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 0 });
+
+    await command.onTasks(ctx);
+
+    expect(taskService.getTasksByGroup).toHaveBeenCalledWith(
+      mockGroupId,
+      expect.objectContaining({ assigneeId: mockUserId }),
+    );
+    expect(ctx.reply.mock.calls[0][0]).toContain('Your open tasks');
+  });
+
+  it('/mytasks combines with other filters', async () => {
+    const ctx = createMockCtx({ message: { text: '/mytasks bug' } });
+    (taskService.getTaskStats as jest.Mock).mockResolvedValue(stats({ todo: 1 }));
+    (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 0 });
+
+    await command.onTasks(ctx);
+
+    expect(taskService.getTasksByGroup).toHaveBeenCalledWith(
+      mockGroupId,
+      expect.objectContaining({ assigneeId: mockUserId, type: 'bug' }),
+    );
   });
 
   it('supports review and type words together', async () => {

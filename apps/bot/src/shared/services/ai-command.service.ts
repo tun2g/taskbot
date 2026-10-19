@@ -118,6 +118,7 @@ export function toPromptTask(task: ITask): PromptTask {
     priority: task.priority,
     assignee: assignee ? personName(assignee) : null,
     dueDate: task.dueDate ? dayOf(task.dueDate) : null,
+    description: task.description || null,
   };
 }
 
@@ -346,6 +347,16 @@ export class AiCommandService {
       activities.push(['title', task.title, changes.title]);
       fieldChanges.push({ field: 'title', from: task.title, to: changes.title });
       changed.push(`✏️ Renamed (was “${shorten(task.title)}”)`);
+    }
+    if (changes.description !== undefined) {
+      const next = changes.description?.trim() || null;
+      const prev = task.description?.trim() || null;
+      if (next !== prev) {
+        fields.description = next;
+        activities.push(['description', prev ? shorten(prev, 80) : null, next ? shorten(next, 80) : null]);
+        fieldChanges.push({ field: 'description', from: prev, to: next });
+        changed.push(next ? (prev ? '📝 Description updated' : '📝 Description added') : '📝 Description cleared');
+      }
     }
     if (changes.type !== undefined) {
       if (changes.type !== (task.type || 'task')) {

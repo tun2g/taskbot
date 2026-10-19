@@ -3,6 +3,7 @@ import { TASK_PRIORITY_ORDER, TASK_STATUS_ORDER, TASK_TYPE_ORDER, TaskStatus } f
 import { useMemo } from 'react';
 
 import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
+import { type SelectOption, SelectMenu } from '@/components/ui/select-menu';
 import { toDueDay } from '@/lib/dates';
 import { displayName, getUserId } from '@/lib/user';
 
@@ -20,6 +21,15 @@ interface TaskListProps {
   onTaskClick: (task: ITask) => void;
   onStatusChange: (task: ITask, status: TaskStatus) => void;
 }
+
+const SORT_OPTIONS: SelectOption<string>[] = [
+  { value: 'key:asc', label: 'Oldest first' },
+  { value: 'priority:desc', label: 'Priority (highest)' },
+  { value: 'due:asc', label: 'Due date (soonest)' },
+  { value: 'status:asc', label: 'Status' },
+  { value: 'assignee:asc', label: 'Assignee' },
+  { value: 'summary:asc', label: 'Summary (A–Z)' },
+];
 
 const COLUMNS: { key: ListSortKey; label: string; className: string }[] = [
   { key: 'type', label: 'Type', className: 'w-14' },
@@ -63,7 +73,16 @@ function sortTasks(tasks: ITask[], members: IUser[], sort?: ListSortKey, dir: 'a
   });
 }
 
-export function TaskList({ tasks, members, timeZone, sort, dir, onSortChange, onTaskClick, onStatusChange }: TaskListProps) {
+export function TaskList({
+  tasks,
+  members,
+  timeZone,
+  sort,
+  dir,
+  onSortChange,
+  onTaskClick,
+  onStatusChange,
+}: TaskListProps) {
   const rows = useMemo(() => sortTasks(tasks, members, sort, dir), [tasks, members, sort, dir]);
 
   // asc → desc → default (server order)
@@ -125,6 +144,7 @@ export function TaskList({ tasks, members, timeZone, sort, dir, onSortChange, on
                     e.stopPropagation();
                     onTaskClick(task);
                   }}
+                  title={task.title}
                   className="block w-full truncate text-left text-tg-text hover:text-tg-link hover:underline"
                 >
                   {task.title}
@@ -157,33 +177,41 @@ export function TaskList({ tasks, members, timeZone, sort, dir, onSortChange, on
 
       {/* Mobile: compact rows */}
       <div className="md:hidden">
-        <label className="mb-1 flex items-center justify-end gap-2 text-xs text-tg-hint">
-          Sort
-          <select
-            value={sort ? `${sort}:${dir ?? 'asc'}` : ''}
-            onChange={(e) => {
-              const [k, d] = e.target.value.split(':');
+        <div className="mb-1 flex items-center justify-end gap-1 text-xs text-tg-hint">
+          <span>Sort</span>
+          <SelectMenu<string>
+            variant="custom"
+            title="Sort by"
+            value={sort ? `${sort}:${dir ?? 'asc'}` : null}
+            onChange={(v) => {
+              const [k, d] = (v ?? '').split(':');
               onSortChange((k || undefined) as ListSortKey | undefined, (d || undefined) as 'asc' | 'desc' | undefined);
             }}
-            className="min-h-11 rounded-lg bg-transparent px-1 text-sm font-medium text-tg-text"
+            clearOption={{ label: 'Newest first' }}
+            options={SORT_OPTIONS}
+            align="end"
+            triggerClassName="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-tg-text hover:bg-tg-secondary"
           >
-            <option value="">Newest first</option>
-            <option value="key:asc">Oldest first</option>
-            <option value="priority:desc">Priority (highest)</option>
-            <option value="due:asc">Due date (soonest)</option>
-            <option value="status:asc">Status</option>
-            <option value="assignee:asc">Assignee</option>
-            <option value="summary:asc">Summary (A–Z)</option>
-          </select>
-        </label>
+            {SORT_OPTIONS.find((o) => o.value === `${sort}:${dir ?? 'asc'}`)?.label ?? 'Newest first'}
+            <span aria-hidden className="text-[10px] text-tg-hint">
+              ▼
+            </span>
+          </SelectMenu>
+        </div>
         <ul className="divide-y divide-tg-separator border-y border-tg-separator">
           {rows.map((task) => (
             <li key={task._id} className="flex items-start gap-1">
-              <button type="button" onClick={() => onTaskClick(task)} className="min-w-0 flex-1 py-2.5 text-left active:bg-tg-secondary">
-                <span className="flex items-center gap-2">
-                  <TypeIcon type={task.type} />
-                  <span className="font-mono text-xs text-tg-hint">#{task.taskNumber}</span>
-                  <span className="truncate text-sm text-tg-text">{task.title}</span>
+              <button
+                type="button"
+                onClick={() => onTaskClick(task)}
+                className="min-w-0 flex-1 py-2.5 pl-1 text-left transition-colors active:bg-tg-secondary"
+              >
+                <span className="line-clamp-2 text-sm leading-snug text-tg-text [overflow-wrap:anywhere]">
+                  <span className="mr-1.5 inline-flex items-center gap-1 align-[1px]">
+                    <TypeIcon type={task.type} />
+                    <span className="font-mono text-xs text-tg-hint">#{task.taskNumber}</span>
+                  </span>
+                  {task.title}
                 </span>
                 <span className="mt-1.5 flex items-center gap-2">
                   <StatusLozenge status={task.status} />

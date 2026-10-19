@@ -12,25 +12,27 @@ export class SetUpBotCommand {
 
   constructor() {
     this.commands = [
+      // Menu order = how often people need them. /task and /tasks still work but are hidden:
+      // they differed by one letter and were easy to mix up.
       {
-        command: 'start',
-        description: 'Open your task boards',
+        command: 'new',
+        description: 'New task: /new text, or reply /new to a message',
       },
       {
-        command: 'help',
-        description: 'What I can do',
+        command: 'list',
+        description: 'List tasks: /list bug, done, @name',
       },
       {
-        command: 'task',
-        description: 'Create tasks: /task text, reply /task, /task all, /task 10',
+        command: 'mytasks',
+        description: 'Tasks assigned to me',
+      },
+      {
+        command: 'update',
+        description: 'Change a task in plain words: reply /update to its card, or /update #12 …',
       },
       {
         command: 'ai',
-        description: "Ask in plain words: /ai assign this to @an, /ai #12 done, /ai what's on my plate?",
-      },
-      {
-        command: 'tasks',
-        description: 'Open tasks: /tasks mine, bug, done, @name',
+        description: "Ask in plain words: /ai assign this to @an, /ai #12 done",
       },
       {
         command: 'done',
@@ -43,6 +45,14 @@ export class SetUpBotCommand {
       {
         command: 'settopic',
         description: 'Admins: post task events in this topic',
+      },
+      {
+        command: 'help',
+        description: 'What I can do',
+      },
+      {
+        command: 'start',
+        description: 'Open your task boards',
       },
     ];
   }

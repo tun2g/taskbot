@@ -58,7 +58,7 @@ const USAGE =
   'Status: `open`, `backlog`, `todo`, `progress`, `review`, `pending`, `done`, `cancelled`\n' +
   `Type: ${TASK_TYPE_ORDER.map((t) => `\`${t}\``).join(', ')}\n` +
   'People: `mine`, `@username`\n' +
-  'Example: `/tasks mine bug`';
+  'Example: `/list mine bug` · `/mytasks` = `/list mine`';
 
 interface ParsedFilters {
   status?: { statuses: string[]; title: string };
@@ -79,6 +79,9 @@ export class TasksCommand {
   }
 
   register() {
+    this.map.set('list', this.onTasks.bind(this));
+    this.map.set('mytasks', this.onTasks.bind(this));
+    // Old name keeps working (hidden from the menu)
     this.map.set('tasks', this.onTasks.bind(this));
     return this.map;
   }
@@ -89,7 +92,7 @@ export class TasksCommand {
       const chatType = ctx.chat?.type;
 
       if (!chatId || (chatType !== 'group' && chatType !== 'supergroup')) {
-        await ctx.reply('⚠️ /tasks can only be used in group chats.');
+        await ctx.reply('⚠️ /list can only be used in group chats.');
         return;
       }
 
@@ -106,11 +109,14 @@ export class TasksCommand {
       const message = ctx.message;
       if (!message) return;
       const messageText = 'text' in message ? message.text || '' : '';
-      const tokens = messageText
-        .replace(/^\/tasks(@\w+)?\s*/i, '')
+      // /mytasks is /list mine
+      const isMyTasks = /^\/mytasks(@\w+)?(\s|$)/i.test(messageText);
+      const args = messageText
+        .replace(/^\/(list|mytasks|tasks)(@\w+)?\s*/i, '')
         .trim()
         .split(/\s+/)
         .filter(Boolean);
+      const tokens = isMyTasks ? ['mine', ...args] : args;
 
       // ── Parse filters ──
       const filters: ParsedFilters = {};
@@ -151,14 +157,14 @@ export class TasksCommand {
       };
       const total = totals.todo + totals.inProgress + totals.done;
 
-      // Replying to a message with /tasks usually means /task (they differ by one letter)
+      // Replying to a message with a list command usually means "create from this"
       const createButton = await createFromReplyButton(ctx);
 
       if (total === 0) {
         await ctx.reply(
           createButton
-            ? '📋 No tasks in this group yet.\n\nDid you mean `/task`? Tap below to turn that message into tasks.'
-            : '📋 No tasks in this group yet.\n\nCreate one with `/task Fix login on iOS` — or reply to a message with /task.',
+            ? '📋 No tasks in this group yet.\n\nDid you mean `/new`? Tap below to turn that message into tasks.'
+            : '📋 No tasks in this group yet.\n\nCreate one with `/new Fix login on iOS` — or reply to a message with /new.',
           {
             parse_mode: 'Markdown',
             ...(createButton ? { reply_markup: { inline_keyboard: [[createButton]] } } : {}),
@@ -197,7 +203,7 @@ export class TasksCommand {
 
       if (tasks.length === 0) {
         lines.push('');
-        lines.push(isFiltered ? 'Nothing matches. Try `/tasks` for everything open.' : 'Nothing open right now. 🎉');
+        lines.push(isFiltered ? 'Nothing matches. Try `/list` for everything open.' : 'Nothing open right now. 🎉');
       } else {
         lines.push('');
         for (const task of tasks) lines.push(this.formatLine(task));
@@ -208,7 +214,7 @@ export class TasksCommand {
 
       if (!isFiltered) {
         lines.push('');
-        lines.push('Filter: `/tasks mine`, `/tasks bug`, `/tasks @name`');
+        lines.push('Filter: `/mytasks`, `/list bug`, `/list @name`');
       }
 
       const board = appLinkButton('📋 Open board', group._id.toString());
@@ -219,7 +225,7 @@ export class TasksCommand {
         ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       });
     } catch (error) {
-      logger.error(`Error in /tasks command: ${error}`);
+      logger.error(`Error in /list command: ${error}`);
       await ctx.reply('❌ Failed to load tasks. Please try again.');
     }
   }

@@ -35,31 +35,36 @@ export function TaskCard({ task, members, timeZone, showStatus, onClick, onStatu
           onClick(task);
         }
       }}
-      className={`relative select-none rounded-md bg-tg-section px-3 pb-2.5 pt-2 text-left shadow-[0_1px_1px_color-mix(in_srgb,var(--tg-theme-text-color)_18%,transparent)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-tg-link ${
-        onClick ? 'cursor-pointer hover:bg-tg-secondary/40' : ''
+      className={`relative select-none rounded-md bg-tg-section px-3 py-2.5 text-left shadow-[0_1px_2px_color-mix(in_srgb,var(--tg-theme-text-color)_16%,transparent)] outline-none transition-[background-color,box-shadow] duration-150 focus-visible:ring-2 focus-visible:ring-tg-link ${
+        onClick
+          ? 'cursor-pointer hover:shadow-[0_2px_6px_color-mix(in_srgb,var(--tg-theme-text-color)_18%,transparent)]'
+          : ''
       } ${isOverlay ? 'rotate-2 shadow-xl ring-2 ring-tg-link' : ''}`}
       style={{ WebkitTouchCallout: 'none' }}
     >
-      <div className="flex items-start gap-2">
-        <p className={`line-clamp-2 min-h-11 flex-1 pt-1.5 text-sm leading-snug text-tg-text ${closed ? 'text-tg-hint line-through decoration-tg-hint/60' : ''}`}>
-          {task.title}
-        </p>
-        {onStatusChange && !isOverlay && (
-          <div className="-mr-2 -mt-0.5">
-            <StatusMenu task={task} onChange={onStatusChange} />
-          </div>
-        )}
-      </div>
-
-      {showStatus && (
-        <div className="mt-1">
-          <StatusLozenge status={task.status} />
+      {/* Line 1: type + key, then the title (wraps; long Vietnamese words break). */}
+      <p
+        className={`line-clamp-3 text-sm leading-snug [overflow-wrap:anywhere] ${onStatusChange && !isOverlay ? 'pr-8' : ''} ${
+          closed ? 'text-tg-hint line-through decoration-tg-hint/60' : 'text-tg-text'
+        }`}
+      >
+        <span className="mr-1.5 inline-flex items-center gap-1 align-[1px] no-underline">
+          <TypeIcon type={task.type} />
+          <span className={`font-mono text-xs font-medium text-tg-hint ${closed ? 'line-through' : ''}`}>
+            #{task.taskNumber}
+          </span>
+        </span>
+        {task.title}
+      </p>
+      {onStatusChange && !isOverlay && (
+        <div className="absolute right-0 top-0">
+          <StatusMenu task={task} onChange={onStatusChange} />
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-2">
-        <TypeIcon type={task.type} />
-        <span className={`font-mono text-xs font-medium text-tg-hint ${closed ? 'line-through' : ''}`}>#{task.taskNumber}</span>
+      {/* Line 2: meta */}
+      <div className="mt-2 flex min-h-6 items-center gap-2">
+        {showStatus && <StatusLozenge status={task.status} />}
         <PriorityIcon priority={task.priority} />
         <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
         <span className="ml-auto">

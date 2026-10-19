@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 
 interface EditableTextProps {
   label: string;
@@ -10,6 +10,8 @@ interface EditableTextProps {
   /** Resolve true when saved; false keeps the editor open with the error shown. */
   onSave: (value: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   displayClassName?: string;
+  /** How the saved value is shown (plain text by default). */
+  renderValue?: (value: string) => ReactNode;
 }
 
 /**
@@ -24,6 +26,7 @@ export function EditableText({
   maxLength,
   onSave,
   displayClassName = '',
+  renderValue,
 }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -80,27 +83,42 @@ export function EditableText({
     }
   };
 
+  const startEditing = () => {
+    // Selecting text to copy shouldn't open the editor.
+    if (window.getSelection()?.toString()) return;
+    cancelled.current = false;
+    setEditing(true);
+  };
+
   const id = `edit-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
   if (!editing) {
     return (
       <div>
         <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-tg-hint">{label}</span>
-        <button
-          type="button"
-          onClick={() => {
-            cancelled.current = false;
-            setEditing(true);
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={startEditing}
+          onKeyDown={(e) => {
+            if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+              e.preventDefault();
+              startEditing();
+            }
           }}
-          className={`-mx-2 block min-h-11 w-[calc(100%+1rem)] rounded-xl px-2 py-1.5 text-left hover:bg-tg-secondary/60 active:bg-tg-secondary ${displayClassName}`}
-          aria-label={`Edit ${label.toLowerCase()}`}
+          className={`-mx-2 block min-h-11 w-[calc(100%+1rem)] cursor-text rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-tg-secondary/60 active:bg-tg-secondary ${displayClassName}`}
+          aria-label={`${label}${value ? '' : ' (empty)'}. Edit`}
         >
           {value ? (
-            <span className="whitespace-pre-wrap break-words">{value}</span>
+            renderValue ? (
+              renderValue(value)
+            ) : (
+              <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{value}</span>
+            )
           ) : (
             <span className="text-sm italic text-tg-hint">{placeholder}</span>
           )}
-        </button>
+        </div>
       </div>
     );
   }
@@ -125,7 +143,10 @@ export function EditableText({
         {label}
       </label>
       {multiline ? <textarea {...common} rows={5} /> : <input {...common} type="text" />}
-      <p className={`mt-1 text-xs ${error ? 'text-tg-destructive' : 'text-tg-hint'}`} role={error ? 'alert' : undefined}>
+      <p
+        className={`mt-1 text-xs ${error ? 'text-tg-destructive' : 'text-tg-hint'}`}
+        role={error ? 'alert' : undefined}
+      >
         {saving
           ? 'Saving…'
           : error

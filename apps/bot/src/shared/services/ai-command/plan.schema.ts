@@ -78,6 +78,7 @@ export const updateTaskActionSchema = z.object({
       type: typeSchema.optional(),
       dueDate: dueDateSchema.nullable().optional(),
       title: z.string().trim().min(1).max(200).optional(),
+      description: z.string().trim().max(2000).nullable().optional(),
     })
     .refine((c) => Object.values(c).some((v) => v !== undefined), 'No changes'),
 });

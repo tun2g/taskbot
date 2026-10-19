@@ -96,6 +96,9 @@ export const updateTaskSchema = z.object({
 
 export const TASK_LIST_MAX_LIMIT = 500;
 
+export const TASK_DUE_FILTERS = ['overdue', 'today', 'week', 'none'] as const;
+export type TaskDueFilter = (typeof TASK_DUE_FILTERS)[number];
+
 export const taskQuerySchema = z.object({
   status: status.optional(),
   /** Status category (todo | in_progress | done). */
@@ -114,6 +117,10 @@ export const taskQuerySchema = z.object({
       (v) => v === 'me' || v === 'none' || mongoose.Types.ObjectId.isValid(v),
       'The assignee filter is invalid. Pick a member, "Mine" or "Unassigned".',
     )
+    .optional(),
+  /** Due-date window, by calendar day in the group's timezone (overdue excludes closed tasks). */
+  due: z
+    .enum(TASK_DUE_FILTERS, { error: 'The due filter must be overdue, today, week or none.' })
     .optional(),
   search: z.string().optional(),
   page: z.coerce.number().int().positive('Page must be 1 or more.').optional().default(1),

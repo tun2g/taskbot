@@ -6,6 +6,7 @@ export type {
   CreateTaskInput,
   UpdateTaskInput,
   TaskFilters,
+  TaskDueFilter,
   TaskStats,
 } from './task.js';
 export type { IUser } from './user.js';

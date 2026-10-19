@@ -1,6 +1,9 @@
 import type { ISourceMessage, ITask } from '@tbot/shared';
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { SectionHeading } from '@/components/ui/card';
+
 const LONG = 240;
 
 export function getSourceMessages(task: ITask): ISourceMessage[] {
@@ -12,9 +15,7 @@ export function SourceMessages({ messages }: { messages: ISourceMessage[] }) {
   if (messages.length === 0) return null;
   return (
     <section>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-tg-hint">
-        Source message{messages.length > 1 ? 's' : ''}
-      </h3>
+      <SectionHeading>Source message{messages.length > 1 ? 's' : ''}</SectionHeading>
       <ul className="flex flex-col gap-2">
         {messages.map((m, i) => (
           <SourceQuote key={`${m.chatId}-${m.messageId}-${i}`} message={m} />
@@ -33,18 +34,23 @@ function SourceQuote({ message }: { message: ISourceMessage }) {
     <li className="rounded-r-xl border-l-4 border-tg-link bg-tg-secondary/60 px-3 py-2">
       <p className="text-xs font-semibold text-tg-link">From {message.fromName || 'a group member'}</p>
       {text ? (
-        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-tg-text">{text}</p>
+        <p className="mt-1 whitespace-pre-wrap text-sm text-tg-text [overflow-wrap:anywhere]">{text}</p>
       ) : (
         <p className="mt-1 text-sm italic text-tg-hint">(no text)</p>
       )}
       <div className="mt-1 flex flex-wrap gap-x-4">
         {isLong && (
-          <button type="button" onClick={() => setExpanded((e) => !e)} className="min-h-11 text-sm font-medium text-tg-link">
+          <Button variant="link" size="sm" onClick={() => setExpanded((e) => !e)} className="-ml-2">
             {expanded ? 'Show less' : 'Show more'}
-          </button>
+          </Button>
         )}
         {message.link && (
-          <a href={message.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm font-medium text-tg-link">
+          <a
+            href={message.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center text-sm font-medium text-tg-link"
+          >
             Open in chat ↗
           </a>
         )}

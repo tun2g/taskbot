@@ -17,15 +17,15 @@ export const MAX_RECENT_MESSAGES = 50;
 
 export const USAGE_MESSAGE =
   '<b>📋 Turn chat into tasks</b>\n' +
-  '<code>/task Fix login on iOS @an</code> — from your text\n' +
-  'Reply <code>/task</code> — from that message\n' +
-  'Reply <code>/task all</code> — from there to now\n' +
-  '<code>/task 10</code> — from the last 10 messages';
+  '<code>/new Fix login on iOS @an</code> — from your text\n' +
+  'Reply <code>/new</code> — from that message\n' +
+  'Reply <code>/new all</code> — from there to now\n' +
+  '<code>/new 10</code> — from the last 10 messages';
 
 export const PRIVACY_MODE_MESSAGE =
   "🙈 I can't see recent messages here. The bot owner needs to turn off privacy mode: " +
   '@BotFather → /setprivacy → Disable, then re-add me to the group. ' +
-  'Until then, reply to a message with /task.';
+  'Until then, reply to a message with /new.';
 
 type Mode =
   | { kind: 'text'; text: string }
@@ -44,6 +44,9 @@ export class TaskCommand {
   }
 
   register() {
+    this.map.set('new', this.onTask.bind(this));
+    // Old names keep working (hidden from the menu): /task was too close to /tasks
+    this.map.set('create', this.onTask.bind(this));
     this.map.set('task', this.onTask.bind(this));
     return this.map;
   }
@@ -52,7 +55,7 @@ export class TaskCommand {
     try {
       const chat = ctx.chat;
       if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) {
-        await ctx.reply('📋 /task works in group chats. Add me to your team group and use it there.');
+        await ctx.reply('📋 /new works in group chats. Add me to your team group and use it there.');
         return;
       }
 
@@ -95,14 +98,14 @@ export class TaskCommand {
     } catch (error) {
       logger.error(`Error in /task command: ${error instanceof Error ? error.stack : error}`);
       await ctx
-        .reply('❌ Something went wrong and no task was created. Please try /task again in a moment.')
+        .reply('❌ Something went wrong and no task was created. Please try /new again in a moment.')
         .catch(() => undefined);
     }
   }
 
   parseMode(message: CommandMessage): Mode | null {
     const raw = messageText(message);
-    const args = raw.replace(/^\/task(@\w+)?/i, '').trim();
+    const args = raw.replace(/^\/(new|create|task)(@\w+)?/i, '').trim();
     const reply = this.getReplyTarget(message);
 
     if (reply) {
@@ -145,7 +148,7 @@ export class TaskCommand {
         if (!text && !mode.note) {
           return {
             error:
-              "That message has no text I can turn into a task. Reply to a text message, or add a title: <code>/task Fix the printer</code>",
+              "That message has no text I can turn into a task. Reply to a text message, or add a title: <code>/new Fix the printer</code>",
             html: true,
           };
         }
@@ -160,7 +163,7 @@ export class TaskCommand {
         const after = await messageBufferService.getAfter(chatId, reply.message_id, ...topicArgs);
         let messages = [first, ...after].filter((m) => m.text);
         if (messages.length === 0) {
-          return { error: 'That message has no text I can turn into a task. Reply to a text message with /task all.' };
+          return { error: 'That message has no text I can turn into a task. Reply to a text message with /new all.' };
         }
         if (messages.length > MAX_RECENT_MESSAGES) {
           messages = messages.slice(0, MAX_RECENT_MESSAGES);
@@ -180,7 +183,7 @@ export class TaskCommand {
           return {
             error: privacyOn
               ? PRIVACY_MODE_MESSAGE
-              : "🤷 I haven't seen any messages here in the last 48 hours. Reply to a message with /task instead.",
+              : "🤷 I haven't seen any messages here in the last 48 hours. Reply to a message with /new instead.",
           };
         }
         return { messages, warnings };

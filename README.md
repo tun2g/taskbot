@@ -66,7 +66,7 @@ Key bot variables:
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` (local) — `redis` in compose |
 | `WEBAPP_URL` | Mini App URL — **must be HTTPS** for the menu button / deep links |
 | `WEBHOOK_URL` | if set, the bot uses webhook mode instead of polling |
-| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default) or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite`. Powers `/task` extraction and `/ai`. Without a key, `/task` still creates a basic task and `/ai` explains AI is unavailable |
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default) or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite`. Powers `/new` extraction and `/ai`. Without a key, `/new` still creates a basic task and `/ai` explains AI is unavailable |
 | `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
 
@@ -76,17 +76,19 @@ Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example
 
 | Setting | Why |
 |---------|-----|
-| `/setprivacy` → **Disable** (then re-add the bot to groups) | lets the bot read group messages so `/task 10` and `/task all` can turn recent messages into tasks |
+| `/setprivacy` → **Disable** (then re-add the bot to groups) | lets the bot read group messages so `/new 10` and `/new all` can turn recent messages into tasks |
 | Main Mini App (Bot Settings → Configure Mini App) | enables in-Telegram "Open board" links from groups and DMs (`t.me/<bot>?startapp=…`); without it links open the browser version |
 | `/setdomain` → your web domain | required for the Telegram Login Widget (opening the board in a normal browser) |
 | Make the bot a group **admin** (optional) | Telegram only sends member join/leave updates to admins, keeping the assignee list accurate |
 
 ### Using the bot
 
-- `/task Fix login on iOS @an` — AI turns your text into one or more tasks (type, assignee, due date)
-- reply `/task` to a message · reply `/task all` (from that message to now) · `/task 10` (last 10 messages)
+- `/new Fix login on iOS @an` — AI turns your text into one or more tasks (type, assignee, due date)
+- reply `/new` to a message · reply `/new all` (from that message to now) · `/new 10` (last 10 messages)
+- `/update #12 <plain words>` or reply `/update …` to a card — change one task with AI (incl. description)
 - `/ai <plain words>` — e.g. reply to a card with `/ai chuyển task này cho @ttt`, `/ai #12 xong rồi`, `/ai tôi còn task nào?`
-- `/tasks [mine|open|review|bug|@user…]`, `/done #12`, `/help` (interactive guide)
+- `/list [open|review|bug|@user…]`, `/mytasks`, `/done #12`, `/members`, `/settopic`, `/help` (interactive guide)
+- `/task` and `/tasks` still work as hidden aliases of `/new` and `/list`
 - Statuses: Backlog · To do · In progress · In review · Pending · Done · Cancelled. Types: Bug · Feature · Improvement · Task · Chore · Research · Question
 
 ## Running the Mini App inside Telegram

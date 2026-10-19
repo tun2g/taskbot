@@ -68,11 +68,11 @@ function homePage(): HelpPage {
 function createPage(): HelpPage {
   const text = [
     '📝 *Create tasks*',
-    '`/task Fix login on iOS @an` — from text',
-    'Reply /task to a message — tasks from that message',
-    'Reply `/task <note>` — same, your note is a hint',
-    'Reply `/task all` — that message through the latest',
-    '`/task 10` — the last 10 messages (max 50)',
+    '`/new Fix login on iOS @an` — from text',
+    'Reply /new to a message — tasks from that message',
+    'Reply `/new <note>` — same, your note is a hint',
+    'Reply `/new all` — that message through the latest',
+    '`/new 10` — the last 10 messages (max 50)',
     '',
     'The AI can split one message into several tasks and detects type, assignee and due date.',
     'Created by mistake? Tap ↩️ Undo within 10 minutes.',
@@ -98,8 +98,8 @@ function managePage(): HelpPage {
   const text = [
     '🗂 *Manage tasks*',
     'Card buttons: next step, 👤 Assign, ⋯ More (status, type, priority, delete)',
-    '`/done #12` — or reply /done to a card',
-    '`/tasks` — open tasks; add `mine`, `open`, `review`, `pending`, `bug`, `@name`…',
+    '`/update #12 hạn thứ 6, giao cho @an` — plain words, or reply to a card · `/done #12`',
+    '`/list` — open tasks; add `open`, `review`, `pending`, `bug`, `@name`… · `/mytasks` — yours',
     '',
     '*Statuses*',
     ...pairs(TASK_STATUS_ORDER.map((s) => TASK_STATUS_LABELS[s])),
@@ -147,7 +147,7 @@ function setupPage(): HelpPage {
   const text = [
     '⚙️ *Setup (for admins)*',
     '1. Add me to the group',
-    '2. @BotFather → /setprivacy → Disable, so `/task 10` and `/task all` can see messages',
+    '2. @BotFather → /setprivacy → Disable, so `/new 10` and `/new all` can see messages',
     '3. @BotFather → configure the Main Mini App, so board links open inside Telegram',
     `4. Several bots here? Pick commands from the menu so they go to ${botMention()}`,
     '5. In groups with Topics, events go to a “Task events” topic — I create it if I\'m an admin with Manage topics, or run /settopic in the topic you want',

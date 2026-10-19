@@ -26,7 +26,7 @@ export function GroupsContainer() {
       error={groups.isError ? getErrorMessage(groups.error) : null}
       onRetry={() => groups.refetch()}
       isRetrying={groups.isFetching}
-      onOpenGroup={(groupId) => navigate({ to: '/$groupId/tasks', params: { groupId } })}
+      onOpenGroup={(groupId, search) => navigate({ to: '/$groupId/tasks', params: { groupId }, search: search ?? {} })}
       onSignOut={isInTelegram() ? undefined : handleSignOut}
     />
   );

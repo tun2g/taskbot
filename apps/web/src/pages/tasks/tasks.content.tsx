@@ -7,7 +7,9 @@ import { AskAiButton, useAskAi } from '@/components/ai-chat/ask-ai';
 import { Layout } from '@/components/layout/layout';
 import { Avatar, statusText } from '@/components/ui/badges';
 import { CardSkeleton, Skeleton } from '@/components/ui/skeleton';
-import { buttonPrimary, buttonSecondary, StateMessage } from '@/components/ui/state';
+import { StateMessage } from '@/components/ui/state';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { displayName, getUserId, resolveUser } from '@/lib/user';
 
 import type { BoardGroupBy, BoardSearch, BoardView } from './board-search';
@@ -35,6 +37,7 @@ interface TasksContentProps {
   error: string | null;
   onRetry: () => void;
   hasActiveFilters: boolean;
+  overdueCount?: number;
   onSearchChange: (patch: Partial<BoardSearch>, options?: { replace?: boolean }) => void;
   onClearFilters: () => void;
   onBack: () => void;
@@ -64,6 +67,7 @@ export function TasksContent(props: TasksContentProps) {
     onRetry,
     isRefetching,
     hasActiveFilters,
+    overdueCount,
     onSearchChange,
     onClearFilters,
     onBack,
@@ -84,9 +88,9 @@ export function TasksContent(props: TasksContentProps) {
           title="Can't open this board"
           body={accessError}
           action={
-            <button type="button" onClick={onBack} className={buttonPrimary}>
+            <Button variant="primary" onClick={onBack}>
               Back to your groups
-            </button>
+            </Button>
           }
         />
       </Layout>
@@ -115,9 +119,9 @@ export function TasksContent(props: TasksContentProps) {
         title="Couldn't load tasks"
         body={error}
         action={
-          <button type="button" onClick={onRetry} disabled={isRefetching} className={buttonPrimary}>
+          <Button variant="primary" onClick={onRetry} disabled={isRefetching}>
             {isRefetching ? 'Retrying…' : 'Retry'}
-          </button>
+          </Button>
         }
       />
     );
@@ -126,10 +130,11 @@ export function TasksContent(props: TasksContentProps) {
       <StateMessage
         icon="🔍"
         title="No tasks match these filters"
+        body="Try another search, or clear the filters to see every task."
         action={
-          <button type="button" onClick={onClearFilters} className={buttonSecondary}>
+          <Button variant="secondary" onClick={onClearFilters}>
             Clear filters
-          </button>
+          </Button>
         }
       />
     );
@@ -140,8 +145,13 @@ export function TasksContent(props: TasksContentProps) {
         title="No tasks yet"
         body={
           <>
-            Create one with <strong>+</strong> or send <code>/task …</code> in the group chat.
+            Create one here, or send <code>/new …</code> in the group chat.
           </>
+        }
+        action={
+          <Button variant="primary" onClick={() => onShowCreateModal(true)} icon="+">
+            Create task
+          </Button>
         }
       />
     );
@@ -172,14 +182,15 @@ export function TasksContent(props: TasksContentProps) {
       onBack={ai.backHandler(onBack)}
       actions={<AskAiButton onClick={ai.open ? ai.close : ai.openChat} active={ai.open} />}
       fab={
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="fab"
           onClick={() => onShowCreateModal(true)}
           aria-label="New task"
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-tg-button text-3xl text-tg-button-text shadow-lg transition-transform active:scale-95"
+          title="New task"
         >
           +
-        </button>
+        </Button>
       }
     >
       <TaskFiltersBar
@@ -190,6 +201,7 @@ export function TasksContent(props: TasksContentProps) {
         onChange={onSearchChange}
         onClear={onClearFilters}
         hasActiveFilters={hasActiveFilters}
+        overdueCount={overdueCount}
       />
 
       {!isLoading && !error && total > tasks.length && (
@@ -239,15 +251,12 @@ function StatusBoard({ tasks, search, onSearchChange, onStatusChange, renderCard
             ? `${hiddenCount} task${hiddenCount === 1 ? '' : 's'} in Backlog, Pending or Cancelled are hidden.`
             : 'Drag cards between columns, or use ⋯ on a card.'}
         </p>
-        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-tg-text">
-          <input
-            type="checkbox"
-            checked={showAll}
-            onChange={(e) => onSearchChange({ allStatuses: e.target.checked || undefined }, { replace: true })}
-            className="h-5 w-5 accent-[var(--tg-theme-button-color)]"
-          />
+        <Checkbox
+          checked={showAll}
+          onChange={(v) => onSearchChange({ allStatuses: v || undefined }, { replace: true })}
+        >
           Show all statuses
-        </label>
+        </Checkbox>
       </div>
       <KanbanBoard
         columns={columns}
@@ -319,15 +328,12 @@ function AssigneeBoard({ tasks, members, search, onSearchChange, onAssigneeChang
     <>
       {idle.length > 0 && (
         <div className="flex items-center justify-end px-4 pt-2">
-          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-tg-text">
-            <input
-              type="checkbox"
-              checked={showEveryone}
-              onChange={(e) => onSearchChange({ everyone: e.target.checked || undefined }, { replace: true })}
-              className="h-5 w-5 accent-[var(--tg-theme-button-color)]"
-            />
+          <Checkbox
+            checked={showEveryone}
+            onChange={(v) => onSearchChange({ everyone: v || undefined }, { replace: true })}
+          >
             Show everyone ({idle.length} with no tasks)
-          </label>
+          </Checkbox>
         </div>
       )}
       <KanbanBoard
@@ -352,7 +358,10 @@ function BoardSkeleton({ view }: { view: BoardView }) {
   return (
     <div className="no-scrollbar flex gap-3 overflow-hidden px-4 pt-3">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="flex w-[80vw] max-w-[320px] shrink-0 flex-col gap-1.5 rounded-lg bg-tg-secondary p-1.5 md:w-auto md:max-w-none md:flex-1">
+        <div
+          key={i}
+          className="flex w-[80vw] max-w-[320px] shrink-0 flex-col gap-1.5 rounded-lg bg-tg-secondary p-1.5 md:w-auto md:max-w-none md:flex-1"
+        >
           <Skeleton className="m-1 h-5 w-24" />
           <CardSkeleton />
           <CardSkeleton />

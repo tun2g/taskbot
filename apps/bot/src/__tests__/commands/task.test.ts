@@ -122,8 +122,9 @@ describe('TaskCommand', () => {
     const ctx = createMockCtx();
     await command.onTask(ctx);
     expect(ctx.reply).toHaveBeenCalledWith(USAGE_MESSAGE, { parse_mode: 'HTML' });
-    expect(USAGE_MESSAGE).toContain('/task all');
-    expect(USAGE_MESSAGE).toContain('/task 10');
+    expect(USAGE_MESSAGE).toContain('/new all');
+    expect(USAGE_MESSAGE).toContain('/new 10');
+    expect(USAGE_MESSAGE).not.toContain('/task');
   });
 
   describe('parseMode', () => {
@@ -138,6 +139,12 @@ describe('TaskCommand', () => {
       ['/task assign to @an', { message_id: 5, text: 'x' }, { kind: 'reply', note: 'assign to @an' }],
       ['/task all', { message_id: 5, text: 'x' }, { kind: 'all' }],
       ['/task ALL', { message_id: 5, text: 'x' }, { kind: 'all' }],
+      // New names; /task and /create stay as hidden aliases
+      ['/new Fix login', undefined, { kind: 'text', text: 'Fix login' }],
+      ['/new@TBot 10', undefined, { kind: 'recent', count: 10 }],
+      ['/new all', { message_id: 5, text: 'x' }, { kind: 'all' }],
+      ['/new', { message_id: 5, text: 'x' }, { kind: 'reply', note: undefined }],
+      ['/create Fix login', undefined, { kind: 'text', text: 'Fix login' }],
     ])('%s (reply=%p)', (text, reply, expected) => {
       expect(command.parseMode(msg(text, reply))).toEqual(expected);
     });
@@ -233,7 +240,7 @@ describe('TaskCommand', () => {
 
     expect(ctx.reply).toHaveBeenCalledTimes(1);
     const [text, extra] = (ctx.reply as jest.Mock).mock.calls[0];
-    expect(text).toContain('<b>🤖 Created 2 tasks from 2 messages</b>');
+    expect(text).toContain('<b>🤖 Created 2 tasks from <a href="https://t.me/c/123/42">2 messages</a></b>');
     expect(text).toContain('#1 🐞 Fix login on iOS → @an');
     expect(text).toContain('#2 📌 Replace blurry logo\n');
     expect(text).toContain('Couldn\'t find "Hùng" in this group — left unassigned');

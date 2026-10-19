@@ -204,6 +204,43 @@ describe('updates', () => {
     expect(replyText(outcome)).toBe('✅ <b>#12 Fix login on iOS</b>\n⬆️ High priority\n👀 In review');
   });
 
+  it('replaces the description and logs it', async () => {
+    const t = task({ description: 'Vấn đề: lỗi login' });
+    (taskService.updateTask as jest.Mock).mockResolvedValue(task({ _id: t._id, description: 'Vấn đề: lỗi login\n\nGhi chú:\n• test Android' }));
+
+    const outcome = await aiCommandService.execute(
+      context({ referencedNumbers: [12], referencedTasks: [t] }),
+      plan({ action: 'update_task', taskRef: 12, changes: { description: 'Vấn đề: lỗi login\n\nGhi chú:\n• test Android' } }),
+      editor,
+    );
+
+    expect(taskService.updateTask).toHaveBeenCalledWith(t._id, {
+      description: 'Vấn đề: lỗi login\n\nGhi chú:\n• test Android',
+    });
+    expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'description', via: 'ai' }));
+    expect(replyText(outcome)).toContain('📝 Description updated');
+  });
+
+  it('clears the description with null and ignores no-op rewrites', async () => {
+    const t = task({ description: 'old' });
+    (taskService.updateTask as jest.Mock).mockResolvedValue(task({ _id: t._id, description: null }));
+    const cleared = await aiCommandService.execute(
+      context({ referencedNumbers: [12], referencedTasks: [t] }),
+      plan({ action: 'update_task', taskRef: 12, changes: { description: null } }),
+      editor,
+    );
+    expect(replyText(cleared)).toContain('📝 Description cleared');
+
+    jest.clearAllMocks();
+    const same = await aiCommandService.execute(
+      context({ referencedNumbers: [12], referencedTasks: [t] }),
+      plan({ action: 'update_task', taskRef: 12, changes: { description: '  old ' } }),
+      editor,
+    );
+    expect(taskService.updateTask).not.toHaveBeenCalled();
+    expect(replyText(same)).not.toContain('Description');
+  });
+
   it('says so when nothing needs changing', async () => {
     const t = task({ status: 'done' });
     const outcome = await aiCommandService.execute(

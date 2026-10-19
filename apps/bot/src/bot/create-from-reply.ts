@@ -8,9 +8,9 @@ import { redisService } from 'src/shared/services/redis.service';
 import type { InlineKeyboardButton, Message } from 'telegraf/types';
 
 /**
- * `/task` (create) and `/tasks` (list) differ by one letter and sit next to each other in
- * the command menu. When someone replies to a message with `/tasks`, they most likely
- * meant `/task` — so the reply offers a one-tap "create tasks from that message" button.
+ * Replying to a message with a list command (/list, /mytasks, legacy /tasks) most likely
+ * means "make tasks from this" — so the reply offers a one-tap "create tasks from that
+ * message" button.
  */
 
 export const CREATE_FROM_REPLY_PREFIX = 'mktask:';
@@ -71,7 +71,7 @@ export async function handleCreateFromReplyCallback(ctx: BotContext): Promise<vo
     const raw = key ? await redisService.get(storeKey(key)) : null;
     if (!raw) {
       await removeOurButton(ctx);
-      await ctx.answerCbQuery('This button has expired — reply to the message with /task instead.', {
+      await ctx.answerCbQuery('This button has expired — reply to the message with /new instead.', {
         show_alert: true,
       });
       return;
@@ -83,7 +83,7 @@ export async function handleCreateFromReplyCallback(ctx: BotContext): Promise<vo
     const chat = ctx.chat;
     const group = chat && 'title' in chat ? await groupService.findOrCreateGroup(chat.id, chat.title) : null;
     if (!user || !group) {
-      await ctx.answerCbQuery("Couldn't create tasks right now. Please try /task again.", { show_alert: true });
+      await ctx.answerCbQuery("Couldn't create tasks right now. Please try /new again.", { show_alert: true });
       return;
     }
 
@@ -94,6 +94,6 @@ export async function handleCreateFromReplyCallback(ctx: BotContext): Promise<vo
     await createTasksFromInput(ctx, { messages: [stored.message], requester: user, group });
   } catch (error) {
     logger.error(`Create-from-reply failed: ${error instanceof Error ? error.stack : error}`);
-    await ctx.answerCbQuery('Something went wrong. Please reply to the message with /task.').catch(() => undefined);
+    await ctx.answerCbQuery('Something went wrong. Please reply to the message with /new.').catch(() => undefined);
   }
 }

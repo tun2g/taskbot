@@ -131,7 +131,7 @@ export async function handleTaskCallback(ctx: BotContext) {
         await handleDelete(ctx, task, fromUser);
         break;
       default:
-        await ctx.answerCbQuery('This button is outdated. Use /tasks to see the latest.');
+        await ctx.answerCbQuery('This button is outdated. Use /list to see the latest.');
     }
   } catch (error) {
     logger.error(`Task callback error: ${error}`);

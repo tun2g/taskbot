@@ -1,5 +1,7 @@
 import type { ITaskActivity, IUser } from '@tbot/shared';
 
+import { Button } from '@/components/ui/button';
+import { SectionHeading } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate, formatRelative } from '@/lib/dates';
 import { displayName } from '@/lib/user';
@@ -33,7 +35,7 @@ interface ActivityTimelineProps {
 export function ActivityTimeline({ items, members, isLoading, error, onRetry }: ActivityTimelineProps) {
   return (
     <section>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-tg-hint">Activity</h3>
+      <SectionHeading>Activity</SectionHeading>
       {isLoading ? (
         <div className="flex flex-col gap-2">
           <Skeleton className="h-4 w-3/4" />
@@ -42,9 +44,9 @@ export function ActivityTimeline({ items, members, isLoading, error, onRetry }: 
       ) : error ? (
         <p className="text-sm text-tg-hint">
           Couldn't load activity: {error}{' '}
-          <button type="button" onClick={onRetry} className="min-h-11 font-medium text-tg-link">
+          <Button variant="link" size="sm" onClick={onRetry}>
             Retry
-          </button>
+          </Button>
         </p>
       ) : items.length === 0 ? (
         <p className="text-sm text-tg-hint">No activity recorded yet.</p>
@@ -75,7 +77,11 @@ export function ActivityTimeline({ items, members, isLoading, error, onRetry }: 
                   <time dateTime={item.createdAt} title={formatDate(item.createdAt)}>
                     {formatRelative(item.createdAt)}
                   </time>
-                  {via && <span className={`rounded-full px-1.5 py-px text-[11px] font-medium ${via.className}`}>via {via.label}</span>}
+                  {via && (
+                    <span className={`rounded-full px-1.5 py-px text-[11px] font-medium ${via.className}`}>
+                      via {via.label}
+                    </span>
+                  )}
                 </p>
               </li>
             );
