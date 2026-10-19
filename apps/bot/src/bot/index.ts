@@ -2,6 +2,7 @@ import { botMessageHandler } from 'src/bot/bot-message-handler';
 import { aiCommand } from 'src/bot/commands/ai';
 import { doneCommand } from 'src/bot/commands/done';
 import { helpCommand } from 'src/bot/commands/help';
+import { handleMembersCallback, MEMBERS_CALLBACK_PREFIX, membersCommand } from 'src/bot/commands/members';
 import { setTopicCommand } from 'src/bot/commands/settopic';
 import { startCommand } from 'src/bot/commands/start';
 import { taskCommand } from 'src/bot/commands/task';
@@ -42,6 +43,7 @@ const publicCommands: Map<string, (ctx: BotContext) => void> = new Map<string, (
   ...doneCommand.register(),
   ...aiCommand.register(),
   ...setTopicCommand.register(),
+  ...membersCommand.register(),
 ]);
 
 Array.from(publicCommands).forEach(([command, callback]) => {
@@ -57,6 +59,10 @@ bot.on('callback_query', async (ctx: BotContext) => {
   }
   if (data?.startsWith(CREATE_FROM_REPLY_PREFIX)) {
     await handleCreateFromReplyCallback(ctx);
+    return;
+  }
+  if (data?.startsWith(MEMBERS_CALLBACK_PREFIX)) {
+    await handleMembersCallback(ctx);
     return;
   }
   if (data?.startsWith('help:')) {

@@ -37,6 +37,10 @@ export class SetUpBotCommand {
         description: 'Finish a task: /done 12 or reply to its card',
       },
       {
+        command: 'members',
+        description: 'Who I can assign tasks to — tap ✋ to join',
+      },
+      {
         command: 'settopic',
         description: 'Admins: post task events in this topic',
       },

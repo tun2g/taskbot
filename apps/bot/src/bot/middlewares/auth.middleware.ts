@@ -4,6 +4,7 @@ import { User } from 'src/database/models/user.model';
 import { groupService } from 'src/database/services/group.service';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import logger from 'src/shared/logger/logger';
+import { memberSyncService } from 'src/shared/services/member-sync.service';
 import { redisService } from 'src/shared/services/redis.service';
 import type { User as TelegramUser } from 'telegraf/types';
 
@@ -109,9 +110,30 @@ async function syncMembership(ctx: BotContext): Promise<void> {
   }
 
   // Anyone who sends a message or taps a button in the group is a member.
+  let group: IGroup | null = null;
   if (ctx.from && !ctx.from.is_bot) {
-    await registerMember(ctx, ctx.from);
+    group = await registerMember(ctx, ctx.from);
   }
+
+  // People the message points at are members too: the author of the replied-to message,
+  // and anyone tagged with a text mention (it carries their full user, even without a username).
+  // This matters because the Bot API can't list members — silent people are otherwise unknown.
+  if (message) {
+    const replied: TelegramUser | undefined = message.reply_to_message?.from;
+    if (replied && !replied.is_bot && !message.reply_to_message?.forum_topic_created) {
+      group = await registerMember(ctx, replied, group);
+    }
+    const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
+    for (const entity of entities) {
+      if (entity.type === 'text_mention' && entity.user && !entity.user.is_bot) {
+        group = await registerMember(ctx, entity.user, group);
+      }
+    }
+  }
+
+  // Admins are the one list the Bot API exposes; sync it (throttled to hourly) in the background.
+  group = group ?? (await groupService.findGroupByTelegramId(ctx.chat!.id));
+  if (group) void memberSyncService.syncAdmins(group, ctx.telegram);
 }
 
 export const authMiddleware = async (ctx: BotContext, next: () => Promise<void>) => {

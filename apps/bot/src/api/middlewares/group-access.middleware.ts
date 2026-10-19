@@ -5,6 +5,7 @@ import { AuthenticatedRequest } from 'src/api/middlewares/auth.middleware';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
 import { taskService } from 'src/database/services/task.service';
+import { memberSyncService } from 'src/shared/services/member-sync.service';
 
 export const NOT_A_MEMBER_MESSAGE = 'You are not a member of this group.';
 export const GROUP_NOT_FOUND_MESSAGE = 'This group could not be found. It may have been removed.';
@@ -35,7 +36,11 @@ export function requireGroupMember(paramName = 'groupId') {
       return;
     }
 
-    if (!(await groupMemberService.isMember(group._id as mongoose.Types.ObjectId, user._id))) {
+    // Not seen in the group yet (never spoke there)? Ask Telegram before refusing.
+    const isMember =
+      (await groupMemberService.isMember(group._id as mongoose.Types.ObjectId, user._id)) ||
+      (await memberSyncService.verifyAndAddMember(group, user));
+    if (!isMember) {
       sendError(res, 403, NOT_A_MEMBER_MESSAGE);
       return;
     }
@@ -66,8 +71,11 @@ export function requireTaskMember(paramName = 'taskId') {
     }
 
     if (!(await groupMemberService.isMember(task.groupId, user._id))) {
-      sendError(res, 403, NOT_A_MEMBER_MESSAGE);
-      return;
+      const group = await groupService.findGroupById(task.groupId);
+      if (!group || !(await memberSyncService.verifyAndAddMember(group, user))) {
+        sendError(res, 403, NOT_A_MEMBER_MESSAGE);
+        return;
+      }
     }
 
     authReq.task = task;

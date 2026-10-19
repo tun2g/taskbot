@@ -151,6 +151,7 @@ function setupPage(): HelpPage {
     '3. @BotFather → configure the Main Mini App, so board links open inside Telegram',
     `4. Several bots here? Pick commands from the menu so they go to ${botMention()}`,
     '5. In groups with Topics, events go to a “Task events” topic — I create it if I\'m an admin with Manage topics, or run /settopic in the topic you want',
+    '6. Telegram doesn\'t let bots list members: I learn people when they post, get replied to or tagged. Send /members so everyone can tap ✋ once',
   ].join('\n');
   return { text, keyboard: [[BACK]] };
 }
