@@ -15,7 +15,16 @@ export function asyncHandler(fn: (req: Request, res: Response, next: NextFunctio
  * Global error handler middleware — must be registered LAST via app.use().
  * Catches all unhandled errors from async route handlers.
  */
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) {
+  // Malformed JSON body (from express.json)
+  if (err.type === 'entity.parse.failed' || err.status === 400) {
+    res.status(400).json({ error: 'Bad Request', message: 'The request could not be read. Please try again.', statusCode: 400 });
+    return;
+  }
   logger.error(`Unhandled API error: ${err.message}`, { stack: err.stack });
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({
+    error: 'Internal server error',
+    message: 'Something went wrong on our side. Please try again in a moment.',
+    statusCode: 500,
+  });
 }

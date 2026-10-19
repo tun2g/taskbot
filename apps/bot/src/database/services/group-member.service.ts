@@ -34,6 +34,23 @@ export class GroupMemberService {
     }
   }
 
+  async removeMember(groupId: mongoose.Types.ObjectId, telegramUserId: number): Promise<void> {
+    try {
+      await GroupMember.deleteOne({ groupId, telegramUserId });
+    } catch (error) {
+      logger.error(`Error removing group member: ${error}`);
+    }
+  }
+
+  async isMember(groupId: mongoose.Types.ObjectId | string, userId: mongoose.Types.ObjectId | string): Promise<boolean> {
+    try {
+      return (await GroupMember.exists({ groupId, userId })) !== null;
+    } catch (error) {
+      logger.error(`Error checking group membership: ${error}`);
+      return false;
+    }
+  }
+
   async getUserGroups(userId: mongoose.Types.ObjectId): Promise<mongoose.Types.ObjectId[]> {
     try {
       const members = await GroupMember.find({ userId }).select('groupId');

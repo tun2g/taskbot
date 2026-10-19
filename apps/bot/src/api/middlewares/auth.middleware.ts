@@ -1,20 +1,82 @@
 import { Request, Response, NextFunction } from 'express';
 import { validate, parse } from '@telegram-apps/init-data-node';
+import { verifyWebToken } from 'src/api/auth/web-token';
+import { sendError } from 'src/api/http-error';
 import { configService } from 'src/configs/configuration';
-import { userService } from 'src/database/services/user.service';
+import { IGroup } from 'src/database/models/group.model';
+import { ITask } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
 import logger from 'src/shared/logger/logger';
 
 export interface AuthenticatedRequest extends Request {
   user?: InstanceType<typeof User>;
   telegramUserId?: number;
+  /** Set by requireGroupMember / requireTaskMember. */
+  group?: IGroup;
+  /** Set by requireTaskMember (createdBy / assigneeId populated). */
+  task?: ITask;
 }
 
-export const apiAuthMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
+export interface TelegramUserProfile {
+  id: number;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+}
 
-  if (!authHeader || !authHeader.startsWith('tma ')) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Missing or invalid authorization header', statusCode: 401 });
+/** Find or create the user and refresh their profile fields. */
+export async function upsertTelegramUser(profile: TelegramUserProfile) {
+  return User.findOneAndUpdate(
+    { telegramUserId: profile.id },
+    {
+      $set: {
+        username: profile.username ?? null,
+        firstName: profile.firstName ?? null,
+        lastName: profile.lastName ?? null,
+      },
+      $setOnInsert: {
+        telegramUserId: profile.id,
+      },
+    },
+    { upsert: true, new: true, runValidators: true },
+  );
+}
+
+const asOptionalString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
+
+/**
+ * Accepts `Authorization: tma <initData>` (inside Telegram, 24h) or
+ * `Authorization: Bearer <token>` (browser, from POST /auth/telegram-login).
+ */
+export const apiAuthMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization || '';
+
+  if (authHeader.startsWith('Bearer ')) {
+    const telegramUserId = verifyWebToken(authHeader.slice(7).trim());
+    if (telegramUserId === null) {
+      sendError(res, 401, SESSION_EXPIRED);
+      return;
+    }
+    try {
+      const user = await User.findOne({ telegramUserId });
+      if (!user) {
+        sendError(res, 401, SESSION_EXPIRED);
+        return;
+      }
+      req.user = user;
+      req.telegramUserId = telegramUserId;
+      next();
+    } catch (error) {
+      logger.error(`API auth error (bearer): ${error}`);
+      sendError(res, 401, SESSION_EXPIRED);
+    }
+    return;
+  }
+
+  if (!authHeader.startsWith('tma ')) {
+    sendError(res, 401, 'Please sign in to continue.');
     return;
   }
 
@@ -29,32 +91,22 @@ export const apiAuthMiddleware = async (req: AuthenticatedRequest, res: Response
     const telegramUser = parsed.user;
 
     if (!telegramUser) {
-      res.status(401).json({ error: 'Unauthorized', message: 'No user data in initData', statusCode: 401 });
+      sendError(res, 401, 'Telegram did not send your user details. Please reopen the app from Telegram.');
       return;
     }
 
-    // Find or create user in DB
-    const user = await User.findOneAndUpdate(
-      { telegramUserId: telegramUser.id },
-      {
-        $set: {
-          username: telegramUser.username,
-          firstName: telegramUser.firstName,
-          lastName: telegramUser.lastName,
-        },
-        $setOnInsert: {
-          telegramUserId: telegramUser.id,
-        },
-      },
-      { upsert: true, new: true, runValidators: true }
-    );
-
-    req.user = user;
+    req.user = await upsertTelegramUser({
+      id: telegramUser.id,
+      username: asOptionalString(telegramUser.username),
+      // init-data-node v2 returns snake_case fields (first_name / last_name)
+      firstName: asOptionalString(telegramUser.first_name ?? telegramUser.firstName),
+      lastName: asOptionalString(telegramUser.last_name ?? telegramUser.lastName),
+    });
     req.telegramUserId = telegramUser.id;
     next();
   } catch (error) {
     logger.error(`API auth error: ${error}`);
-    res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired initData', statusCode: 401 });
+    sendError(res, 401, 'Your Telegram session has expired. Please close and reopen the app.');
     return;
   }
 };

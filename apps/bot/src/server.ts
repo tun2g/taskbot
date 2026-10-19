@@ -7,13 +7,14 @@ const app: Express = express();
 
 app.use(express.json());
 
-// CORS for Mini App
+// CORS for the Mini App and the browser version (Bearer tokens via Authorization)
 app.use((_req, res, next) => {
   const allowedOrigins = [configService.webappUrl, 'http://localhost:5173'].filter(Boolean);
   const origin = _req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
   if (_req.method === 'OPTIONS') {
@@ -34,5 +35,3 @@ app.use('/api', apiRouter);
 app.use(errorHandler);
 
 export { app };
-
-

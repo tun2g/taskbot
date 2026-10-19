@@ -3,7 +3,7 @@ services:
     build: .
     container_name: tbot
     restart: unless-stopped
-    env_file: .env
+    env_file: apps/bot/.env
     ports:
       - "3000:3000"
     depends_on:

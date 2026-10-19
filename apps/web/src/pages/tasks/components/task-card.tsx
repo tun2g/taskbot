@@ -1,48 +1,70 @@
-import type { ITask } from '@tbot/shared';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { PriorityBadge } from '@/components/ui/priority-badge';
+import type { ITask, IUser } from '@tbot/shared';
+import { isClosedStatus, TaskStatus } from '@tbot/shared';
+
+import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
+
+import { DueChip } from './due-chip';
+import { StatusMenu } from './status-menu';
 
 interface TaskCardProps {
   task: ITask;
+  members?: IUser[];
+  timeZone?: string | null;
+  /** Show the status lozenge (assignee board, where columns aren't statuses). */
+  showStatus?: boolean;
   onClick?: (task: ITask) => void;
+  /** Non-drag way to change status (accessible fallback to drag-and-drop). */
+  onStatusChange?: (task: ITask, status: TaskStatus) => void;
+  /** Rendered as the floating drag preview. */
+  isOverlay?: boolean;
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
-  const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const isOverdue = dueDate && dueDate < new Date() && task.status !== 'done';
+/** Compact Jira-style board card. */
+export function TaskCard({ task, members, timeZone, showStatus, onClick, onStatusChange, isOverlay }: TaskCardProps) {
+  const closed = isClosedStatus(task.status);
 
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `#${task.taskNumber} ${task.title}` : undefined}
       onClick={() => onClick?.(task)}
-      className="cursor-pointer rounded-xl border border-[var(--tg-theme-secondary-bg-color)] bg-[var(--tg-theme-bg-color)] p-3.5 transition-all hover:shadow-md active:scale-[0.98]"
+      onKeyDown={(e) => {
+        if (onClick && (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          onClick(task);
+        }
+      }}
+      className={`relative select-none rounded-md bg-tg-section px-3 pb-2.5 pt-2 text-left shadow-[0_1px_1px_color-mix(in_srgb,var(--tg-theme-text-color)_18%,transparent)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-tg-link ${
+        onClick ? 'cursor-pointer hover:bg-tg-secondary/40' : ''
+      } ${isOverlay ? 'rotate-2 shadow-xl ring-2 ring-tg-link' : ''}`}
+      style={{ WebkitTouchCallout: 'none' }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-[var(--tg-theme-hint-color)]">#{task.taskNumber}</span>
-            <StatusBadge status={task.status} />
+      <div className="flex items-start gap-2">
+        <p className={`line-clamp-2 min-h-11 flex-1 pt-1.5 text-sm leading-snug text-tg-text ${closed ? 'text-tg-hint line-through decoration-tg-hint/60' : ''}`}>
+          {task.title}
+        </p>
+        {onStatusChange && !isOverlay && (
+          <div className="-mr-2 -mt-0.5">
+            <StatusMenu task={task} onChange={onStatusChange} />
           </div>
-          <h3 className="mt-1.5 text-sm font-medium text-[var(--tg-theme-text-color)] leading-snug line-clamp-2">
-            {task.title}
-          </h3>
-        </div>
-        <PriorityBadge priority={task.priority} />
+        )}
       </div>
 
-      <div className="mt-2.5 flex items-center gap-3 text-xs text-[var(--tg-theme-hint-color)]">
-        {task.assigneeId && (
-          <span className="flex items-center gap-1">
-            👤 {typeof task.assigneeId === 'object' && 'username' in task.assigneeId
-              ? `@${(task.assigneeId as any).username}`
-              : 'Assigned'}
-          </span>
-        )}
-        {dueDate && (
-          <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}>
-            📅 {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            {isOverdue && ' (overdue)'}
-          </span>
-        )}
+      {showStatus && (
+        <div className="mt-1">
+          <StatusLozenge status={task.status} />
+        </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-2">
+        <TypeIcon type={task.type} />
+        <span className={`font-mono text-xs font-medium text-tg-hint ${closed ? 'line-through' : ''}`}>#{task.taskNumber}</span>
+        <PriorityIcon priority={task.priority} />
+        <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
+        <span className="ml-auto">
+          <Avatar user={task.assigneeId} members={members} />
+        </span>
       </div>
     </div>
   );

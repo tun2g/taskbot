@@ -1,40 +1,61 @@
-import type { ITask, TaskFilters, CreateTaskInput, UpdateTaskInput, PaginatedResponse, ApiResponse } from '@tbot/shared';
-import { apiClient } from '@/lib/api-client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type {
+  ApiResponse,
+  CreateTaskInput,
+  ITask,
+  ITaskActivity,
+  PaginatedResponse,
+  TaskFilters,
+  TaskStatusCategory,
+  UpdateTaskInput,
+} from '@tbot/shared';
+import { type QueryKey, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-// Query keys
+import { apiClient } from '@/lib/api-client';
+
+import { groupKeys } from './groups';
+
+export const BOARD_LIMIT = 500;
+
+/**
+ * Query params of GET /groups/:id/tasks. Shared `TaskFilters` doesn't have the
+ * contract's `category` / `open` params yet, so they're added here.
+ */
+/** Kept as an alias so existing imports keep working; shared TaskFilters now carries category/open. */
+export type ApiTaskFilters = TaskFilters;
+
 export const taskKeys = {
   all: ['tasks'] as const,
   lists: () => [...taskKeys.all, 'list'] as const,
-  list: (groupId: string, filters?: TaskFilters) => [...taskKeys.lists(), groupId, filters] as const,
+  groupLists: (groupId: string) => [...taskKeys.lists(), groupId] as const,
+  list: (groupId: string, filters?: ApiTaskFilters) => [...taskKeys.groupLists(groupId), filters ?? {}] as const,
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (taskId: string) => [...taskKeys.details(), taskId] as const,
+  activity: (taskId: string) => [...taskKeys.all, 'activity', taskId] as const,
   stats: (groupId: string) => [...taskKeys.all, 'stats', groupId] as const,
 };
 
-// Fetch tasks
-export function useTasksList(groupId: string, filters?: TaskFilters) {
+/** Per-status counts + overdue (+ byCategory once the API adds it). */
+export type TaskStats = Partial<Record<string, number>> & {
+  overdue?: number;
+  byCategory?: Record<TaskStatusCategory, number>;
+};
+
+export function useTasksList(groupId: string, filters: ApiTaskFilters) {
   return useQuery({
     queryKey: taskKeys.list(groupId, filters),
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filters?.status) params.set('status', filters.status);
-      if (filters?.priority) params.set('priority', filters.priority);
-      if (filters?.assigneeId) params.set('assigneeId', filters.assigneeId);
-      if (filters?.search) params.set('search', filters.search);
-      if (filters?.page) params.set('page', String(filters.page));
-      if (filters?.limit) params.set('limit', String(filters.limit));
-
-      const { data } = await apiClient.get<PaginatedResponse<ITask>>(
-        `/groups/${groupId}/tasks?${params.toString()}`
-      );
+    queryFn: async ({ signal }) => {
+      const params: Record<string, string> = {};
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null && value !== '') params[key] = String(value);
+      }
+      const { data } = await apiClient.get<PaginatedResponse<ITask>>(`/groups/${groupId}/tasks`, { params, signal });
       return data;
     },
     enabled: !!groupId,
+    placeholderData: (prev) => prev,
   });
 }
 
-// Fetch single task
 export function useTask(taskId: string) {
   return useQuery({
     queryKey: taskKeys.detail(taskId),
@@ -46,19 +67,34 @@ export function useTask(taskId: string) {
   });
 }
 
-// Fetch task stats
+export function useTaskActivity(taskId: string) {
+  return useQuery({
+    queryKey: taskKeys.activity(taskId),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<ITaskActivity[]>>(`/tasks/${taskId}/activity`);
+      return data.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
 export function useTaskStats(groupId: string) {
   return useQuery({
     queryKey: taskKeys.stats(groupId),
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiResponse<Record<string, number>>>(`/groups/${groupId}/stats`);
+      const { data } = await apiClient.get<ApiResponse<TaskStats>>(`/groups/${groupId}/stats`);
       return data.data;
     },
     enabled: !!groupId,
   });
 }
 
-// Create task
+function invalidateGroup(queryClient: ReturnType<typeof useQueryClient>, groupId: string) {
+  queryClient.invalidateQueries({ queryKey: taskKeys.groupLists(groupId) });
+  queryClient.invalidateQueries({ queryKey: taskKeys.stats(groupId) });
+  queryClient.invalidateQueries({ queryKey: groupKeys.list() });
+}
+
 export function useCreateTask(groupId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -66,39 +102,71 @@ export function useCreateTask(groupId: string) {
       const { data } = await apiClient.post<ApiResponse<ITask>>(`/groups/${groupId}/tasks`, input);
       return data.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: taskKeys.stats(groupId) });
-    },
+    onSuccess: () => invalidateGroup(queryClient, groupId),
   });
 }
 
-// Update task
-export function useUpdateTask() {
+export interface UpdateTaskVariables {
+  taskId: string;
+  input: UpdateTaskInput;
+  /** Fields to apply to cached copies immediately (e.g. a populated assignee object). */
+  optimistic?: Partial<ITask>;
+}
+
+interface UpdateContext {
+  snapshots: [QueryKey, unknown][];
+}
+
+/**
+ * PATCH a task. Cached list/detail copies are updated optimistically and rolled back
+ * if the request fails.
+ */
+export function useUpdateTask(groupId: string) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ taskId, ...input }: UpdateTaskInput & { taskId: string }) => {
+  return useMutation<ITask, unknown, UpdateTaskVariables, UpdateContext>({
+    mutationFn: async ({ taskId, input }) => {
       const { data } = await apiClient.patch<ApiResponse<ITask>>(`/tasks/${taskId}`, input);
       return data.data;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: taskKeys.detail(data._id) });
-      queryClient.invalidateQueries({ queryKey: taskKeys.stats(data.groupId) });
+    onMutate: async ({ taskId, optimistic }) => {
+      if (!optimistic) return { snapshots: [] };
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: taskKeys.groupLists(groupId) }),
+        queryClient.cancelQueries({ queryKey: taskKeys.detail(taskId) }),
+      ]);
+      const snapshots: [QueryKey, unknown][] = [
+        ...queryClient.getQueriesData({ queryKey: taskKeys.groupLists(groupId) }),
+        [taskKeys.detail(taskId), queryClient.getQueryData(taskKeys.detail(taskId))],
+      ];
+      queryClient.setQueriesData<PaginatedResponse<ITask>>({ queryKey: taskKeys.groupLists(groupId) }, (old) =>
+        old ? { ...old, data: old.data.map((t) => (t._id === taskId ? { ...t, ...optimistic } : t)) } : old,
+      );
+      queryClient.setQueryData<ITask>(taskKeys.detail(taskId), (old) => (old ? { ...old, ...optimistic } : old));
+      return { snapshots };
+    },
+    onError: (_err, _vars, context) => {
+      context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
+    onSuccess: (task) => {
+      queryClient.setQueryData(taskKeys.detail(task._id), task);
+    },
+    onSettled: (_data, _err, { taskId }) => {
+      invalidateGroup(queryClient, groupId);
+      queryClient.invalidateQueries({ queryKey: taskKeys.activity(taskId) });
     },
   });
 }
 
-// Delete task
-export function useDeleteTask() {
+export function useDeleteTask(groupId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (taskId: string) => {
       await apiClient.delete(`/tasks/${taskId}`);
       return taskId;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: taskKeys.all });
+    onSuccess: (taskId) => {
+      queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) });
+      invalidateGroup(queryClient, groupId);
     },
   });
 }

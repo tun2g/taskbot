@@ -11,9 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tbot/shared": "workspace:*",
+    "@dnd-kit/core": "6.3.1",
     "@tanstack/react-query": "^5.96.0",
     "@tanstack/react-router": "^1.168.10",
+    "@tbot/shared": "workspace:*",
     "@telegram-apps/sdk-react": "^3.3.9",
     "axios": "^1.7.2",
     "react": "^19.2.4",
@@ -21,6 +22,7 @@
     "react-query-kit": "^3.3.2"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-router-devtools": "^1.166.11",
     "@tanstack/router-plugin": "^1.167.12",
     "@types/react": "^19.2.14",
@@ -36,7 +38,6 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.2.2",
-    "@tailwindcss/vite": "^4.2.2",
     "typescript": "^5",
     "vite": "^8.0.3"
   }

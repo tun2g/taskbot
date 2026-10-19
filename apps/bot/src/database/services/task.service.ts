@@ -1,5 +1,6 @@
+import { TASK_STATUS_ORDER } from '@tbot/shared';
 import mongoose from 'mongoose';
-import { ITask, Task } from 'src/database/models/task.model';
+import { ISourceMessage, ITask, Task } from 'src/database/models/task.model';
 import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
 
@@ -7,22 +8,24 @@ export interface CreateTaskData {
   groupId: mongoose.Types.ObjectId;
   title: string;
   description?: string;
+  type?: string;
   priority?: string;
   createdBy: mongoose.Types.ObjectId;
   assigneeId?: mongoose.Types.ObjectId;
   dueDate?: Date;
-  sourceMessage?: {
-    messageId: number;
-    chatId: number;
-    text: string;
-    fromUserId: number;
-    link: string;
-  };
+  sourceMessage?: ISourceMessage;
+  sourceMessages?: ISourceMessage[];
+  batchId?: string;
+  taskCardChatId?: number;
 }
 
 export interface TaskFilters {
   status?: string;
-  assigneeId?: mongoose.Types.ObjectId;
+  /** Match any of these statuses (category / open filters); combined with `status` if both are set. */
+  statuses?: string[];
+  type?: string;
+  /** `null` matches unassigned tasks. */
+  assigneeId?: mongoose.Types.ObjectId | null;
   priority?: string;
   search?: string;
   page?: number;
@@ -37,6 +40,7 @@ export class TaskService {
       ...data,
       taskNumber,
       status: 'todo',
+      type: data.type || 'task',
       priority: data.priority || 'medium',
     });
 
@@ -46,7 +50,7 @@ export class TaskService {
 
   async getTaskById(taskId: string | mongoose.Types.ObjectId): Promise<ITask | null> {
     try {
-      return await Task.findById(taskId).populate('createdBy assigneeId');
+      return await Task.findById(taskId).populate('createdBy assigneeId completedBy');
     } catch (error) {
       logger.error(`Error getting task ${taskId}: ${error}`);
       return null;
@@ -60,11 +64,25 @@ export class TaskService {
     try {
       const query: Record<string, unknown> = { groupId };
 
-      if (filters.status) query.status = filters.status;
-      if (filters.assigneeId) query.assigneeId = filters.assigneeId;
+      if (filters.status && filters.statuses) {
+        query.status = filters.statuses.includes(filters.status) ? filters.status : { $in: [] };
+      } else if (filters.status) {
+        query.status = filters.status;
+      } else if (filters.statuses) {
+        query.status = { $in: filters.statuses };
+      }
+      if (filters.type) query.type = filters.type;
+      if (filters.assigneeId !== undefined) query.assigneeId = filters.assigneeId;
       if (filters.priority) query.priority = filters.priority;
       if (filters.search) {
-        query.title = { $regex: filters.search, $options: 'i' };
+        const search = filters.search.trim();
+        const numberMatch = search.match(/^#?(\d+)$/);
+        const pattern = { $regex: escapeRegex(search), $options: 'i' };
+        query.$or = [
+          { title: pattern },
+          { description: pattern },
+          ...(numberMatch ? [{ taskNumber: parseInt(numberMatch[1], 10) }] : []),
+        ];
       }
 
       const page = filters.page || 1;
@@ -83,14 +101,20 @@ export class TaskService {
     }
   }
 
-  async updateTaskStatus(taskId: string | mongoose.Types.ObjectId, status: string): Promise<ITask | null> {
+  async updateTaskStatus(
+    taskId: string | mongoose.Types.ObjectId,
+    status: string,
+    changedBy?: mongoose.Types.ObjectId,
+  ): Promise<ITask | null> {
     try {
       const updateData: Record<string, unknown> = { status };
 
       if (status === 'done') {
         updateData.completedAt = new Date();
+        updateData.completedBy = changedBy ?? null;
       } else {
         updateData.completedAt = null;
+        updateData.completedBy = null;
       }
 
       return await Task.findByIdAndUpdate(taskId, { $set: updateData }, { new: true, runValidators: true }).populate(
@@ -139,18 +163,38 @@ export class TaskService {
     }
   }
 
+  async getTasksByBatch(batchId: string): Promise<ITask[]> {
+    try {
+      return await Task.find({ batchId }).sort({ taskNumber: 1 });
+    } catch (error) {
+      logger.error(`Error getting tasks for batch ${batchId}: ${error}`);
+      return [];
+    }
+  }
+
+  async deleteTasks(taskIds: (string | mongoose.Types.ObjectId)[]): Promise<number> {
+    try {
+      const result = await Task.deleteMany({ _id: { $in: taskIds } });
+      return result.deletedCount ?? 0;
+    } catch (error) {
+      logger.error(`Error deleting tasks ${taskIds.join(',')}: ${error}`);
+      return 0;
+    }
+  }
+
   async getTaskStats(groupId: mongoose.Types.ObjectId): Promise<Record<string, number>> {
     try {
       const stats = await Task.aggregate([{ $match: { groupId } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
 
-      const result: Record<string, number> = { todo: 0, in_progress: 0, done: 0 };
+      // Every status key is present (0 when empty) so callers can sum/display without guards
+      const result: Record<string, number> = emptyStatusCounts();
       for (const stat of stats) {
         result[stat._id] = stat.count;
       }
       return result;
     } catch (error) {
       logger.error(`Error getting task stats for group ${groupId}: ${error}`);
-      return { todo: 0, in_progress: 0, done: 0 };
+      return emptyStatusCounts();
     }
   }
 
@@ -174,3 +218,11 @@ export class TaskService {
 }
 
 export const taskService = new TaskService();
+
+function emptyStatusCounts(): Record<string, number> {
+  return Object.fromEntries(TASK_STATUS_ORDER.map((status) => [status, 0]));
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

@@ -16,3 +16,24 @@ export interface ApiError {
   message: string;
   statusCode: number;
 }
+
+/**
+ * Payload from the Telegram Login Widget (https://core.telegram.org/widgets/login),
+ * posted as-is to POST /auth/telegram-login.
+ */
+export interface TelegramLoginPayload {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
+
+/** Response of POST /auth/telegram-login. Send as `Authorization: Bearer <token>`. */
+export interface AuthLoginResponse {
+  token: string;
+  expiresAt: string;
+  user: import('./user.js').IUser;
+}

@@ -1,18 +1,187 @@
 @import 'tailwindcss';
 
+/* `dark:` follows the Telegram color scheme (data-theme is set in __root), else the OS. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * Colors come ONLY from Telegram theme tokens. Inside Telegram, telegram-web-app.js sets
+ * --tg-theme-* inline on <html>, overriding these. In a normal browser these fallbacks mirror
+ * Telegram's default light / dark palettes.
+ */
 :root {
   --tg-theme-bg-color: #ffffff;
+  --tg-theme-secondary-bg-color: #f1f1f4;
+  --tg-theme-section-bg-color: #ffffff;
+  --tg-theme-header-bg-color: #ffffff;
   --tg-theme-text-color: #000000;
   --tg-theme-hint-color: #999999;
+  --tg-theme-subtitle-text-color: #999999;
   --tg-theme-link-color: #2481cc;
+  --tg-theme-accent-text-color: #2481cc;
   --tg-theme-button-color: #2481cc;
   --tg-theme-button-text-color: #ffffff;
-  --tg-theme-secondary-bg-color: #f0f0f0;
+  --tg-theme-destructive-text-color: #e53935;
+  --tg-theme-section-separator-color: #e7e7e7;
+  /* Telegram has no "success" token; used only for the Done lozenge family. */
+  --tbot-success: #2e7d32;
+  color-scheme: light;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --tg-theme-bg-color: #212121;
+    --tg-theme-secondary-bg-color: #181818;
+    --tg-theme-section-bg-color: #212121;
+    --tg-theme-header-bg-color: #212121;
+    --tg-theme-text-color: #ffffff;
+    --tg-theme-hint-color: #aaaaaa;
+    --tg-theme-subtitle-text-color: #aaaaaa;
+    --tg-theme-link-color: #62bcf9;
+    --tg-theme-accent-text-color: #62bcf9;
+    --tg-theme-button-color: #2ea6ff;
+    --tg-theme-button-text-color: #ffffff;
+    --tg-theme-destructive-text-color: #ef5350;
+    --tg-theme-section-separator-color: #2f2f2f;
+    --tbot-success: #5fd38d;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --tg-theme-bg-color: #212121;
+  --tg-theme-secondary-bg-color: #181818;
+  --tg-theme-section-bg-color: #212121;
+  --tg-theme-header-bg-color: #212121;
+  --tg-theme-text-color: #ffffff;
+  --tg-theme-hint-color: #aaaaaa;
+  --tg-theme-subtitle-text-color: #aaaaaa;
+  --tg-theme-link-color: #62bcf9;
+  --tg-theme-accent-text-color: #62bcf9;
+  --tg-theme-button-color: #2ea6ff;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-destructive-text-color: #ef5350;
+  --tg-theme-section-separator-color: #2f2f2f;
+  --tbot-success: #5fd38d;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-tg-bg: var(--tg-theme-bg-color);
+  --color-tg-secondary: var(--tg-theme-secondary-bg-color);
+  --color-tg-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color));
+  --color-tg-header: var(--tg-theme-header-bg-color, var(--tg-theme-bg-color));
+  --color-tg-text: var(--tg-theme-text-color);
+  --color-tg-hint: var(--tg-theme-hint-color);
+  --color-tg-subtitle: var(--tg-theme-subtitle-text-color, var(--tg-theme-hint-color));
+  --color-tg-link: var(--tg-theme-link-color);
+  --color-tg-accent: var(--tg-theme-accent-text-color, var(--tg-theme-link-color));
+  --color-tg-button: var(--tg-theme-button-color);
+  --color-tg-button-text: var(--tg-theme-button-text-color);
+  --color-tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
+  --color-tg-separator: var(
+    --tg-theme-section-separator-color,
+    color-mix(in srgb, var(--tg-theme-hint-color) 30%, transparent)
+  );
+  --color-tg-success: var(--tbot-success);
+}
+
+html,
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   background-color: var(--tg-theme-bg-color);
   color: var(--tg-theme-text-color);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- Jira-style status lozenges (category hue, per-status shade) ---------- */
+.lozenge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  white-space: nowrap;
+  border-radius: 0.1875rem;
+  padding: 0.0625rem 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+/* To do category: neutral */
+.lozenge-backlog {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 12%, transparent);
+  color: var(--tg-theme-hint-color);
+}
+.lozenge-todo {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 22%, transparent);
+  color: var(--tg-theme-text-color);
+}
+/* In progress category: link blue */
+.lozenge-in_progress {
+  background: color-mix(in srgb, var(--tg-theme-link-color) 16%, transparent);
+  color: var(--tg-theme-link-color);
+}
+.lozenge-in_review {
+  background: color-mix(in srgb, var(--tg-theme-link-color) 28%, transparent);
+  color: color-mix(in srgb, var(--tg-theme-link-color) 70%, var(--tg-theme-text-color));
+}
+.lozenge-pending {
+  background: transparent;
+  color: var(--tg-theme-link-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tg-theme-link-color) 55%, transparent);
+}
+/* Done category: green */
+.lozenge-done {
+  background: color-mix(in srgb, var(--tbot-success) 16%, transparent);
+  color: var(--tbot-success);
+}
+.lozenge-cancelled {
+  background: color-mix(in srgb, var(--tbot-success) 8%, transparent);
+  color: color-mix(in srgb, var(--tbot-success) 60%, var(--tg-theme-hint-color));
+  text-decoration: line-through;
+}
+
+/* ---------- Soft tinted surfaces ---------- */
+.tint-danger {
+  background: color-mix(in srgb, var(--tg-theme-destructive-text-color) 12%, transparent);
+  color: var(--tg-theme-destructive-text-color);
+}
+.tint-link {
+  background: color-mix(in srgb, var(--tg-theme-link-color) 12%, transparent);
+  color: var(--tg-theme-link-color);
+}
+.tint-neutral {
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-hint-color);
+}
+.tint-selected {
+  background: color-mix(in srgb, var(--tg-theme-link-color) 10%, transparent);
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.fab-safe {
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  right: calc(1.25rem + env(safe-area-inset-right));
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Ask AI drawer (desktop): keep the page visible beside it ---------- */
+@media (min-width: 768px) {
+  html[data-ai-drawer='open'] body {
+    padding-right: 400px;
+  }
+  html[data-ai-drawer='open'] .fab-safe {
+    right: calc(400px + 1.25rem + env(safe-area-inset-right));
+  }
 }

@@ -8,7 +8,12 @@ export function validateObjectId(paramName: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const value = req.params[paramName] as string;
     if (!mongoose.Types.ObjectId.isValid(value)) {
-      res.status(400).json({ error: `Invalid ${paramName}` });
+      const what = paramName.replace(/Id$/, '');
+      res.status(404).json({
+        error: 'Not Found',
+        message: `This ${what} could not be found. Please check the link and try again.`,
+        statusCode: 404,
+      });
       return;
     }
     next();

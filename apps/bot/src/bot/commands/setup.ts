@@ -14,23 +14,31 @@ export class SetUpBotCommand {
     this.commands = [
       {
         command: 'start',
-        description: 'Start the bot and show welcome message',
+        description: 'Open your task boards',
       },
       {
         command: 'help',
-        description: 'Show help information and available commands',
+        description: 'What I can do',
       },
       {
         command: 'task',
-        description: 'Create a new task',
+        description: 'Create tasks: /task text, reply /task, /task all, /task 10',
+      },
+      {
+        command: 'ai',
+        description: "Ask in plain words: /ai assign this to @an, /ai #12 done, /ai what's on my plate?",
       },
       {
         command: 'tasks',
-        description: 'View tasks in this chat',
+        description: 'Open tasks: /tasks mine, bug, done, @name',
       },
       {
         command: 'done',
-        description: 'Mark a task as done',
+        description: 'Finish a task: /done 12 or reply to its card',
+      },
+      {
+        command: 'settopic',
+        description: 'Admins: post task events in this topic',
       },
     ];
   }

@@ -1,10 +1,24 @@
 import { BotContext } from 'src/bot/interface/context';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
+import {
+  buildTaskButtons,
+  escapeMarkdown,
+  formatTaskCard,
+  groupTimezone,
+  mdName,
+  populatedUser,
+  statusLabel,
+  truncate,
+} from 'src/bot/task-card.renderer';
+import { IGroup } from 'src/database/models/group.model';
 import { groupService } from 'src/database/services/group.service';
+import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
+import { groupMessengerService } from 'src/shared/services/group-messenger.service';
+import { notificationService } from 'src/shared/services/notification.service';
 
 export class DoneCommand {
   private map: Map<string, (ctx: BotContext) => void>;
@@ -50,11 +64,11 @@ export class DoneCommand {
         const task = await taskService.getTaskByNumber(group._id, taskNumber);
 
         if (!task) {
-          await ctx.reply(`❌ Task #${taskNumber} not found in this group.`);
+          await ctx.reply(`❌ Task #${taskNumber} not found in this group. Use /tasks to see the open ones.`);
           return;
         }
 
-        await this.completeTask(ctx, task, user);
+        await this.completeTask(ctx, task, user, group);
         return;
       }
 
@@ -69,7 +83,7 @@ export class DoneCommand {
           return;
         }
 
-        await this.completeTask(ctx, task, user);
+        await this.completeTask(ctx, task, user, group);
         return;
       }
 
@@ -93,19 +107,60 @@ export class DoneCommand {
     }
   }
 
-  private async completeTask(ctx: BotContext, task: ITask, user: IUser) {
+  private async completeTask(ctx: BotContext, task: ITask, user: IUser, group: IGroup) {
     if (task.status === 'done') {
       await ctx.reply(`ℹ️ Task #${task.taskNumber} is already done.`);
       return;
     }
 
-    const updatedTask = await taskService.updateTaskStatus(task._id, 'done');
-    if (!updatedTask) return;
+    const updatedTask = await taskService.updateTaskStatus(task._id, 'done', user._id);
+    if (!updatedTask) {
+      await ctx.reply(`❌ Couldn't update #${task.taskNumber}. Please try again.`);
+      return;
+    }
 
-    const displayName = userService.getDisplayName(user);
-    await ctx.reply(`✅ ${displayName} completed *#${updatedTask.taskNumber}* — ${updatedTask.title}`, {
-      parse_mode: 'Markdown',
+    await taskActivityService.record({
+      taskId: task._id,
+      groupId: task.groupId,
+      actor: user._id,
+      action: 'status',
+      from: statusLabel(task.status),
+      to: statusLabel('done'),
+      via: 'bot',
     });
+
+    // An event: forums post it in "Task events" (👌 on the command); normal groups reply here as before.
+    await groupMessengerService.sendCommandEvent(
+      ctx,
+      group,
+      `✅ ${mdName(user)} finished *#${updatedTask.taskNumber}* · ${escapeMarkdown(truncate(updatedTask.title, 60))}`,
+      { extra: { parse_mode: 'Markdown' } },
+    );
+
+    await this.refreshTaskCard(ctx, updatedTask, group);
+
+    const assignee = populatedUser(updatedTask.assigneeId);
+    if (assignee && assignee.telegramUserId !== user.telegramUserId) {
+      await notificationService.notifyStatusChange(updatedTask, user, assignee);
+    }
+  }
+
+  /** Edit the original task card so it doesn't keep showing stale buttons. */
+  private async refreshTaskCard(ctx: BotContext, task: ITask, group: IGroup) {
+    if (!task.taskCardChatId || !task.taskCardMessageId) return;
+    try {
+      const text = formatTaskCard(task, undefined, undefined, groupTimezone(group));
+      const buttons = await buildTaskButtons(task);
+      await ctx.telegram.editMessageText(task.taskCardChatId, task.taskCardMessageId, undefined, text, {
+        parse_mode: 'Markdown',
+        link_preview_options: { is_disabled: true },
+        reply_markup: { inline_keyboard: buttons },
+      });
+    } catch (error) {
+      if (!String(error).includes('message is not modified')) {
+        logger.warn(`Could not refresh task card for #${task.taskNumber}: ${error}`);
+      }
+    }
   }
 }
 

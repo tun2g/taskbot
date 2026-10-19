@@ -25,7 +25,7 @@ pnpm test         # jest
 
 ## Environment
 
-Create `apps/bot/.env` (see the repo-root [`.env.example`](../../.env.example)):
+Create `apps/bot/.env` from [`.env.example`](.env.example):
 
 ```
 NODE_ENV=development
@@ -54,6 +54,7 @@ TIMEZONE=UTC
 | `/task` | Create a task — **groups only** (reply to a message, or `/task <title> [@user]`) |
 | `/tasks` | List/filter tasks (`mine`, `todo`, `in_progress`, `done`, `@user`) |
 | `/done` | Complete a task — `/done #123` or reply to a task card with `/done` |
+| `/settopic` | Admins, in a group with Topics: post task events (cards, status lines, digest) in this topic. Otherwise they go to a “Task events” topic the bot creates (needs admin + Manage topics) |
 
 Inline task cards support status transitions, priority cycling, an assignee picker (group members), and delete (creator/admin only). Delete permission is enforced via `getChatMember`.
 

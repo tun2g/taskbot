@@ -1,28 +1,92 @@
+import { z } from 'zod';
 import { configService } from 'src/configs/configuration';
-import { AIProvider, ChatMessage } from 'src/shared/services/ai/ai.interface';
+import logger from 'src/shared/logger/logger';
+import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
 import { FuseProvider } from 'src/shared/services/ai/fuse.provider';
 import { GeminiProvider } from 'src/shared/services/ai/gemini.provider';
 
+export type AIUnavailableReason = 'unconfigured' | 'failed' | 'invalid';
+
+/** Thrown by `generateJson` when no usable structured answer could be produced. */
+export class AIUnavailableError extends Error {
+  constructor(
+    public readonly reason: AIUnavailableReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AIUnavailableError';
+  }
+}
+
+/** Strips code fences / surrounding prose and parses JSON. Returns undefined when it isn't JSON. */
+export function parseJsonLoose(raw: string): unknown {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  let body = fenced ? fenced[1] : trimmed;
+  if (!fenced) {
+    const start = body.search(/[[{]/);
+    const end = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
+    if (start >= 0 && end > start) body = body.slice(start, end + 1);
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}
+
+export interface GenerateJsonOptions {
+  /** Extra attempts when the output is not valid JSON / fails the schema. Default 1. */
+  retries?: number;
+}
+
 class AIService {
-  private provider: AIProvider;
+  private provider: AIProvider | null = null;
 
-  constructor() {
+  /** False when no AI_API_KEY is set — callers should use their non-AI fallback. */
+  isConfigured(): boolean {
+    return !!configService.ai.apiKey;
+  }
+
+  // Created lazily so a missing key never crashes the bot at import time.
+  private getProvider(): AIProvider {
+    if (this.provider) return this.provider;
     const providerType = configService.ai.provider.toLowerCase();
-
-    switch (providerType) {
-      case 'fuse':
-        this.provider = new FuseProvider();
-        break;
-      case 'gemini':
-        this.provider = new GeminiProvider();
-        break;
-      default:
-        this.provider = new GeminiProvider();
-    }
+    this.provider = providerType === 'fuse' ? new FuseProvider() : new GeminiProvider();
+    return this.provider;
   }
 
   async chat(messages: ChatMessage[]) {
-    return this.provider.chat(messages);
+    return this.getProvider().chat(messages);
+  }
+
+  /** Raw JSON-mode text from the provider (unvalidated). */
+  async generateJsonText(request: JsonGenerationRequest): Promise<string> {
+    return this.getProvider().generateJson(request);
+  }
+
+  /**
+   * Structured generation: asks the provider for JSON (low temperature), validates it with
+   * `schema`, retries on invalid output. Throws AIUnavailableError when unconfigured, when the
+   * provider fails, or when every attempt is invalid.
+   */
+  async generateJson<T>(request: JsonGenerationRequest, schema: z.ZodType<T>, options: GenerateJsonOptions = {}): Promise<T> {
+    if (!this.isConfigured()) throw new AIUnavailableError('unconfigured', 'AI_API_KEY is not set');
+    const attempts = 1 + (options.retries ?? 1);
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      let raw: string;
+      try {
+        raw = await this.generateJsonText(request);
+      } catch (error) {
+        logger.error(`AI generateJson: provider failed (attempt ${attempt}): ${error}`);
+        throw new AIUnavailableError('failed', error instanceof Error ? error.message : String(error));
+      }
+      const parsed = schema.safeParse(parseJsonLoose(raw));
+      if (parsed.success) return parsed.data;
+      logger.warn(`AI generateJson: invalid output (attempt ${attempt}): ${raw.slice(0, 500)}`);
+    }
+    throw new AIUnavailableError('invalid', 'AI returned invalid output');
   }
 }
 

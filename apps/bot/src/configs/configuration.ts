@@ -9,6 +9,8 @@ class ConfigService {
   nodeEnv = process.env.NODE_ENV!;
   telegramApiUrl = process.env.TELEGRAM_API_URL!;
   webappUrl = process.env.WEBAPP_URL;
+  /** Optional secret for signing browser login tokens; falls back to a key derived from BOT_TOKEN. */
+  webAuthSecret = process.env.WEB_AUTH_SECRET || '';
   database = {
     redis: {
       host: process.env.REDIS_HOST!,

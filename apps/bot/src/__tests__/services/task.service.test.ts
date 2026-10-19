@@ -113,7 +113,7 @@ describe('TaskService', () => {
       const result = await service.getTaskById(mockObjectId.toString());
 
       expect(Task.findById).toHaveBeenCalledWith(mockObjectId.toString());
-      expect(mockPopulate).toHaveBeenCalledWith('createdBy assigneeId');
+      expect(mockPopulate).toHaveBeenCalledWith('createdBy assigneeId completedBy');
       expect(result).toEqual(mockTask);
     });
 
@@ -174,9 +174,61 @@ describe('TaskService', () => {
 
       expect(Task.find).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: { $regex: 'deploy', $options: 'i' },
+          $or: [
+            { title: { $regex: 'deploy', $options: 'i' } },
+            { description: { $regex: 'deploy', $options: 'i' } },
+          ],
         })
       );
+    });
+
+    it('should match task number when searching "#12"', async () => {
+      const mockLimit = jest.fn().mockResolvedValue([]);
+      const chain = { sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: mockLimit };
+      (Task.find as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnValue(chain) });
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+
+      await service.getTasksByGroup(mockGroupId, { search: '#12' });
+
+      expect(Task.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          $or: expect.arrayContaining([{ taskNumber: 12 }]),
+        })
+      );
+    });
+
+    it('should escape regex characters in search', async () => {
+      const chain = { sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+      (Task.find as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnValue(chain) });
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+
+      await service.getTasksByGroup(mockGroupId, { search: 'a.b(' });
+
+      expect(Task.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          $or: expect.arrayContaining([{ title: { $regex: 'a\\.b\\(', $options: 'i' } }]),
+        })
+      );
+    });
+  });
+
+  describe('getTasksByGroup statuses filter', () => {
+    const mockChain = () => {
+      const chain = { sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockResolvedValue([]) };
+      (Task.find as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnValue(chain) });
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+    };
+
+    it('should match any of several statuses', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, { statuses: ['todo', 'backlog'] });
+      expect(Task.find).toHaveBeenCalledWith(expect.objectContaining({ status: { $in: ['todo', 'backlog'] } }));
+    });
+
+    it('should match nothing when status is outside the statuses set', async () => {
+      mockChain();
+      await service.getTasksByGroup(mockGroupId, { status: 'done', statuses: ['todo'] });
+      expect(Task.find).toHaveBeenCalledWith(expect.objectContaining({ status: { $in: [] } }));
     });
   });
 
@@ -234,7 +286,9 @@ describe('TaskService', () => {
 
       const result = await service.getTaskStats(mockGroupId);
 
-      expect(result).toEqual({ todo: 5, in_progress: 3, done: 10 });
+      expect(result).toEqual({
+        backlog: 0, todo: 5, in_progress: 3, in_review: 0, pending: 0, done: 10, cancelled: 0,
+      });
     });
 
     it('should return zeros when no tasks', async () => {
@@ -242,7 +296,9 @@ describe('TaskService', () => {
 
       const result = await service.getTaskStats(mockGroupId);
 
-      expect(result).toEqual({ todo: 0, in_progress: 0, done: 0 });
+      expect(result).toEqual({
+        backlog: 0, todo: 0, in_progress: 0, in_review: 0, pending: 0, done: 0, cancelled: 0,
+      });
     });
   });
 

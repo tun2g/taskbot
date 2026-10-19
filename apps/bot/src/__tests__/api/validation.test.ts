@@ -1,4 +1,4 @@
-import { createTaskSchema, updateTaskSchema, taskQuerySchema } from 'src/api/validation';
+import { createTaskSchema, formatDueDate, parseDueDate, updateTaskSchema, taskQuerySchema } from 'src/api/validation';
 
 describe('Validation Schemas', () => {
   describe('createTaskSchema', () => {
@@ -42,6 +42,14 @@ describe('Validation Schemas', () => {
       expect(result.success).toBe(false);
     });
 
+    it('should accept a date-only dueDate and a type', () => {
+      expect(createTaskSchema.safeParse({ title: 'Task', dueDate: '2026-10-20', type: 'feature' }).success).toBe(true);
+    });
+
+    it('should reject impossible dates', () => {
+      expect(createTaskSchema.safeParse({ title: 'Task', dueDate: '2026-02-31' }).success).toBe(false);
+    });
+
     it('should reject invalid dueDate format', () => {
       const result = createTaskSchema.safeParse({ title: 'Task', dueDate: 'not-a-date' });
       expect(result.success).toBe(false);
@@ -65,8 +73,10 @@ describe('Validation Schemas', () => {
     });
 
     it('should reject invalid status', () => {
-      const result = updateTaskSchema.safeParse({ status: 'cancelled' });
+      const result = updateTaskSchema.safeParse({ status: 'archived' });
       expect(result.success).toBe(false);
+      expect(updateTaskSchema.safeParse({ status: 'cancelled' }).success).toBe(true);
+      expect(updateTaskSchema.safeParse({ status: 'in_review' }).success).toBe(true);
     });
 
     it('should accept nullable assigneeId', () => {
@@ -113,14 +123,56 @@ describe('Validation Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should reject limit over 100', () => {
-      const result = taskQuerySchema.safeParse({ limit: '101' });
-      expect(result.success).toBe(false);
+    it('should accept limit up to 500 and reject above', () => {
+      expect(taskQuerySchema.safeParse({ limit: '500' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ limit: '501' }).success).toBe(false);
+    });
+
+    it('should accept assigneeId me / none / object id and reject garbage', () => {
+      expect(taskQuerySchema.safeParse({ assigneeId: 'me' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ assigneeId: 'none' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ assigneeId: '507f1f77bcf86cd799439011' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ assigneeId: 'bob' }).success).toBe(false);
+    });
+
+    it('should accept type filter', () => {
+      expect(taskQuerySchema.safeParse({ type: 'bug' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ type: 'chore' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ type: 'epic' }).success).toBe(false);
+    });
+
+    it('should accept category and open filters', () => {
+      const r = taskQuerySchema.safeParse({ category: 'done', open: 'true' });
+      expect(r.success && r.data.open).toBe(true);
+      expect(taskQuerySchema.safeParse({}).success && taskQuerySchema.parse({}).open).toBe(false);
+      expect(taskQuerySchema.safeParse({ category: 'later' }).success).toBe(false);
     });
 
     it('should reject negative page', () => {
       const result = taskQuerySchema.safeParse({ page: '-1' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('parseDueDate / formatDueDate', () => {
+    it('parses YYYY-MM-DD to 00:00Z of that day', () => {
+      expect(parseDueDate('2026-10-20')?.toISOString()).toBe('2026-10-20T00:00:00.000Z');
+    });
+
+    it('truncates ISO datetimes to their date part', () => {
+      expect(parseDueDate('2026-10-20T23:30:00+07:00')?.toISOString()).toBe('2026-10-20T00:00:00.000Z');
+      expect(parseDueDate('2026-10-20T05:00:00.000Z')?.toISOString()).toBe('2026-10-20T00:00:00.000Z');
+    });
+
+    it('rejects invalid input', () => {
+      expect(parseDueDate('tomorrow')).toBeNull();
+      expect(parseDueDate('2026-13-01')).toBeNull();
+      expect(parseDueDate('2026-10-20Tgarbage')).toBeNull();
+    });
+
+    it('formats stored dates as UTC calendar days', () => {
+      expect(formatDueDate(new Date('2026-10-20T00:00:00.000Z'))).toBe('2026-10-20');
+      expect(formatDueDate(null)).toBeNull();
     });
   });
 });

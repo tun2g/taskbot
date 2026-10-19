@@ -43,5 +43,6 @@ jobs:
             ghcr.io/tun2g/taskbot-${{ matrix.app }}:sha-${{ github.sha }}
           build-args: |
             VITE_API_URL=${{ vars.VITE_API_URL || '/api' }}
+            VITE_BOT_USERNAME=${{ vars.VITE_BOT_USERNAME }}
           cache-from: type=gha,scope=taskbot-${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=taskbot-${{ matrix.app }}

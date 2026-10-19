@@ -3,10 +3,22 @@ import { userService } from 'src/database/services/user.service';
 import { groupService } from 'src/database/services/group.service';
 import { taskService } from 'src/database/services/task.service';
 import mongoose from 'mongoose';
+import { taskActivityService } from 'src/database/services/task-activity.service';
+import { notificationService } from 'src/shared/services/notification.service';
 
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');
+jest.mock('src/database/services/task-activity.service', () => ({
+  taskActivityService: { record: jest.fn() },
+}));
+jest.mock('src/shared/services/notification.service', () => ({
+  notificationService: { notifyStatusChange: jest.fn().mockResolvedValue('sent') },
+}));
+jest.mock('src/shared/services/callback-data-storage.service', () => ({
+  callbackDataStorageService: { setCallbackData: jest.fn() },
+}));
+jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
 jest.mock('src/shared/logger/logger', () => ({
   info: jest.fn(),
   error: jest.fn(),
@@ -28,6 +40,7 @@ function createMockCtx(overrides: Record<string, any> = {}) {
       ...overrides.message,
     },
     reply: jest.fn().mockResolvedValue({}),
+    telegram: { editMessageText: jest.fn().mockResolvedValue({}) },
     ...overrides,
   } as any;
 }
@@ -66,7 +79,10 @@ describe('DoneCommand', () => {
     await command.onDone(ctx);
 
     expect(taskService.getTaskByNumber).toHaveBeenCalledWith(mockGroupId, 5);
-    expect(taskService.updateTaskStatus).toHaveBeenCalledWith(mockTaskId, 'done');
+    expect(taskService.updateTaskStatus).toHaveBeenCalledWith(mockTaskId, 'done', mockUserId);
+    expect(taskActivityService.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'status', to: '✅ Done', via: 'bot' }),
+    );
     expect(ctx.reply).toHaveBeenCalledWith(
       expect.stringContaining('#5'),
       expect.objectContaining({ parse_mode: 'Markdown' })
@@ -94,7 +110,7 @@ describe('DoneCommand', () => {
 
     await command.onDone(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('❌ Task #99 not found in this group.');
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Task #99 not found in this group.'));
   });
 
   it('should show message when task already done', async () => {
@@ -130,5 +146,83 @@ describe('DoneCommand', () => {
       expect.stringContaining('Invalid task number'),
       expect.any(Object)
     );
+  });
+  it('escapes markdown in the title and refreshes the task card', async () => {
+    const ctx = createMockCtx({ message: { text: '/done 7' } });
+    const mockTask = {
+      _id: mockTaskId,
+      groupId: mockGroupId,
+      taskNumber: 7,
+      title: 'Fix v1.2 - login_page *now*',
+      status: 'in_review',
+      type: 'bug',
+      priority: 'high',
+    };
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(mockTask);
+    (taskService.updateTaskStatus as jest.Mock).mockResolvedValue({
+      ...mockTask,
+      status: 'done',
+      taskCardChatId: -100123,
+      taskCardMessageId: 55,
+    });
+
+    await command.onDone(ctx);
+
+    const text = ctx.reply.mock.calls[0][0] as string;
+    expect(text).toContain('Fix v1.2 - login\\_page \\*now\\*');
+    expect(text).not.toContain('v1\\.2');
+    expect(ctx.telegram.editMessageText).toHaveBeenCalledWith(
+      -100123,
+      55,
+      undefined,
+      expect.stringContaining('#7'),
+      expect.objectContaining({ parse_mode: 'Markdown' }),
+    );
+  });
+
+  it('DMs the assignee when someone else finishes the task', async () => {
+    const ctx = createMockCtx({ message: { text: '/done 8' } });
+    const assignee = { _id: new mongoose.Types.ObjectId(), telegramUserId: 999, username: 'an' };
+    const mockTask = { _id: mockTaskId, groupId: mockGroupId, taskNumber: 8, title: 'Ship', status: 'todo' };
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(mockTask);
+    (taskService.updateTaskStatus as jest.Mock).mockResolvedValue({ ...mockTask, status: 'done', assigneeId: assignee });
+
+    await command.onDone(ctx);
+
+    expect(notificationService.notifyStatusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ taskNumber: 8 }),
+      mockUser,
+      assignee,
+    );
+  });
+
+  describe('in a forum', () => {
+    const forumGroup = { ...mockGroup, isForum: true, eventsTopicId: 500, knownTopics: [] };
+
+    it('posts the line in "Task events" replying to /done, with 👌 on the command', async () => {
+      (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({ ...forumGroup });
+      const mockTask = { _id: mockTaskId, taskNumber: 5, title: 'Fix bug', status: 'todo' };
+      (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(mockTask);
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue({ ...mockTask, status: 'done' });
+      const ctx = createMockCtx({
+        chat: { id: -100123, type: 'supergroup', title: 'Test Group', is_forum: true },
+        message: { message_id: 60, text: '/done 5', message_thread_id: 7, is_topic_message: true },
+        telegram: {
+          editMessageText: jest.fn().mockResolvedValue({}),
+          sendMessage: jest.fn().mockResolvedValue({ message_id: 61 }),
+          setMessageReaction: jest.fn().mockResolvedValue(true),
+        },
+      });
+
+      await command.onDone(ctx);
+
+      expect(ctx.telegram.sendMessage).toHaveBeenCalledWith(
+        -100123,
+        expect.stringContaining('finished *#5*'),
+        { parse_mode: 'Markdown', message_thread_id: 500, reply_parameters: { message_id: 60 } },
+      );
+      expect(ctx.telegram.setMessageReaction).toHaveBeenCalledWith(-100123, 60, [{ type: 'emoji', emoji: '👌' }]);
+      expect(ctx.reply).not.toHaveBeenCalled();
+    });
   });
 });

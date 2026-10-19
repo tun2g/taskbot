@@ -1,11 +1,40 @@
 import { BotContext } from 'src/bot/interface/context';
-import { buildTaskButtons, formatTaskCard } from 'src/bot/task-card.renderer';
-import { User } from 'src/database/models/user.model';
 import { groupService } from 'src/database/services/group.service';
-import { taskService } from 'src/database/services/task.service';
 import { userService } from 'src/database/services/user.service';
-import { notificationService } from 'src/shared/services/notification.service';
 import logger from 'src/shared/logger/logger';
+import {
+  BufferedMessage,
+  messageBufferService,
+  messageText,
+  toBufferedMessage,
+  TopicScope,
+} from 'src/shared/services/message-buffer.service';
+import { isForumChat, topicOf } from 'src/shared/services/group-messenger.service';
+import { createTasksFromInput } from 'src/shared/services/task-creation.service';
+import { Message } from 'telegraf/types';
+
+export const MAX_RECENT_MESSAGES = 50;
+
+export const USAGE_MESSAGE =
+  '<b>📋 Turn chat into tasks</b>\n' +
+  '<code>/task Fix login on iOS @an</code> — from your text\n' +
+  'Reply <code>/task</code> — from that message\n' +
+  'Reply <code>/task all</code> — from there to now\n' +
+  '<code>/task 10</code> — from the last 10 messages';
+
+export const PRIVACY_MODE_MESSAGE =
+  "🙈 I can't see recent messages here. The bot owner needs to turn off privacy mode: " +
+  '@BotFather → /setprivacy → Disable, then re-add me to the group. ' +
+  'Until then, reply to a message with /task.';
+
+type Mode =
+  | { kind: 'text'; text: string }
+  | { kind: 'reply'; note?: string }
+  | { kind: 'all' }
+  | { kind: 'recent'; count: number };
+
+type CommandMessage = Message.TextMessage | Message.CaptionableMessage;
+type TopicMessage = { is_topic_message?: boolean; message_thread_id?: number };
 
 export class TaskCommand {
   private map: Map<string, (ctx: BotContext) => void>;
@@ -21,138 +50,143 @@ export class TaskCommand {
 
   async onTask(ctx: BotContext) {
     try {
-      const chatId = ctx.chat?.id;
-      const chatType = ctx.chat?.type;
+      const chat = ctx.chat;
+      if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) {
+        await ctx.reply('📋 /task works in group chats. Add me to your team group and use it there.');
+        return;
+      }
 
-      if (!chatId || (chatType !== 'group' && chatType !== 'supergroup')) {
-        await ctx.reply('⚠️ /task can only be used in group chats.');
+      const message = ctx.message as CommandMessage | undefined;
+      if (!message) return;
+
+      const mode = this.parseMode(message);
+      if (!mode) {
+        await ctx.reply(USAGE_MESSAGE, { parse_mode: 'HTML' });
         return;
       }
 
       const user = await userService.findOrCreateUser(ctx);
       if (!user) {
-        await ctx.reply('❌ Could not identify you. Please /start again.');
+        await ctx.reply("❌ I couldn't identify you. Please try again in a moment.");
         return;
       }
-
-      const chatTitle = 'title' in ctx.chat! ? (ctx.chat as { title: string }).title : 'Group';
-      const group = await groupService.findOrCreateGroup(chatId, chatTitle);
+      const chatTitle = 'title' in chat ? chat.title : 'Group';
+      const group = await groupService.findOrCreateGroup(chat.id, chatTitle);
       if (!group) {
-        await ctx.reply('❌ Could not set up this group. Please try again.');
+        await ctx.reply("❌ I couldn't set up this group. Please try again in a moment.");
         return;
       }
 
-      const message = ctx.message;
-      if (!message) return;
-
-      // Check if this is a reply to a message
-      const replyTo = 'reply_to_message' in message ? message.reply_to_message : null;
-      const messageText = 'text' in message ? message.text || '' : '';
-      const args = messageText.replace(/^\/task(@\w+)?\s*/, '').trim();
-
-      let title: string;
-      let description: string | undefined;
-      let assigneeId: typeof user._id | undefined;
-      let sourceMessage: { messageId: number; chatId: number; text: string; fromUserId: number; link: string } | undefined;
-
-      if (replyTo) {
-        // Reply flow: create task from replied message
-        const replyText = 'text' in replyTo ? replyTo.text || '' : '';
-        const lines = replyText.split('\n');
-        title = (args || lines[0]).substring(0, 200);
-        description = replyText;
-
-        if (!title) {
-          title = lines[0].substring(0, 200) || 'Task from message';
-        }
-
-        // Build source message link
-        const isPublic = chatType === 'supergroup' || chatType === 'group';
-        const chatIdStr = String(chatId).replace('-100', '');
-        const link = isPublic ? `https://t.me/c/${chatIdStr}/${replyTo.message_id}` : '';
-
-        sourceMessage = {
-          messageId: replyTo.message_id,
-          chatId,
-          text: replyText.substring(0, 2000),
-          fromUserId: replyTo.from?.id || 0,
-          link,
-        };
-      } else if (args) {
-        // Direct flow: /task Deploy the new API server
-        title = args;
-      } else {
-        await ctx.reply(
-          '📋 *Usage:*\n' +
-            '• Reply to a message with /task to create a task from it\n' +
-            '• `/task Deploy the API server` to create directly\n' +
-            '• `/task Deploy the API server @user` to create and assign',
-          { parse_mode: 'Markdown' }
-        );
+      const collected = await this.collectMessages(ctx, message, mode);
+      if ('error' in collected) {
+        await ctx.reply(collected.error, collected.html ? { parse_mode: 'HTML' } : {});
         return;
       }
+      const { messages, note, warnings } = collected;
 
-      // Check for @mention at the end to assign
-      const mentionMatch = title.match(/@(\w+)\s*$/);
-      if (mentionMatch) {
-        title = title.replace(/@\w+\s*$/, '').trim();
-        const mentionedUsername = mentionMatch[1];
-        const mentionedUser = await User.findOne({ username: mentionedUsername });
-        if (mentionedUser) {
-          assigneeId = mentionedUser._id;
-        }
-      }
-
-      // Also check entity-based mentions in the message
-      if (!assigneeId && 'entities' in message && message.entities) {
-        for (const entity of message.entities) {
-          if (entity.type === 'text_mention' && entity.user) {
-            const mentionedUser = await userService.findUserByTelegramId(entity.user.id);
-            if (mentionedUser) {
-              assigneeId = mentionedUser._id;
-              const mentionText = messageText.substring(entity.offset, entity.offset + entity.length);
-              title = title.replace(mentionText, '').trim();
-            }
-            break;
-          }
-        }
-      }
-
-      const task = await taskService.createTask({
-        groupId: group._id,
-        title,
-        description,
-        createdBy: user._id,
-        assigneeId,
-        sourceMessage,
+      await createTasksFromInput(ctx, {
+        messages,
+        note,
+        warnings,
+        requester: user,
+        group,
+        multiMessage: mode.kind === 'all' || mode.kind === 'recent',
       });
-
-      // Send rich task card with inline buttons
-      const assigneeUser = assigneeId ? await User.findById(assigneeId) : null;
-      const cardText = formatTaskCard(task, user, assigneeUser);
-      const buttons = await buildTaskButtons(task);
-
-      const cardMessage = await ctx.reply(cardText, {
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: buttons },
-      });
-
-      // Store task card message ID for later updates
-      await taskService.updateTask(task._id, {
-        taskCardMessageId: cardMessage.message_id,
-        taskCardChatId: chatId,
-      });
-
-      // Notify assignee if assigned
-      if (assigneeId && assigneeUser) {
-        await notificationService.notifyAssignment(task, assigneeUser, user);
-      }
     } catch (error) {
-      logger.error(`Error in /task command: ${error}`);
-      await ctx.reply('❌ Failed to create task. Please try again.');
+      logger.error(`Error in /task command: ${error instanceof Error ? error.stack : error}`);
+      await ctx
+        .reply('❌ Something went wrong and no task was created. Please try /task again in a moment.')
+        .catch(() => undefined);
+    }
+  }
+
+  parseMode(message: CommandMessage): Mode | null {
+    const raw = messageText(message);
+    const args = raw.replace(/^\/task(@\w+)?/i, '').trim();
+    const reply = this.getReplyTarget(message);
+
+    if (reply) {
+      if (args.toLowerCase() === 'all') return { kind: 'all' };
+      return { kind: 'reply', note: args || undefined };
+    }
+    if (/^\d+$/.test(args)) {
+      const count = Math.min(Math.max(parseInt(args, 10), 1), MAX_RECENT_MESSAGES);
+      return { kind: 'recent', count };
+    }
+    if (!args || args.toLowerCase() === 'all') return null;
+    return { kind: 'text', text: args };
+  }
+
+  /** The replied-to message, ignoring the implicit reply to a forum topic's first message. */
+  private getReplyTarget(message: CommandMessage): Message | null {
+    const reply = 'reply_to_message' in message ? message.reply_to_message : undefined;
+    if (!reply || 'forum_topic_created' in reply) return null;
+    return reply as Message;
+  }
+
+  private async collectMessages(
+    ctx: BotContext,
+    message: CommandMessage,
+    mode: Mode,
+  ): Promise<{ messages: BufferedMessage[]; note?: string; warnings: string[] } | { error: string; html?: boolean }> {
+    const chatId = ctx.chat!.id;
+    const warnings: string[] = [];
+    const privacyOn = ctx.botInfo?.can_read_all_group_messages === false;
+    // In a forum, "the last N messages" means this topic's messages, not the whole group's.
+    const topicArgs: [TopicScope] | [] = isForumChat(ctx) ? [{ threadId: topicOf(message as TopicMessage) }] : [];
+
+    switch (mode.kind) {
+      case 'text':
+        return { messages: [toBufferedMessage(message, chatId, mode.text)], warnings };
+
+      case 'reply': {
+        const reply = this.getReplyTarget(message)!;
+        const text = messageText(reply);
+        if (!text && !mode.note) {
+          return {
+            error:
+              "That message has no text I can turn into a task. Reply to a text message, or add a title: <code>/task Fix the printer</code>",
+            html: true,
+          };
+        }
+        // Text-less message (e.g. a photo) + note: the note is the content, the message stays the source.
+        const buffered = toBufferedMessage(reply, chatId, text || mode.note);
+        return { messages: [buffered], note: text ? mode.note : undefined, warnings };
+      }
+
+      case 'all': {
+        const reply = this.getReplyTarget(message)!;
+        const first = toBufferedMessage(reply, chatId);
+        const after = await messageBufferService.getAfter(chatId, reply.message_id, ...topicArgs);
+        let messages = [first, ...after].filter((m) => m.text);
+        if (messages.length === 0) {
+          return { error: 'That message has no text I can turn into a task. Reply to a text message with /task all.' };
+        }
+        if (messages.length > MAX_RECENT_MESSAGES) {
+          messages = messages.slice(0, MAX_RECENT_MESSAGES);
+          warnings.push(`ℹ️ Read the first ${MAX_RECENT_MESSAGES} messages from there.`);
+        }
+        if (after.length === 0 && privacyOn) {
+          warnings.push(
+            'ℹ️ I could only read the message you replied to — privacy mode is on (@BotFather → /setprivacy → Disable).',
+          );
+        }
+        return { messages, warnings };
+      }
+
+      case 'recent': {
+        const messages = await messageBufferService.getRecent(chatId, mode.count, ...topicArgs);
+        if (messages.length === 0) {
+          return {
+            error: privacyOn
+              ? PRIVACY_MODE_MESSAGE
+              : "🤷 I haven't seen any messages here in the last 48 hours. Reply to a message with /task instead.",
+          };
+        }
+        return { messages, warnings };
+      }
     }
   }
 }
 
 export const taskCommand = new TaskCommand();
-

@@ -1,3 +1,4 @@
+import { TASK_PRIORITY_VALUES, TASK_STATUS_VALUES, TASK_TYPE_VALUES } from '@tbot/shared';
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ISourceMessage {
@@ -5,6 +6,7 @@ export interface ISourceMessage {
   chatId: number;
   text: string;
   fromUserId: number;
+  fromName?: string;
   link: string;
 }
 
@@ -12,6 +14,7 @@ export interface ITask extends Document {
   groupId: mongoose.Types.ObjectId;
   title: string;
   description?: string;
+  type: string;
   status: string;
   priority: string;
   createdBy: mongoose.Types.ObjectId;
@@ -19,7 +22,10 @@ export interface ITask extends Document {
   dueDate?: Date;
   taskNumber: number;
   sourceMessage?: ISourceMessage;
+  sourceMessages?: ISourceMessage[];
+  batchId?: string;
   completedAt?: Date;
+  completedBy?: mongoose.Types.ObjectId;
   reminderSent?: boolean;
   taskCardMessageId?: number;
   taskCardChatId?: number;
@@ -33,6 +39,7 @@ const SourceMessageSchema = new Schema(
     chatId: { type: Number, required: true },
     text: { type: String, default: '' },
     fromUserId: { type: Number, required: true },
+    fromName: { type: String, default: '' },
     link: { type: String, default: '' },
   },
   { _id: false }
@@ -55,14 +62,19 @@ const TaskSchema: Schema = new Schema(
       type: String,
       default: null,
     },
+    type: {
+      type: String,
+      enum: TASK_TYPE_VALUES,
+      default: 'task',
+    },
     status: {
       type: String,
-      enum: ['todo', 'in_progress', 'done'],
+      enum: TASK_STATUS_VALUES,
       default: 'todo',
     },
     priority: {
       type: String,
-      enum: ['low', 'medium', 'high', 'urgent'],
+      enum: TASK_PRIORITY_VALUES,
       default: 'medium',
     },
     createdBy: {
@@ -87,8 +99,22 @@ const TaskSchema: Schema = new Schema(
       type: SourceMessageSchema,
       default: null,
     },
+    sourceMessages: {
+      type: [SourceMessageSchema],
+      default: [],
+    },
+    batchId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     completedAt: {
       type: Date,
+      default: null,
+    },
+    completedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
       default: null,
     },
     reminderSent: {
@@ -114,6 +140,7 @@ TaskSchema.index({ groupId: 1, status: 1 });
 TaskSchema.index({ groupId: 1, assigneeId: 1 });
 TaskSchema.index({ groupId: 1, createdAt: -1 });
 TaskSchema.index({ assigneeId: 1, status: 1 });
+TaskSchema.index({ groupId: 1, type: 1 });
 TaskSchema.index({ groupId: 1, taskNumber: 1 }, { unique: true });
 
 export const Task = mongoose.model<ITask>('Task', TaskSchema);

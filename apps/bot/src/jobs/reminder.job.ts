@@ -1,39 +1,63 @@
+import { statusesInCategory, TaskStatusCategory } from '@tbot/shared';
 import Bull from 'bull';
+import { addDays, dueDay, groupTimezone, hourIn, refId, todayIn } from 'src/bot/task-card.renderer';
+import { Group, IGroup } from 'src/database/models/group.model';
 import { Task } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
-import { notificationService } from 'src/shared/services/notification.service';
 import logger from 'src/shared/logger/logger';
+import { notificationService, ReminderReason } from 'src/shared/services/notification.service';
 
+const CLOSED_STATUSES = statusesInCategory(TaskStatusCategory.DONE);
+
+/** Reminders go out from this local hour on (in the group's timezone), so nobody is pinged at night. */
+export const REMINDER_FROM_HOUR = 9;
+
+/**
+ * Hourly. Sends one reminder per task, once its due day is today or tomorrow in the group's
+ * timezone (so normally the morning of the day before). Due dates are calendar days stored at 00:00Z.
+ */
 export async function processReminderJob(_job: Bull.Job): Promise<void> {
   logger.info('[ReminderJob] Running due date reminder check...');
 
   try {
     const now = new Date();
-    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    // Wide UTC window (timezones span ±14h); exact filtering happens per group below.
+    const windowStart = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // Find tasks due within next 24 hours that haven't been reminded
     const tasks = await Task.find({
-      dueDate: { $lte: in24Hours, $gte: now },
-      status: { $ne: 'done' },
+      dueDate: { $gte: windowStart, $lte: windowEnd },
+      status: { $nin: CLOSED_STATUSES },
       reminderSent: { $ne: true },
     });
 
-    logger.info(`[ReminderJob] Found ${tasks.length} tasks due within 24 hours`);
+    const groupCache = new Map<string, IGroup | null>();
+    let sent = 0;
 
     for (const task of tasks) {
-      // Send to assignee or creator
-      const targetUserId = task.assigneeId || task.createdBy;
-      const targetUser = await User.findById(targetUserId);
+      if (!task.dueDate) continue;
+      const groupId = task.groupId.toString();
+      if (!groupCache.has(groupId)) groupCache.set(groupId, await Group.findById(task.groupId));
+      const tz = groupTimezone(groupCache.get(groupId));
+
+      const today = todayIn(tz, now);
+      const due = dueDay(task.dueDate);
+      if (due !== today && due !== addDays(today, 1)) continue;
+      if (hourIn(tz, now) < REMINDER_FROM_HOUR) continue;
+
+      const assigneeId = refId(task.assigneeId);
+      const reason: ReminderReason = assigneeId ? 'assignee' : 'creator';
+      const targetUser = await User.findById(assigneeId ?? task.createdBy);
 
       if (targetUser) {
-        await notificationService.notifyDueReminder(task, targetUser);
+        await notificationService.notifyDueReminder(task, targetUser, reason);
+        sent++;
       }
 
-      // Mark as reminded
       await Task.findByIdAndUpdate(task._id, { $set: { reminderSent: true } });
     }
 
-    logger.info(`[ReminderJob] Sent ${tasks.length} reminders`);
+    logger.info(`[ReminderJob] Sent ${sent} reminder(s)`);
   } catch (error) {
     logger.error(`[ReminderJob] Error: ${error}`);
     throw error;

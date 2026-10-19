@@ -24,7 +24,8 @@ docker compose -f docker-compose.dev.yml up -d
 #    docker compose -f docker-compose.dev.yml up -d mongodb
 
 # 3. Configure env (see "Environment" below)
-cp .env.example apps/bot/.env   # then set BOT_TOKEN
+cp apps/bot/.env.example apps/bot/.env   # then set BOT_TOKEN
+cp apps/web/.env.example apps/web/.env   # optional: VITE_BOT_USERNAME for browser login
 
 # 4. Run everything
 pnpm dev
@@ -51,10 +52,10 @@ pnpm format       # prettier --write across the repo
 
 Env files are **per app** (no combined root file for local dev):
 
-- **`apps/bot/.env`** — bot/API config. Start from [`.env.example`](.env.example).
-- **`apps/web/.env`** — only `VITE_`-prefixed vars are exposed to the client. See [`apps/web/README.md`](apps/web/README.md).
+- **`apps/bot/.env`** — bot + REST API config (one process). Start from [`apps/bot/.env.example`](apps/bot/.env.example).
+- **`apps/web/.env`** — only `VITE_`-prefixed vars, baked in at build time. Start from [`apps/web/.env.example`](apps/web/.env.example).
 
-The root [`.env.example`](.env.example) documents every bot variable. The root `.env` is **only** used by the production `docker-compose.yml` (`env_file: .env`).
+Each app documents its own variables in its `.env.example`; there is no root env file. The production `docker-compose.yml` reads `apps/bot/.env`.
 
 Key bot variables:
 
@@ -65,6 +66,28 @@ Key bot variables:
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` (local) — `redis` in compose |
 | `WEBAPP_URL` | Mini App URL — **must be HTTPS** for the menu button / deep links |
 | `WEBHOOK_URL` | if set, the bot uses webhook mode instead of polling |
+| `AI_PROVIDER` / `AI_API_KEY` | `gemini` (default) or `fuse` + key. Powers `/task` extraction and `/ai`. Without a key, `/task` still creates a basic task and `/ai` explains AI is unavailable |
+| `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
+| `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
+
+Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example)): `VITE_API_URL`, and `VITE_BOT_USERNAME` (bot username without `@`, for the browser Telegram login). In CI they come from the GitHub repo **variables** `VITE_API_URL` (default `/api`) and `VITE_BOT_USERNAME`, baked into the web image at build time.
+
+### BotFather setup
+
+| Setting | Why |
+|---------|-----|
+| `/setprivacy` → **Disable** (then re-add the bot to groups) | lets the bot read group messages so `/task 10` and `/task all` can turn recent messages into tasks |
+| Main Mini App (Bot Settings → Configure Mini App) | enables in-Telegram "Open board" links from groups and DMs (`t.me/<bot>?startapp=…`); without it links open the browser version |
+| `/setdomain` → your web domain | required for the Telegram Login Widget (opening the board in a normal browser) |
+| Make the bot a group **admin** (optional) | Telegram only sends member join/leave updates to admins, keeping the assignee list accurate |
+
+### Using the bot
+
+- `/task Fix login on iOS @an` — AI turns your text into one or more tasks (type, assignee, due date)
+- reply `/task` to a message · reply `/task all` (from that message to now) · `/task 10` (last 10 messages)
+- `/ai <plain words>` — e.g. reply to a card with `/ai chuyển task này cho @ttt`, `/ai #12 xong rồi`, `/ai tôi còn task nào?`
+- `/tasks [mine|open|review|bug|@user…]`, `/done #12`, `/help` (interactive guide)
+- Statuses: Backlog · To do · In progress · In review · Pending · Done · Cancelled. Types: Bug · Feature · Improvement · Task · Chore · Research · Question
 
 ## Running the Mini App inside Telegram
 
@@ -93,8 +116,8 @@ Then set `WEBAPP_URL` (bot) and `VITE_API_URL` (web) to the tunnel(s) and restar
 The root [`Dockerfile`](Dockerfile) builds and runs **the bot only**; [`docker-compose.yml`](docker-compose.yml) adds Mongo + Redis on an internal network.
 
 ```bash
-cp .env.example .env          # root .env; set BOT_TOKEN, and use compose hostnames:
-                              # REDIS_HOST=redis, MONGODB_URI=mongodb://mongodb:27017/tbot
+cp apps/bot/.env.example apps/bot/.env   # set BOT_TOKEN, and use compose hostnames:
+                                         # REDIS_HOST=redis, MONGODB_URI=mongodb://mongodb:27017/tbot
 docker compose up -d --build
 ```
 

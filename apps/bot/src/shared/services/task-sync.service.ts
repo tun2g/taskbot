@@ -1,73 +1,186 @@
+import mongoose from 'mongoose';
 import { bot } from 'src/bot';
-import { buildTaskButtons, formatTaskCard } from 'src/bot/task-card.renderer';
+import { buildTaskButtons, formatTaskCard, groupTimezone } from 'src/bot/task-card.renderer';
+import { IGroup } from 'src/database/models/group.model';
 import { ITask, Task } from 'src/database/models/task.model';
-import { User } from 'src/database/models/user.model';
+import { IUser, User } from 'src/database/models/user.model';
+import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
+import { CreatedTask, createdSummaryLines } from 'src/shared/services/task-creation.service';
+import { groupMessengerService } from 'src/shared/services/group-messenger.service';
+import { appLinkButton } from 'src/shared/utils/app-links';
+import { Message } from 'telegraf/types';
+
+import {
+  buildChangeLine,
+  buildDeleteLine,
+  escapeHtml,
+  TaskChange,
+  userDisplayName,
+} from 'src/shared/services/task-event-lines';
+
+type SendExtra = NonNullable<Parameters<typeof bot.telegram.sendMessage>[2]>;
+
+export type { TaskChange, TaskChangeField } from 'src/shared/services/task-event-lines';
+export { buildChangeLine, buildDeleteLine, escapeHtml, shortTitle, userDisplayName } from 'src/shared/services/task-event-lines';
+
+function isUserDoc(value: unknown): value is IUser {
+  return !!value && typeof value === 'object' && 'telegramUserId' in (value as object);
+}
 
 export class TaskSyncService {
   /**
-   * Sync task card in group chat (edit existing or post new)
+   * Refresh the task card in the group chat.
+   * - Card exists → edit it in place.
+   * - No card → post one ONLY when `created` is set (task just created from the app).
+   *   AI batch tasks have no card on purpose, so an update must never spawn one.
    */
-  async syncTaskCard(task: ITask) {
+  async syncTaskCard(task: ITask, options: { created?: boolean } = {}) {
     try {
       const fullTask = await Task.findById(task._id).populate('createdBy assigneeId');
       if (!fullTask) return;
 
-      const creator = fullTask.createdBy ? await User.findById(fullTask.createdBy) : null;
-      const assignee = fullTask.assigneeId ? await User.findById(fullTask.assigneeId) : null;
+      const creator = isUserDoc(fullTask.createdBy) ? fullTask.createdBy : null;
+      const assignee = isUserDoc(fullTask.assigneeId) ? fullTask.assigneeId : null;
 
       const text = formatTaskCard(fullTask, creator, assignee);
       const buttons = await buildTaskButtons(fullTask);
 
       if (fullTask.taskCardMessageId && fullTask.taskCardChatId) {
-        // Try to edit existing message
         try {
-          await bot.telegram.editMessageText(
-            fullTask.taskCardChatId,
-            fullTask.taskCardMessageId,
-            undefined,
-            text,
-            { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
-          );
-          return;
+          await bot.telegram.editMessageText(fullTask.taskCardChatId, fullTask.taskCardMessageId, undefined, text, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: buttons },
+          });
         } catch (error: unknown) {
           const errMsg = error instanceof Error ? error.message : String(error);
-          if (errMsg.includes('message is not modified')) return; // No change needed
-          logger.warn(`Could not edit task card: ${errMsg}. Will post new card.`);
+          if (!errMsg.includes('message is not modified')) {
+            logger.warn(`Could not edit task card for task ${fullTask._id}: ${errMsg}`);
+          }
         }
+        return;
       }
 
-      // Post new card if no existing card or edit failed
-      if (fullTask.taskCardChatId) {
-        const newMsg = await bot.telegram.sendMessage(fullTask.taskCardChatId, text, {
+      if (options.created && fullTask.taskCardChatId) {
+        const newMsg = await this.postEvent(fullTask.groupId, fullTask.taskCardChatId, text, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: buttons },
         });
-
-        await Task.findByIdAndUpdate(fullTask._id, {
-          $set: { taskCardMessageId: newMsg.message_id },
-        });
+        await Task.findByIdAndUpdate(fullTask._id, { $set: { taskCardMessageId: newMsg.message_id } });
       }
     } catch (error) {
       logger.error(`Task sync error: ${error}`);
     }
   }
 
-  /**
-   * Post a status change notification to the group
-   */
-  async postStatusNotification(task: ITask, changedByUserId: string, action: string) {
+  /** Post one combined line about an app PATCH (only for status / assignee / title changes). */
+  async postChangeSummary(task: ITask, actorUserId: mongoose.Types.ObjectId | string, changes: TaskChange[]) {
     try {
-      if (!task.taskCardChatId) return;
+      const actor = await User.findById(actorUserId);
+      const line = buildChangeLine(userDisplayName(actor), task.taskNumber, task.title, changes);
+      if (!line) return;
 
-      const changedBy = await User.findById(changedByUserId);
-      const name = changedBy?.username ? `@${changedBy.username}` : changedBy?.firstName || 'Someone';
-
-      const msg = `📝 ${name} ${action} *#${task.taskNumber}* — ${task.title} (via app)`;
-      await bot.telegram.sendMessage(task.taskCardChatId, msg, { parse_mode: 'Markdown' });
+      await this.postEvent(task.groupId, task.taskCardChatId, line, { parse_mode: 'HTML' });
     } catch (error) {
-      logger.error(`Status notification error: ${error}`);
+      logger.error(`Change summary error for task ${task._id}: ${error}`);
     }
+  }
+
+  /** After a delete from the app: remove the card (best effort) and tell the group. */
+  async onTaskDeleted(task: ITask, actorUserId: mongoose.Types.ObjectId | string) {
+    try {
+      if (task.taskCardChatId && task.taskCardMessageId) {
+        await bot.telegram.deleteMessage(task.taskCardChatId, task.taskCardMessageId).catch(() => {});
+      }
+
+      const actor = await User.findById(actorUserId);
+      await this.postEvent(task.groupId, task.taskCardChatId, buildDeleteLine(userDisplayName(actor), task.taskNumber, task.title), {
+        parse_mode: 'HTML',
+      });
+    } catch (error) {
+      logger.error(`Delete notification error for task ${task._id}: ${error}`);
+    }
+  }
+
+  /**
+   * Tasks created from the web chat: ONE group message, marked "(via app)" and without ↩️ Undo
+   * (undo lives in the web chat). 1 task → its card (taskCardMessageId stored so later edits
+   * refresh it); 2+ → a summary. Returns the posted message, or null when posting failed.
+   */
+  async postCreatedFromApp(
+    group: IGroup,
+    requester: IUser,
+    created: CreatedTask[],
+  ): Promise<{ chatId: number; messageId: number } | null> {
+    const chatId = group.telegramGroupId;
+    if (!chatId || created.length === 0) return null;
+    try {
+      if (created.length === 1) {
+        const { task, assignee } = created[0];
+        const text = `${formatTaskCard(task, requester, assignee, groupTimezone(group))}\n\n_(via app)_`;
+        const buttons = await buildTaskButtons(task);
+        const sent = await groupMessengerService.sendEvent(bot.telegram, group, text, {
+          extra: {
+            parse_mode: 'Markdown',
+            link_preview_options: { is_disabled: true },
+            reply_markup: { inline_keyboard: buttons },
+          },
+        });
+        await Task.findByIdAndUpdate(task._id, { $set: { taskCardMessageId: sent.message_id, taskCardChatId: chatId } });
+        task.taskCardMessageId = sent.message_id;
+        task.taskCardChatId = chatId;
+        return { chatId, messageId: sent.message_id };
+      }
+
+      const lines = [
+        `<b>🤖 ${escapeHtml(userDisplayName(requester))} created ${created.length} tasks (via app)</b>`,
+        '',
+        ...createdSummaryLines(created),
+      ];
+      const board = appLinkButton('📱 Open board', group._id.toString());
+      const sent = await groupMessengerService.sendEvent(bot.telegram, group, lines.join('\n'), {
+        extra: {
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
+          ...(board ? { reply_markup: { inline_keyboard: [[board]] } } : {}),
+        },
+      });
+      return { chatId, messageId: sent.message_id };
+    } catch (error) {
+      logger.error(`Could not post app-created tasks to group ${group._id}: ${error}`);
+      return null;
+    }
+  }
+
+  /** After an undo from the web chat: turn the group post into "↩️ Undone by X (via app) · N tasks removed". */
+  async markBatchUndone(post: { chatId: number; messageId: number }, actorName: string, removed: number) {
+    const text = `↩️ Undone by ${actorName} (via app) · ${removed} task${removed === 1 ? '' : 's'} removed`;
+    try {
+      // No reply_markup: the card/summary buttons go away with the tasks.
+      await bot.telegram.editMessageText(post.chatId, post.messageId, undefined, text);
+    } catch (error) {
+      logger.warn(`Could not mark batch post ${post.messageId} as undone: ${error}`);
+    }
+  }
+
+  /**
+   * Posts an app/web event to the task's group: through the group messenger (forums: the
+   * "Task events" topic, else General — there's no command topic to fall back to). Falls back
+   * to a plain message in the card's chat if the group can't be loaded. Throws if nothing can be sent.
+   */
+  private async postEvent(
+    groupId: ITask['groupId'] | undefined,
+    cardChatId: number | undefined,
+    text: string,
+    extra: SendExtra,
+  ): Promise<Message.TextMessage> {
+    const group = groupId ? await groupService.findGroupById(groupId) : null;
+    if (group && (!cardChatId || group.telegramGroupId === cardChatId)) {
+      return groupMessengerService.sendEvent(bot.telegram, group, text, { extra });
+    }
+    const chatId = cardChatId ?? group?.telegramGroupId;
+    if (!chatId) throw new Error('No chat to post the task event in');
+    return bot.telegram.sendMessage(chatId, text, extra);
   }
 }
 

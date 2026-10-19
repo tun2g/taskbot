@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GroupIdTasksIndexRouteImport } from './routes/$groupId/tasks/index'
 import { Route as GroupIdTasksTaskIdRouteImport } from './routes/$groupId/tasks/$taskId'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +37,52 @@ const GroupIdTasksTaskIdRoute = GroupIdTasksTaskIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/tasks': typeof GroupIdTasksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/$groupId/tasks/$taskId' | '/$groupId/tasks/'
+  fullPaths: '/' | '/login' | '/$groupId/tasks/$taskId' | '/$groupId/tasks/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/$groupId/tasks/$taskId' | '/$groupId/tasks'
-  id: '__root__' | '/' | '/$groupId/tasks/$taskId' | '/$groupId/tasks/'
+  to: '/' | '/login' | '/$groupId/tasks/$taskId' | '/$groupId/tasks'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/$groupId/tasks/$taskId'
+    | '/$groupId/tasks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  LoginRoute: typeof LoginRoute
   GroupIdTasksTaskIdRoute: typeof GroupIdTasksTaskIdRoute
   GroupIdTasksIndexRoute: typeof GroupIdTasksIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +109,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  LoginRoute: LoginRoute,
   GroupIdTasksTaskIdRoute: GroupIdTasksTaskIdRoute,
   GroupIdTasksIndexRoute: GroupIdTasksIndexRoute,
 }

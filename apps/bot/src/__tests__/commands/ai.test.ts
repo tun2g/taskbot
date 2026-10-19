@@ -1,0 +1,259 @@
+import mongoose from 'mongoose';
+import { AI_PRIVATE_MESSAGE, AiCommand } from 'src/bot/commands/ai';
+import { groupMemberService } from 'src/database/services/group-member.service';
+import { groupService } from 'src/database/services/group.service';
+import { taskService } from 'src/database/services/task.service';
+import { userService } from 'src/database/services/user.service';
+import { AI_UNAVAILABLE_MESSAGE, aiCommandService } from 'src/shared/services/ai-command.service';
+import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
+import { rateLimitService } from 'src/shared/services/rate-limit.service';
+import { checkGroupAiRateLimit, createTasksFromInput } from 'src/shared/services/task-creation.service';
+
+jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
+jest.mock('src/database/services/user.service');
+jest.mock('src/database/services/group.service');
+jest.mock('src/database/services/group-member.service');
+jest.mock('src/database/services/task.service');
+jest.mock('src/shared/services/rate-limit.service');
+jest.mock('src/shared/services/ai/ai.service', () => {
+  class AIUnavailableError extends Error {
+    constructor(
+      public reason: string,
+      message: string,
+    ) {
+      super(message);
+    }
+  }
+  return { AIUnavailableError, aiService: { isConfigured: jest.fn(), generateJson: jest.fn() } };
+});
+jest.mock('src/shared/services/task-creation.service', () => {
+  class ReplyProgress {
+    constructor(private ctx: any) {}
+    finish(text: string, extra: any) {
+      return this.ctx.reply(text, extra);
+    }
+  }
+  return { ReplyProgress, checkGroupAiRateLimit: jest.fn(), createTasksFromInput: jest.fn() };
+});
+jest.mock('src/shared/services/ai-command.service', () => ({
+  ...jest.requireActual('src/shared/services/ai-command.service'),
+  aiCommandService: { plan: jest.fn(), execute: jest.fn() },
+}));
+jest.mock('src/shared/services/notification.service', () => ({ notificationService: {} }));
+jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
+
+const user = { _id: new mongoose.Types.ObjectId(), telegramUserId: 1, username: 'me' };
+const group = { _id: new mongoose.Types.ObjectId(), timezone: 'UTC' };
+
+function ctx(text: string, extra: Record<string, any> = {}) {
+  return {
+    chat: { id: -100123, type: 'supergroup', title: 'Team' },
+    message: { message_id: 77, text, from: { id: 1, username: 'me' }, date: 1760000000, ...extra },
+    reply: jest.fn().mockResolvedValue({ message_id: 78 }),
+    sendChatAction: jest.fn().mockResolvedValue(true),
+    telegram: { editMessageText: jest.fn() },
+  } as any;
+}
+
+describe('AiCommand', () => {
+  let command: AiCommand;
+
+  beforeEach(() => {
+    command = new AiCommand();
+    jest.clearAllMocks();
+    (aiService.isConfigured as jest.Mock).mockReturnValue(true);
+    (userService.findOrCreateUser as jest.Mock).mockResolvedValue(user);
+    (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue(group);
+    (groupMemberService.getMembers as jest.Mock).mockResolvedValue([user]);
+    (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 5, retryAfterSeconds: 0 });
+    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+    (taskService.getTaskByCardMessage as jest.Mock).mockResolvedValue(null);
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
+  });
+
+  it('registers /ai', () => {
+    expect(command.register().has('ai')).toBe(true);
+  });
+
+  it('explains it works in groups when used privately', async () => {
+    const c = ctx('/ai hi');
+    c.chat = { id: 1, type: 'private' };
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(AI_PRIVATE_MESSAGE, expect.objectContaining({ parse_mode: 'HTML' }));
+  });
+
+  it('shows usage for an empty request', async () => {
+    const c = ctx('/ai');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Ask me in plain words'), expect.any(Object));
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+  });
+
+  it('falls back when AI is not configured', async () => {
+    (aiService.isConfigured as jest.Mock).mockReturnValue(false);
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.sendChatAction).toHaveBeenCalledWith('typing');
+    expect(c.reply).toHaveBeenCalledTimes(1);
+    expect(c.reply).toHaveBeenCalledWith(AI_UNAVAILABLE_MESSAGE, expect.any(Object));
+  });
+
+  it('falls back when the AI fails', async () => {
+    (aiCommandService.plan as jest.Mock).mockRejectedValue(new AIUnavailableError('invalid', 'bad json'));
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledTimes(1);
+    expect(c.reply).toHaveBeenCalledWith(AI_UNAVAILABLE_MESSAGE, expect.any(Object));
+  });
+
+  it('is rate limited per user', async () => {
+    (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 30 });
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Try again in 30s'), expect.any(Object));
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+  });
+
+  it('builds context from the replied card and #N, then sends one threaded HTML reply', async () => {
+    const card = { _id: 't1', taskNumber: 12, title: 'Fix', status: 'todo' };
+    const other = { _id: 't2', taskNumber: 7, title: 'Other', status: 'todo' };
+    (taskService.getTaskByCardMessage as jest.Mock).mockResolvedValue(card);
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(other);
+    (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+    (aiCommandService.execute as jest.Mock).mockResolvedValue({
+      kind: 'reply',
+      reply: { text: '✅ <b>#12 Fix</b>', buttons: [[{ text: 'b', url: 'https://x' }]] },
+    });
+
+    const c = ctx('/ai chuyển task này cho @an, và #7 xong', { reply_to_message: { message_id: 5, text: 'card' } });
+    await command.onAi(c);
+
+    const context = (aiCommandService.plan as jest.Mock).mock.calls[0][0];
+    expect(context).toMatchObject({
+      request: 'chuyển task này cho @an, và #7 xong',
+      replyTask: card,
+      replyMessage: null,
+      referencedNumbers: [7],
+      referencedTasks: [other],
+    });
+    expect(c.reply).toHaveBeenCalledTimes(1);
+    expect(c.reply).toHaveBeenCalledWith(
+      '✅ <b>#12 Fix</b>',
+      expect.objectContaining({
+        parse_mode: 'HTML',
+        reply_parameters: { message_id: 77, allow_sending_without_reply: true },
+        reply_markup: { inline_keyboard: [[{ text: 'b', url: 'https://x' }]] },
+      }),
+    );
+  });
+
+  it('delegates create_tasks to the creation pipeline with the replied message as material', async () => {
+    (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+    (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'create', useReply: true });
+    const c = ctx('/ai tạo task cho @an', {
+      reply_to_message: { message_id: 5, text: 'login bị lỗi trên iOS', from: { id: 2, username: 'an' }, date: 1 },
+    });
+
+    await command.onAi(c);
+
+    expect(createTasksFromInput).toHaveBeenCalledWith(
+      c,
+      expect.objectContaining({
+        messages: [expect.objectContaining({ messageId: 5, text: 'login bị lỗi trên iOS' })],
+        note: 'tạo task cho @an',
+        requester: user,
+        group,
+      }),
+    );
+    expect(c.reply).not.toHaveBeenCalled();
+  });
+
+  it('uses the request text as material when nothing is replied', async () => {
+    (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+    (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'create', useReply: false });
+    const c = ctx('/ai tạo task fix login cho @an hạn thứ 6');
+    await command.onAi(c);
+    expect(createTasksFromInput).toHaveBeenCalledWith(
+      c,
+      expect.objectContaining({ messages: [expect.objectContaining({ messageId: 77, text: 'tạo task fix login cho @an hạn thứ 6' })] }),
+    );
+  });
+
+  it('never fails silently', async () => {
+    (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+    (aiCommandService.execute as jest.Mock).mockRejectedValue(new Error('db down'));
+    const c = ctx('/ai #12 xong rồi');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Something went wrong'), expect.any(Object));
+  });
+
+  describe('changes are events', () => {
+    const update = {
+      task: { taskNumber: 12, title: 'Fix login' },
+      fieldChanges: [{ field: 'status', from: '📝 To do', to: '✅ Done' }],
+      changes: ['✅ Done'],
+    };
+    const outcome = { kind: 'reply', reply: { text: '✅ <b>#12 Fix login</b>\n✅ Done' }, updates: [update] };
+    const forumCtx = (threadId: number) => {
+      const c = ctx('/ai #12 xong rồi', { message_thread_id: threadId, is_topic_message: true });
+      c.chat.is_forum = true;
+      c.telegram = {
+        editMessageText: jest.fn(),
+        sendMessage: jest.fn().mockResolvedValue({ message_id: 90 }),
+        setMessageReaction: jest.fn(),
+      };
+      return c;
+    };
+
+    beforeEach(() => {
+      (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+      (aiCommandService.execute as jest.Mock).mockResolvedValue(outcome);
+    });
+
+    it('normal group: the confirmation is the only message', async () => {
+      const c = ctx('/ai #12 xong rồi');
+      c.telegram.sendMessage = jest.fn();
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('forum: answer in place + one line in "Task events" replying to the /ai message', async () => {
+      (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({
+        ...group,
+        telegramGroupId: -100123,
+        isForum: true,
+        eventsTopicId: 500,
+        knownTopics: [],
+      });
+      const c = forumCtx(7);
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledWith(outcome.reply.text, expect.objectContaining({ parse_mode: 'HTML' }));
+      expect(c.telegram.sendMessage).toHaveBeenCalledWith(
+        -100123,
+        '📝 @me moved <b>#12</b> Fix login to ✅ Done (via /ai)',
+        {
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
+          message_thread_id: 500,
+          reply_parameters: { message_id: 77 },
+        },
+      );
+      expect(c.telegram.setMessageReaction).not.toHaveBeenCalled();
+    });
+
+    it('forum, typed in the events topic: no second message', async () => {
+      (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({
+        ...group,
+        telegramGroupId: -100123,
+        isForum: true,
+        eventsTopicId: 500,
+        knownTopics: [],
+      });
+      const c = forumCtx(500);
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+});

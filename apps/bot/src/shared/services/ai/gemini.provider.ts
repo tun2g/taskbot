@@ -1,15 +1,16 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage } from 'src/shared/services/ai/ai.interface';
+import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
 
 export class GeminiProvider implements AIProvider {
   private genAI: GoogleGenerativeAI;
   private model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
+  private static readonly MODEL = 'gemini-2.5-flash';
 
   constructor() {
     this.genAI = new GoogleGenerativeAI(configService.ai.apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    this.model = this.genAI.getGenerativeModel({ model: GeminiProvider.MODEL });
   }
 
   private parseError(error: unknown): string {
@@ -51,6 +52,27 @@ export class GeminiProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in chat: ${error}`);
+      throw new Error(errorMessage);
+    }
+  }
+
+  async generateJson(request: JsonGenerationRequest): Promise<string> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: GeminiProvider.MODEL,
+        systemInstruction: request.system,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: request.temperature ?? 0.2,
+        },
+      });
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: request.user }] }],
+      });
+      return result.response.text();
+    } catch (error) {
+      const errorMessage = this.parseError(error);
+      logger.error(`Error in generateJson: ${error}`);
       throw new Error(errorMessage);
     }
   }

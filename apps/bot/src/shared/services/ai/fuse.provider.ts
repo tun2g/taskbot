@@ -1,9 +1,9 @@
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage } from 'src/shared/services/ai/ai.interface';
+import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
 
 interface FuseAPIMessage {
-  role: 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
@@ -118,6 +118,22 @@ export class FuseProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in chat: ${error}`);
+      throw new Error(errorMessage);
+    }
+  }
+
+  async generateJson(request: JsonGenerationRequest): Promise<string> {
+    try {
+      return await this.callFuseAPI(
+        [
+          { role: 'system', content: `${request.system}\n\nRespond with a single JSON object only — no prose, no code fences.` },
+          { role: 'user', content: request.user },
+        ],
+        request.temperature ?? 0.2,
+      );
+    } catch (error) {
+      const errorMessage = this.parseError(error);
+      logger.error(`Error in generateJson: ${error}`);
       throw new Error(errorMessage);
     }
   }

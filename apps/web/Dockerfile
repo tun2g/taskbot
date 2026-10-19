@@ -13,6 +13,9 @@ COPY apps/web/ ./apps/web/
 # Baked at build time. Default is same-origin: the reverse proxy routes /api to the bot.
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+# Bot username (no "@") for the Telegram Login Widget used when the board is opened in a browser.
+ARG VITE_BOT_USERNAME=
+ENV VITE_BOT_USERNAME=$VITE_BOT_USERNAME
 RUN pnpm --filter @tbot/shared build && pnpm --filter @tbot/web build
 
 FROM nginx:1.27-alpine

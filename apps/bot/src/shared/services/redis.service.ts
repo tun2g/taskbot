@@ -53,6 +53,22 @@ export class RedisService {
   ttl(key: string) {
     return this.instance.ttl(key);
   }
+
+  lPush(key: string, value: string | string[]) {
+    return this.instance.lPush(key, value);
+  }
+
+  lRange(key: string, start: number, stop: number) {
+    return this.instance.lRange(key, start, stop);
+  }
+
+  lTrim(key: string, start: number, stop: number) {
+    return this.instance.lTrim(key, start, stop);
+  }
+
+  lLen(key: string) {
+    return this.instance.lLen(key);
+  }
 }
 
 export const redisService = new RedisService();
