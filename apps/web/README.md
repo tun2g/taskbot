@@ -33,6 +33,18 @@ VITE_API_URL=https://<api-host>/api
 VITE_BOT_USERNAME=my_tbot
 ```
 
+### Runtime config (Docker)
+
+The image reads `API_URL` and `BOT_USERNAME` from the **container env** when it starts
+(`docker/40-runtime-config.sh` writes them to `/config.js`, served with `no-store`).
+They override the build-time `VITE_*` values, so the same image works for any bot or
+domain — change the env and restart the container, no rebuild. Code reads the merged
+values from `src/lib/runtime-config.ts`.
+
+```bash
+docker run -e API_URL=/api -e BOT_USERNAME=my_tbot ghcr.io/tun2g/taskbot-web
+```
+
 ## Authentication
 
 The app works in two places:

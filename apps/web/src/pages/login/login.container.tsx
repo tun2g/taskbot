@@ -5,6 +5,7 @@ import { Navigate, useRouter, useSearch } from '@tanstack/react-router';
 import { useTelegramLogin } from '@/api/auth';
 import { getErrorMessage } from '@/lib/api-client';
 import { safeRedirect, setToken } from '@/lib/auth';
+import { config } from '@/lib/runtime-config';
 import { isInTelegram } from '@/lib/telegram';
 
 import { LoginContent } from './login.content';
@@ -32,7 +33,7 @@ export function LoginContainer() {
 
   return (
     <LoginContent
-      botUsername={import.meta.env.VITE_BOT_USERNAME as string | undefined}
+      botUsername={config.botUsername}
       onAuth={handleAuth}
       isSigningIn={login.isPending}
       error={login.isError ? getErrorMessage(login.error, 'Sign-in failed.') : null}

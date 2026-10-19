@@ -6,11 +6,11 @@ import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/servi
 export class GeminiProvider implements AIProvider {
   private genAI: GoogleGenerativeAI;
   private model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
-  private static readonly MODEL = 'gemini-2.5-flash';
+  private readonly modelName = configService.ai.model;
 
   constructor() {
     this.genAI = new GoogleGenerativeAI(configService.ai.apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: GeminiProvider.MODEL });
+    this.model = this.genAI.getGenerativeModel({ model: this.modelName });
   }
 
   private parseError(error: unknown): string {
@@ -59,7 +59,7 @@ export class GeminiProvider implements AIProvider {
   async generateJson(request: JsonGenerationRequest): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
-        model: GeminiProvider.MODEL,
+        model: this.modelName,
         systemInstruction: request.system,
         generationConfig: {
           responseMimeType: 'application/json',

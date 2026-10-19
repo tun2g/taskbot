@@ -66,11 +66,11 @@ Key bot variables:
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` (local) — `redis` in compose |
 | `WEBAPP_URL` | Mini App URL — **must be HTTPS** for the menu button / deep links |
 | `WEBHOOK_URL` | if set, the bot uses webhook mode instead of polling |
-| `AI_PROVIDER` / `AI_API_KEY` | `gemini` (default) or `fuse` + key. Powers `/task` extraction and `/ai`. Without a key, `/task` still creates a basic task and `/ai` explains AI is unavailable |
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default) or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite`. Powers `/task` extraction and `/ai`. Without a key, `/task` still creates a basic task and `/ai` explains AI is unavailable |
 | `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
 
-Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example)): `VITE_API_URL`, and `VITE_BOT_USERNAME` (bot username without `@`, for the browser Telegram login). In CI they come from the GitHub repo **variables** `VITE_API_URL` (default `/api`) and `VITE_BOT_USERNAME`, baked into the web image at build time.
+Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example)): `VITE_API_URL`, and `VITE_BOT_USERNAME` (bot username without `@`, for the browser Telegram login). In Docker the web image also reads **`API_URL` / `BOT_USERNAME` from the container env at startup** (written to `/config.js`), which override the build-time values — so one image works for any bot or domain without rebuilding.
 
 ### BotFather setup
 

@@ -13,7 +13,8 @@ COPY apps/web/ ./apps/web/
 # Baked at build time. Default is same-origin: the reverse proxy routes /api to the bot.
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
-# Bot username (no "@") for the Telegram Login Widget used when the board is opened in a browser.
+# Bot username (no "@") for the browser Telegram login. Optional: BOT_USERNAME in the
+# container env (runtime config) overrides it.
 ARG VITE_BOT_USERNAME=
 ENV VITE_BOT_USERNAME=$VITE_BOT_USERNAME
 RUN pnpm --filter @tbot/shared build && pnpm --filter @tbot/web build
@@ -21,4 +22,6 @@ RUN pnpm --filter @tbot/shared build && pnpm --filter @tbot/web build
 FROM nginx:1.27-alpine
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+# Runtime config: API_URL / BOT_USERNAME from the container env (e.g. envs/web.env) → /config.js
+COPY --chmod=755 apps/web/docker/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 EXPOSE 80

@@ -2,10 +2,11 @@ import type { ApiError } from '@tbot/shared';
 import axios, { AxiosError } from 'axios';
 
 import { clearToken, getStoredToken } from './auth';
+import { config } from './runtime-config';
 import { getInitData } from './telegram';
 
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: config.apiUrl,
   headers: { 'Content-Type': 'application/json' },
 });
 

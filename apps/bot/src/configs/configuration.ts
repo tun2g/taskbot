@@ -24,6 +24,8 @@ class ConfigService {
   ai = {
     provider: process.env.AI_PROVIDER || 'gemini',
     apiKey: process.env.AI_API_KEY || '',
+    // Gemini model id; the lite tier is cheapest and fast enough for task extraction and /ai
+    model: process.env.AI_MODEL || 'gemini-3.5-flash-lite',
     fuseApiUrl: process.env.FUSE_API_URL || 'https://api.fuseapi.app/v1/chat/completions',
   };
   timezone = process.env.TIMEZONE || 'UTC';
