@@ -8,6 +8,7 @@ import { taskCommand } from 'src/bot/commands/task';
 import { tasksCommand } from 'src/bot/commands/tasks';
 import { BotContext } from 'src/bot/interface/context';
 import { handleBatchCallback } from 'src/bot/ai-batch-callback.handler';
+import { CREATE_FROM_REPLY_PREFIX, handleCreateFromReplyCallback } from 'src/bot/create-from-reply';
 import { handleHelpCallback } from 'src/bot/help-callback.handler';
 import { handleTaskCallback } from 'src/bot/task-callback.handler';
 import { authMiddleware } from 'src/bot/middlewares/auth.middleware';
@@ -52,6 +53,10 @@ bot.on('callback_query', async (ctx: BotContext) => {
   const data = ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : '';
   if (data?.startsWith('batch:')) {
     await handleBatchCallback(ctx);
+    return;
+  }
+  if (data?.startsWith(CREATE_FROM_REPLY_PREFIX)) {
+    await handleCreateFromReplyCallback(ctx);
     return;
   }
   if (data?.startsWith('help:')) {

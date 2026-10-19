@@ -5,6 +5,7 @@ import {
   TASK_TYPE_ORDER,
   TaskStatusCategory,
 } from '@tbot/shared';
+import { createFromReplyButton } from 'src/bot/create-from-reply';
 import { BotContext } from 'src/bot/interface/context';
 import {
   escapeMarkdown,
@@ -150,10 +151,18 @@ export class TasksCommand {
       };
       const total = totals.todo + totals.inProgress + totals.done;
 
+      // Replying to a message with /tasks usually means /task (they differ by one letter)
+      const createButton = await createFromReplyButton(ctx);
+
       if (total === 0) {
         await ctx.reply(
-          '📋 No tasks in this group yet.\n\nCreate one with `/task Fix login on iOS` — or reply to a message with /task.',
-          { parse_mode: 'Markdown' },
+          createButton
+            ? '📋 No tasks in this group yet.\n\nDid you mean `/task`? Tap below to turn that message into tasks.'
+            : '📋 No tasks in this group yet.\n\nCreate one with `/task Fix login on iOS` — or reply to a message with /task.',
+          {
+            parse_mode: 'Markdown',
+            ...(createButton ? { reply_markup: { inline_keyboard: [[createButton]] } } : {}),
+          },
         );
         return;
       }
@@ -203,10 +212,11 @@ export class TasksCommand {
       }
 
       const board = appLinkButton('📋 Open board', group._id.toString());
+      const keyboard = [createButton ? [createButton] : [], board ? [board] : []].filter((row) => row.length > 0);
       await ctx.reply(lines.join('\n'), {
         parse_mode: 'Markdown',
         link_preview_options: { is_disabled: true },
-        ...(board ? { reply_markup: { inline_keyboard: [[board]] } } : {}),
+        ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       });
     } catch (error) {
       logger.error(`Error in /tasks command: ${error}`);
