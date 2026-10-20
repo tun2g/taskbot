@@ -98,7 +98,7 @@ export class AiController {
       }
     }
 
-    const { removed } = await undoBatch({
+    const { removed, tasks: removedTasks } = await undoBatch({
       batchId,
       groupId: groupId.toString(),
       actor: user._id as mongoose.Types.ObjectId,
@@ -108,7 +108,7 @@ export class AiController {
 
     const post = await getAppBatchPost(batchId);
     if (post) {
-      await taskSyncService.markBatchUndone(post, userDisplayName(user), removed);
+      await taskSyncService.markBatchUndone(post, userDisplayName(user), removed, removedTasks, groupId);
       await forgetAppBatchPost(batchId);
     }
 

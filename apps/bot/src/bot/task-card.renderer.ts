@@ -16,7 +16,7 @@ import { configService } from 'src/configs/configuration';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { appLinkButton, openTaskLabel } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 // All bot messages use Telegram's legacy `Markdown` parse mode. User text is only ever
@@ -270,21 +270,25 @@ export const PRIMARY_ACTION: Record<string, { to: string; text: string }> = {
   cancelled: { to: 'todo', text: '🔄 Reopen' },
 };
 
-/** Main card keyboard: [primary next step] [👤 Assign] [⋯ More]. */
+/** Main card keyboard: [primary next step] [👤 Assign] [⋯ More] / [📱 Open #N] (when the app link exists). */
 export async function buildTaskButtons(task: ITask, _userId?: string): Promise<InlineKeyboardButton[][]> {
   const taskId = task._id.toString();
   const primary = PRIMARY_ACTION[task.status] || PRIMARY_ACTION.todo;
 
-  return [
+  const rows: InlineKeyboardButton[][] = [
     [
       { text: primary.text, callback_data: await storeTaskCallbackData(taskId, 'set_status', { value: primary.to }) },
       { text: '👤 Assign', callback_data: await storeTaskCallbackData(taskId, 'assign') },
       { text: '⋯ More', callback_data: await storeTaskCallbackData(taskId, 'more') },
     ],
   ];
+  // Full-width row of its own: easy to hit on a phone, and the action row keeps its layout.
+  const open = appLinkButton(openTaskLabel(task.taskNumber), task.groupId, taskId);
+  if (open) rows.push([open]);
+  return rows;
 }
 
-/** "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [🗑 Delete] [📱 Open in App] [« Back]. */
+/** "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [🗑 Delete] [« Back]. */
 export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButton[][]> {
   const taskId = task._id.toString();
   const rows: InlineKeyboardButton[][] = [
@@ -295,13 +299,10 @@ export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButto
     ],
   ];
 
-  const last: InlineKeyboardButton[] = [
+  rows.push([
     { text: '🗑 Delete', callback_data: await storeTaskCallbackData(taskId, 'delete') },
-  ];
-  const open = appLinkButton('📱 Open in App', task.groupId, taskId);
-  if (open) last.push(open);
-  last.push({ text: '« Back', callback_data: await storeTaskCallbackData(taskId, 'back') });
-  rows.push(last);
+    { text: '« Back', callback_data: await storeTaskCallbackData(taskId, 'back') },
+  ]);
   return rows;
 }
 

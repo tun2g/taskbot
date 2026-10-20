@@ -5,6 +5,7 @@ import { taskService } from 'src/database/services/task.service';
 import mongoose from 'mongoose';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { notificationService } from 'src/shared/services/notification.service';
+import { configService } from 'src/configs/configuration';
 
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
@@ -65,7 +66,54 @@ describe('DoneCommand', () => {
 
     await command.onDone(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('⚠️ /done can only be used in group chats.');
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('/done works in group chats. Send /start'), {});
+  });
+
+  it('offers "Add to group" in a private chat when the bot username is known', async () => {
+    const saved = configService.botUsername;
+    configService.botUsername = 'tbot';
+    const ctx = createMockCtx({ chat: { id: 123, type: 'private' } });
+
+    await command.onDone(ctx);
+
+    configService.botUsername = saved;
+    expect(ctx.reply).toHaveBeenCalledWith(expect.any(String), {
+      reply_markup: { inline_keyboard: [[{ text: '➕ Add to group', url: 'https://t.me/tbot?startgroup=true' }]] },
+    });
+  });
+
+  describe('with an app link', () => {
+    const saved = { ...configService };
+    beforeEach(() => {
+      configService.botUsername = 'tbot';
+      configService.botHasMainWebApp = true;
+    });
+    afterEach(() => {
+      configService.botUsername = saved.botUsername;
+      configService.botHasMainWebApp = saved.botHasMainWebApp;
+    });
+
+    it('the "finished" event and "already done" reply carry an "Open #N" button', async () => {
+      const mockTask = { _id: mockTaskId, groupId: mockGroupId, taskNumber: 5, title: 'Fix bug', status: 'todo' };
+      (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(mockTask);
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue({ ...mockTask, status: 'done' });
+      const ctx = createMockCtx({ message: { text: '/done 5' } });
+
+      await command.onDone(ctx);
+
+      const open = { text: '📱 Open #5', url: `https://t.me/tbot?startapp=${mockGroupId}_${mockTaskId}` };
+      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('finished *#5*'), {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[open]] },
+      });
+
+      (taskService.getTaskByNumber as jest.Mock).mockResolvedValue({ ...mockTask, status: 'done' });
+      const again = createMockCtx({ message: { text: '/done 5' } });
+      await command.onDone(again);
+      expect(again.reply).toHaveBeenCalledWith('ℹ️ Task #5 is already done.', {
+        reply_markup: { inline_keyboard: [[open]] },
+      });
+    });
   });
 
   it('should mark task as done by number with #', async () => {
@@ -122,7 +170,7 @@ describe('DoneCommand', () => {
 
     await command.onDone(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('ℹ️ Task #1 is already done.');
+    expect(ctx.reply).toHaveBeenCalledWith('ℹ️ Task #1 is already done.', {});
     expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
   });
 

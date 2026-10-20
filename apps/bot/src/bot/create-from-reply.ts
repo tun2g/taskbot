@@ -94,6 +94,8 @@ export async function handleCreateFromReplyCallback(ctx: BotContext): Promise<vo
     await createTasksFromInput(ctx, { messages: [stored.message], requester: user, group });
   } catch (error) {
     logger.error(`Create-from-reply failed: ${error instanceof Error ? error.stack : error}`);
-    await ctx.answerCbQuery('Something went wrong. Please reply to the message with /new.').catch(() => undefined);
+    await ctx
+      .answerCbQuery('Something went wrong. Please reply to the message with /new.', { show_alert: true })
+      .catch(() => undefined);
   }
 }

@@ -32,8 +32,14 @@ export function userDisplayName(user?: Pick<IUser, 'username' | 'firstName' | 'l
   return full || 'Someone';
 }
 
-function taskRef(taskNumber: number, title: string): string {
-  return `<b>#${taskNumber}</b> ${escapeHtml(shortTitle(title))}`;
+/** `<b>#12</b> Title`; with a link the number opens the task (`<a href>` around the bold number). */
+function taskRef(taskNumber: number, title: string, link?: string | null): string {
+  return `${taskNumberRef(taskNumber, link)} ${escapeHtml(shortTitle(title))}`;
+}
+
+function taskNumberRef(taskNumber: number, link?: string | null): string {
+  const num = `<b>#${taskNumber}</b>`;
+  return link ? `<a href="${escapeHtml(link).replace(/"/g, '&quot;')}">${num}</a>` : num;
 }
 
 function describeStatus(change: TaskChange, single: boolean, ref: string): string {
@@ -54,6 +60,7 @@ function describeAssignee(change: TaskChange, single: boolean, ref: string): str
 /**
  * One short HTML line for a change from the app (or `via` another channel, e.g. "/ai"), e.g.
  * `📝 @an moved <b>#12</b> Fix login to 🔄 In Progress (via app)`.
+ * `link` (optional) makes the task number tappable — for multi-line posts where a button can't say which task.
  * Returns null when nothing worth announcing changed (priority/type/description/due date only).
  */
 export function buildChangeLine(
@@ -62,12 +69,13 @@ export function buildChangeLine(
   title: string,
   changes: TaskChange[],
   via = 'app',
+  link?: string | null,
 ): string | null {
   const announced = changes.filter((c) => ANNOUNCED_FIELDS.includes(c.field));
   if (announced.length === 0) return null;
 
   const who = escapeHtml(actorName);
-  const ref = taskRef(taskNumber, title);
+  const ref = taskRef(taskNumber, title, link);
   const single = announced.length === 1;
 
   const parts = announced.map((change) => {
@@ -77,7 +85,7 @@ export function buildChangeLine(
       case 'assignee':
         return describeAssignee(change, single, ref);
       default:
-        return single ? `renamed <b>#${taskNumber}</b> to ${escapeHtml(shortTitle(title))}` : 'renamed it';
+        return single ? `renamed ${taskNumberRef(taskNumber, link)} to ${escapeHtml(shortTitle(title))}` : 'renamed it';
     }
   });
 

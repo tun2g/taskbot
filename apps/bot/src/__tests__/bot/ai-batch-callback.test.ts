@@ -24,11 +24,14 @@ jest.mock('src/shared/services/callback-data-storage.service', () => ({
   callbackDataStorageService: { delCallbackData: jest.fn() },
 }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
+jest.mock('src/shared/utils/app-links', () => ({
+  boardButton: jest.fn(() => ({ text: '📋 Open board', url: 'https://t.me/bot?startapp=g' })),
+}));
 
 const groupId = new mongoose.Types.ObjectId();
 const tasks = [
-  { _id: new mongoose.Types.ObjectId(), groupId, title: 'A' },
-  { _id: new mongoose.Types.ObjectId(), groupId, title: 'B' },
+  { _id: new mongoose.Types.ObjectId(), groupId, taskNumber: 3, type: 'bug', title: 'A' },
+  { _id: new mongoose.Types.ObjectId(), groupId, taskNumber: 4, type: 'task', title: 'B <c>' },
 ];
 
 function batch(overrides: Record<string, unknown> = {}) {
@@ -85,7 +88,29 @@ describe('handleBatchCallback', () => {
     expect(taskService.deleteTasks).toHaveBeenCalledWith(tasks.map((t) => t._id));
     expect(taskActivityService.record).toHaveBeenCalledTimes(2);
     expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', from: 'A' }));
-    expect(ctx.editMessageText).toHaveBeenCalledWith('↩️ Undone by @req · 2 tasks removed');
+    // The list stays (struck through) with the board button, instead of a dead-end line.
+    expect(ctx.editMessageText).toHaveBeenCalledWith(
+      '↩️ <b>Undone by @req</b> · 2 tasks removed\n\n<s>#3 🐞 A</s>\n<s>#4 📌 B &lt;c&gt;</s>',
+      expect.objectContaining({
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '📋 Open board', url: 'https://t.me/bot?startapp=g' }]] },
+      }),
+    );
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith('Undone');
+  });
+
+  it('says the tasks were already deleted when there is nothing left to undo', async () => {
+    (redisService.get as jest.Mock).mockResolvedValue(batch());
+    (taskService.getTasksByBatch as jest.Mock).mockResolvedValue([]);
+    const ctx = createCtx();
+
+    await handleBatchCallback(ctx);
+
+    expect(taskService.deleteTasks).not.toHaveBeenCalled();
+    expect(ctx.editMessageText).toHaveBeenCalledWith(
+      '↩️ <b>Undo by @req</b> · nothing to remove — these tasks were already deleted.',
+      expect.objectContaining({ reply_markup: { inline_keyboard: [[expect.objectContaining({ text: '📋 Open board' })]] } }),
+    );
   });
 
   it('lets a group admin undo', async () => {

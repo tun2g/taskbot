@@ -5,11 +5,11 @@ import {
   TASK_TYPE_ORDER,
   TaskStatusCategory,
 } from '@tbot/shared';
+import { replyGroupOnly } from 'src/bot/commands/private-chat-hint';
 import { createFromReplyButton } from 'src/bot/create-from-reply';
 import { BotContext } from 'src/bot/interface/context';
 import {
-  escapeMarkdown,
-  mdName,
+  displayName,
   populatedUser,
   STATUS_EMOJI,
   truncate,
@@ -22,7 +22,8 @@ import { groupMemberService } from 'src/database/services/group-member.service';
 import { taskService } from 'src/database/services/task.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { escapeHtml } from 'src/shared/services/task-event-lines';
+import { boardButton, taskNumberHtml } from 'src/shared/utils/app-links';
 
 const LIST_LIMIT = 15;
 
@@ -55,10 +56,11 @@ const TYPE_ARGS: Record<string, string> = Object.fromEntries(
 );
 
 const USAGE =
-  'Status: `open`, `backlog`, `todo`, `progress`, `review`, `pending`, `done`, `cancelled`\n' +
-  `Type: ${TASK_TYPE_ORDER.map((t) => `\`${t}\``).join(', ')}\n` +
-  'People: `mine`, `@username`\n' +
-  'Example: `/list mine bug` · `/mytasks` = `/list mine`';
+  'Status: <code>open</code>, <code>backlog</code>, <code>todo</code>, <code>progress</code>, <code>review</code>, ' +
+  '<code>pending</code>, <code>done</code>, <code>cancelled</code>\n' +
+  `Type: ${TASK_TYPE_ORDER.map((t) => `<code>${t}</code>`).join(', ')}\n` +
+  'People: <code>mine</code>, <code>@username</code>\n' +
+  'Example: <code>/list mine bug</code> · <code>/mytasks</code> = <code>/list mine</code>';
 
 interface ParsedFilters {
   status?: { statuses: string[]; title: string };
@@ -92,7 +94,8 @@ export class TasksCommand {
       const chatType = ctx.chat?.type;
 
       if (!chatId || (chatType !== 'group' && chatType !== 'supergroup')) {
-        await ctx.reply('⚠️ /list can only be used in group chats.');
+        const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+        await replyGroupOnly(ctx, /^\/mytasks/i.test(text) ? 'mytasks' : 'list');
         return;
       }
 
@@ -135,14 +138,14 @@ export class TasksCommand {
           const known = target ? await groupMemberService.isMember(group._id, target._id) : false;
           if (!target || !known) {
             await ctx.reply(
-              `I don't know @${escapeMarkdown(username)} in this group yet — they need to send a message here first.`,
-              { parse_mode: 'Markdown' },
+              `I don't know @${escapeHtml(username)} in this group yet — they need to send a message here first.`,
+              { parse_mode: 'HTML' },
             );
             return;
           }
           filters.assignee = target;
         } else {
-          await ctx.reply(`I don't understand “${escapeMarkdown(raw)}”.\n${USAGE}`, { parse_mode: 'Markdown' });
+          await ctx.reply(`I don't understand “${escapeHtml(raw)}”.\n${USAGE}`, { parse_mode: 'HTML' });
           return;
         }
       }
@@ -159,16 +162,16 @@ export class TasksCommand {
 
       // Replying to a message with a list command usually means "create from this"
       const createButton = await createFromReplyButton(ctx);
+      const board = boardButton(group._id.toString());
+      const keyboard = [createButton ? [createButton] : [], board ? [board] : []].filter((row) => row.length > 0);
+      const replyMarkup = keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
 
       if (total === 0) {
         await ctx.reply(
           createButton
-            ? '📋 No tasks in this group yet.\n\nDid you mean `/new`? Tap below to turn that message into tasks.'
-            : '📋 No tasks in this group yet.\n\nCreate one with `/new Fix login on iOS` — or reply to a message with /new.',
-          {
-            parse_mode: 'Markdown',
-            ...(createButton ? { reply_markup: { inline_keyboard: [[createButton]] } } : {}),
-          },
+            ? '📋 No tasks in this group yet.\n\nDid you mean <code>/new</code>? Tap below to turn that message into tasks.'
+            : '📋 No tasks in this group yet.\n\nCreate one with <code>/new Fix login on iOS</code> — or reply to a message with /new.',
+          { parse_mode: 'HTML', ...replyMarkup },
         );
         return;
       }
@@ -195,7 +198,7 @@ export class TasksCommand {
       const lines: string[] = [];
 
       if (!isFiltered) {
-        lines.push(`📋 *Tasks* · ${escapeMarkdown(chatTitle)}`);
+        lines.push(`📋 <b>Tasks</b> · ${escapeHtml(chatTitle)}`);
         lines.push(`${totals.todo} to do · ${totals.inProgress} in progress · ${totals.done} done`);
       } else {
         lines.push(`📋 ${this.describeFilters(filters)} (${matchCount})`);
@@ -203,26 +206,30 @@ export class TasksCommand {
 
       if (tasks.length === 0) {
         lines.push('');
-        lines.push(isFiltered ? 'Nothing matches. Try `/list` for everything open.' : 'Nothing open right now. 🎉');
+        lines.push(isFiltered ? 'Nothing matches. Try <code>/list</code> for everything open.' : 'Nothing open right now. 🎉');
       } else {
         lines.push('');
-        for (const task of tasks) lines.push(this.formatLine(task));
+        for (const task of tasks) lines.push(this.formatLine(task, group._id));
         if (matchCount > tasks.length) {
-          lines.push(`…and ${matchCount - tasks.length} more — open the board`);
+          const more = matchCount - tasks.length;
+          // Only point at the board when there's a button for it
+          lines.push(
+            board
+              ? `…and ${more} more — open the board`
+              : `…and ${more} more — narrow it down, e.g. <code>/list bug</code> or <code>/list @name</code>`,
+          );
         }
       }
 
       if (!isFiltered) {
         lines.push('');
-        lines.push('Filter: `/mytasks`, `/list bug`, `/list @name`');
+        lines.push('Filter: <code>/mytasks</code>, <code>/list bug</code>, <code>/list @name</code>');
       }
 
-      const board = appLinkButton('📋 Open board', group._id.toString());
-      const keyboard = [createButton ? [createButton] : [], board ? [board] : []].filter((row) => row.length > 0);
       await ctx.reply(lines.join('\n'), {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
-        ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+        ...replyMarkup,
       });
     } catch (error) {
       logger.error(`Error in /list command: ${error}`);
@@ -230,21 +237,22 @@ export class TasksCommand {
     }
   }
 
-  /** Header like "*Your open bugs*" or "*Open tasks* for @an" — user text stays outside the bold entity. */
+  /** Header like "<b>Your open bugs</b>" or "<b>Open tasks</b> for @an" (HTML). */
   private describeFilters(filters: ParsedFilters): string {
     const status = filters.status ? filters.status.title : 'Open';
     const type = filters.type ? `${typeWord(filters.type).toLowerCase()}s` : 'tasks';
-    if (filters.mine) return `*Your ${status.toLowerCase()} ${type}*`;
-    const base = `*${status} ${type}*`;
-    return filters.assignee ? `${base} for ${mdName(filters.assignee)}` : base;
+    if (filters.mine) return `<b>Your ${status.toLowerCase()} ${type}</b>`;
+    const base = `<b>${status} ${type}</b>`;
+    return filters.assignee ? `${base} for ${escapeHtml(displayName(filters.assignee))}` : base;
   }
 
-  /** "🔄 #14 Bug · Fix login on iOS — @an" */
-  private formatLine(task: ITask): string {
+  /** "🔄 #14 Bug · Fix login on iOS — @an" (HTML; #14 opens the task when the app link exists). */
+  private formatLine(task: ITask, groupId: { toString(): string }): string {
     const emoji = STATUS_EMOJI[task.status] || STATUS_EMOJI.todo;
     const assignee = populatedUser(task.assigneeId);
-    const who = assignee ? ` — ${mdName(assignee)}` : '';
-    return `${emoji} #${task.taskNumber} ${typeWord(task.type)} · ${escapeMarkdown(truncate(task.title, 60))}${who}`;
+    const who = assignee ? ` — ${escapeHtml(displayName(assignee))}` : '';
+    const num = taskNumberHtml(task.taskNumber, groupId, task._id);
+    return `${emoji} ${num} ${typeWord(task.type)} · ${escapeHtml(truncate(task.title, 60))}${who}`;
   }
 }
 

@@ -61,6 +61,12 @@ describe('group lines', () => {
     ).toBe('📝 @an updated <b>#12</b> Fix login: moved it to ✅ Done, assigned it to @binh (via app)');
   });
 
+  it('links the task number when a link is given', () => {
+    expect(
+      buildChangeLine('@an', 12, 'Fix login', [{ field: 'status', from: null, to: '✅ Done' }], '/ai', 'https://t.me/b?startapp=g_t'),
+    ).toBe('📝 @an moved <a href="https://t.me/b?startapp=g_t"><b>#12</b></a> Fix login to ✅ Done (via /ai)');
+  });
+
   it('stays silent for priority / type / description / due date only', () => {
     expect(
       buildChangeLine('@an', 12, 'Fix login', [
@@ -123,6 +129,22 @@ describe('TaskSyncService', () => {
       '📝 @an moved <b>#12</b> Fix login to 🔄 In progress (via app)',
       { parse_mode: 'HTML' },
     );
+  });
+
+  it('adds an "Open #N" button when the app link is available', async () => {
+    const links = jest.requireActual('src/shared/utils/app-links');
+    const spy = jest.spyOn(links, 'taskButton').mockReturnValue({ text: '📱 Open #12', url: 'https://t.me/b?startapp=g1_t1' });
+    (User.findById as jest.Mock).mockResolvedValue({ username: 'an' });
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ telegramGroupId: -77 });
+    await service.postChangeSummary({ _id: 't1', groupId: 'g1', taskNumber: 12, title: 'Fix login' } as any, 'u1', [
+      { field: 'assignee', from: null, to: '@binh' },
+    ]);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ _id: 't1', groupId: 'g1', taskNumber: 12 }));
+    expect(bot.telegram.sendMessage).toHaveBeenCalledWith(-77, expect.any(String), {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '📱 Open #12', url: 'https://t.me/b?startapp=g1_t1' }]] },
+    });
+    spy.mockRestore();
   });
 
   it('does not post for silent changes', async () => {

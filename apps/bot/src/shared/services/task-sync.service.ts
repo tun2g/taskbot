@@ -8,7 +8,8 @@ import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
 import { CreatedTask, createdSummaryLines } from 'src/shared/services/task-creation.service';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { buildUndoneText, UndoneTask } from 'src/shared/services/batch-undo.service';
+import { boardButton, taskButton } from 'src/shared/utils/app-links';
 import { Message } from 'telegraf/types';
 
 import {
@@ -80,7 +81,12 @@ export class TaskSyncService {
       const line = buildChangeLine(userDisplayName(actor), task.taskNumber, task.title, changes);
       if (!line) return;
 
-      await this.postEvent(task.groupId, task.taskCardChatId, line, { parse_mode: 'HTML' });
+      // One tap from the group line to the task itself (no hunting on the board).
+      const open = taskButton(task);
+      await this.postEvent(task.groupId, task.taskCardChatId, line, {
+        parse_mode: 'HTML',
+        ...(open ? { reply_markup: { inline_keyboard: [[open]] } } : {}),
+      });
     } catch (error) {
       logger.error(`Change summary error for task ${task._id}: ${error}`);
     }
@@ -135,9 +141,9 @@ export class TaskSyncService {
       const lines = [
         `<b>🤖 ${escapeHtml(userDisplayName(requester))} created ${created.length} tasks (via app)</b>`,
         '',
-        ...createdSummaryLines(created),
+        ...createdSummaryLines(created, group._id),
       ];
-      const board = appLinkButton('📱 Open board', group._id.toString());
+      const board = boardButton(group._id);
       const sent = await groupMessengerService.sendEvent(bot.telegram, group, lines.join('\n'), {
         extra: {
           parse_mode: 'HTML',
@@ -152,12 +158,27 @@ export class TaskSyncService {
     }
   }
 
-  /** After an undo from the web chat: turn the group post into "↩️ Undone by X (via app) · N tasks removed". */
-  async markBatchUndone(post: { chatId: number; messageId: number }, actorName: string, removed: number) {
-    const text = `↩️ Undone by ${actorName} (via app) · ${removed} task${removed === 1 ? '' : 's'} removed`;
+  /**
+   * After an undo from the web chat: turn the group post into "↩️ Undone by X (via app) · N tasks removed"
+   * with the removed tasks struck through and the board button (the task buttons go away with the tasks).
+   * `groupId` defaults to the group of `post.chatId`.
+   */
+  async markBatchUndone(
+    post: { chatId: number; messageId: number },
+    actorName: string,
+    removed: number,
+    tasks: UndoneTask[] = [],
+    groupId?: IGroup['_id'] | string,
+  ) {
+    const text = buildUndoneText({ actorName, removed, tasks, viaApp: true });
     try {
-      // No reply_markup: the card/summary buttons go away with the tasks.
-      await bot.telegram.editMessageText(post.chatId, post.messageId, undefined, text);
+      const gid = groupId ?? (await groupService.findGroupByTelegramId(post.chatId))?._id;
+      const board = gid ? boardButton(gid) : null;
+      await bot.telegram.editMessageText(post.chatId, post.messageId, undefined, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        ...(board ? { reply_markup: { inline_keyboard: [[board]] } } : {}),
+      });
     } catch (error) {
       logger.warn(`Could not mark batch post ${post.messageId} as undone: ${error}`);
     }

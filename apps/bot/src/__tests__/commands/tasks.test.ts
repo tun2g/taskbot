@@ -5,6 +5,7 @@ import { taskService } from 'src/database/services/task.service';
 import mongoose from 'mongoose';
 import { User } from 'src/database/models/user.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
+import { configService } from 'src/configs/configuration';
 
 function stats(partial: Record<string, number>) {
   return { backlog: 0, todo: 0, in_progress: 0, in_review: 0, pending: 0, done: 0, cancelled: 0, ...partial };
@@ -64,7 +65,7 @@ describe('TasksCommand', () => {
 
     await command.onTasks(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledWith('⚠️ /list can only be used in group chats.');
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('/list works in group chats. Send /start'), {});
   });
 
   it('should show no-tasks message when empty', async () => {
@@ -112,9 +113,12 @@ describe('TasksCommand', () => {
     // categories: to do = backlog+todo, in progress = in_progress+in_review+pending, done = done+cancelled
     expect(text).toContain('5 to do · 3 in progress · 10 done');
     expect(text.indexOf('#9')).toBeLessThan(text.indexOf('#3'));
-    expect(text).toContain('👀 #9 Bug · Fix login\\_page — @an\\_dev');
-    expect(text).toContain('…and 3 more — open the board');
-    expect(opts).toEqual(expect.objectContaining({ parse_mode: 'Markdown' }));
+    expect(text).toContain('👀 <b>#9</b> Bug · Fix login_page — @an_dev');
+    expect(text).toContain('📋 <b>Tasks</b> · Test Group');
+    // no board button without an app link, so no "open the board" either
+    expect(text).toContain('…and 3 more — narrow it down');
+    expect(text).not.toMatch(/[*`\\]/);
+    expect(opts).toEqual(expect.objectContaining({ parse_mode: 'HTML', link_preview_options: { is_disabled: true } }));
     // open = every non-closed status
     const queried = (taskService.getTasksByGroup as jest.Mock).mock.calls.map((c) => c[1].status).sort();
     expect(queried).toEqual(['backlog', 'in_progress', 'in_review', 'pending', 'todo']);
@@ -228,6 +232,54 @@ describe('TasksCommand', () => {
       mockGroupId,
       expect.objectContaining({ assigneeId: target._id }),
     );
+  });
+
+  describe('with an app link', () => {
+    const saved = { botUsername: configService.botUsername, botHasMainWebApp: configService.botHasMainWebApp };
+    beforeEach(() => {
+      configService.botUsername = 'tbot';
+      configService.botHasMainWebApp = true;
+    });
+    afterEach(() => Object.assign(configService, saved));
+
+    it('links each #N to its task, escapes titles as HTML and shows the board button', async () => {
+      const ctx = createMockCtx();
+      const taskId = new mongoose.Types.ObjectId();
+      (taskService.getTaskStats as jest.Mock).mockResolvedValue(stats({ todo: 20 }));
+      (taskService.getTasksByGroup as jest.Mock).mockImplementation(async (_g, f) =>
+        f.status === 'todo'
+          ? {
+              tasks: [{ _id: taskId, taskNumber: 4, title: 'A <b> & c', status: 'todo', createdAt: new Date() }],
+              total: 20,
+            }
+          : { tasks: [], total: 0 },
+      );
+
+      await command.onTasks(ctx);
+
+      const [text, opts] = ctx.reply.mock.calls[0];
+      expect(text).toContain(`<a href="https://t.me/tbot?startapp=${mockGroupId}_${taskId}"><b>#4</b></a> Task · A &lt;b&gt; &amp; c`);
+      expect(text).toContain('…and 19 more — open the board');
+      expect(opts.reply_markup.inline_keyboard).toEqual([
+        [{ text: '📋 Open board', url: `https://t.me/tbot?startapp=${mockGroupId}` }],
+      ]);
+    });
+
+    it('empty group still offers the board', async () => {
+      const ctx = createMockCtx();
+      (taskService.getTaskStats as jest.Mock).mockResolvedValue(stats({}));
+
+      await command.onTasks(ctx);
+
+      const [text, opts] = ctx.reply.mock.calls[0];
+      expect(text).toContain('No tasks in this group yet');
+      expect(opts).toEqual(
+        expect.objectContaining({
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[expect.objectContaining({ text: '📋 Open board' })]] },
+        }),
+      );
+    });
   });
 
   it('explains unknown filter words', async () => {

@@ -2,6 +2,7 @@ import { renderMembers } from 'src/bot/commands/members';
 import { User } from 'src/database/models/user.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { MemberSyncService } from 'src/shared/services/member-sync.service';
+import { configService } from 'src/configs/configuration';
 
 const store = new Map<string, string>();
 const telegram = { getChatAdministrators: jest.fn(), getChatMember: jest.fn() };
@@ -90,6 +91,17 @@ describe('/members rendering', () => {
     expect(text).toContain('People I can assign tasks to · 2');
     expect(text).toContain('@binh, An &lt;dev&gt; Le');
     expect(keyboard).toEqual([[{ text: "✋ I'm here", callback_data: 'members:join' }]]);
+  });
+
+  it('adds an "Open board" row when the app link exists', () => {
+    const saved = { botUsername: configService.botUsername, botHasMainWebApp: configService.botHasMainWebApp };
+    Object.assign(configService, { botUsername: 'tbot', botHasMainWebApp: true });
+    const { keyboard } = renderMembers([], 'g1');
+    Object.assign(configService, saved);
+    expect(keyboard).toEqual([
+      [{ text: "✋ I'm here", callback_data: 'members:join' }],
+      [{ text: '📋 Open board', url: 'https://t.me/tbot?startapp=g1' }],
+    ]);
   });
 
   it('says nobody when the list is empty', () => {

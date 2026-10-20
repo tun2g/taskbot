@@ -1,12 +1,13 @@
+import { addToGroupButton } from 'src/bot/commands/private-chat-hint';
 import { BotContext } from 'src/bot/interface/context';
 import { escapeMarkdown, truncate } from 'src/bot/task-card.renderer';
-import { configService } from 'src/configs/configuration';
 import { Group } from 'src/database/models/group.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
+import { groupService } from 'src/database/services/group.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
 import { isForumChat } from 'src/shared/services/group-messenger.service';
-import { appLinkButton, webappBaseUrl } from 'src/shared/utils/app-links';
+import { appLinkButton, boardButton, webappBaseUrl } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 const MAX_GROUP_BUTTONS = 20;
@@ -38,7 +39,7 @@ export class StartCommand {
       const base = webappBaseUrl();
 
       if (groups.length === 0) {
-        const addUrl = configService.botUsername ? `https://t.me/${configService.botUsername}?startgroup=true` : null;
+        const add = addToGroupButton();
         const text = [
           "👋 *Let's get your team set up*",
           `Hi ${name}! I turn group chat messages into tasks, but you're not in a group with me yet.`,
@@ -51,7 +52,7 @@ export class StartCommand {
         ].join('\n');
         await ctx.reply(text, {
           parse_mode: 'Markdown',
-          ...(addUrl ? { reply_markup: { inline_keyboard: [[{ text: '➕ Add to group', url: addUrl }]] } } : {}),
+          ...(add ? { reply_markup: { inline_keyboard: [[add]] } } : {}),
         });
         return;
       }
@@ -100,7 +101,16 @@ export class StartCommand {
         : []),
       'See /help for everything else.',
     ].join('\n');
-    await ctx.reply(text, { parse_mode: 'Markdown' });
+
+    // url button (web_app buttons aren't allowed in groups); none when the app link isn't configured.
+    const chatTitle = ctx.chat && 'title' in ctx.chat ? ctx.chat.title : 'Group';
+    const group = ctx.chat ? await groupService.findOrCreateGroup(ctx.chat.id, chatTitle).catch(() => null) : null;
+    const open = group ? boardButton(group._id.toString()) : null;
+
+    await ctx.reply(text, {
+      parse_mode: 'Markdown',
+      ...(open ? { reply_markup: { inline_keyboard: [[open]] } } : {}),
+    });
   }
 }
 

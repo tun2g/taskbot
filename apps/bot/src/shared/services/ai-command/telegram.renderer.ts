@@ -18,7 +18,7 @@ import {
   TargetMiss,
   UpdateOutcome,
 } from 'src/shared/services/ai-command/result';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { boardButton, taskButton, taskNumberHtml } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 // Telegram /ai replies: HTML parse mode; every plain string from the core goes through escapeHtml.
@@ -36,9 +36,20 @@ export type AiOutcome =
 
 export const AI_UNAVAILABLE_MESSAGE = '🤖 AI is unavailable right now — use the card buttons or /new, /list, /done.';
 export const WHICH_TASK_MESSAGE = '🤔 Which task? Reply to its card or write #number.';
+/** The plan had nothing to do: show what /ai understands instead of asking "Which task?". */
+export const NOT_UNDERSTOOD_MESSAGE =
+  '🤔 I didn’t get that. Try:\n' +
+  '<code>/ai tôi còn task nào?</code> — your open tasks\n' +
+  '<code>/ai #12 xong rồi</code> — update a task\n' +
+  '<code>/ai tạo task fix login cho @an hạn thứ 6</code> — create one';
+/** Plain replies to the bot are ignored, so the answer to a question must come as a new /ai. */
+export const CLARIFY_HINT = 'Answer with <code>/ai …</code> — I don’t read plain replies.';
 export const DELETE_REFUSAL_MESSAGE = '🗑 I don’t delete tasks from chat. To delete, use 🗑 on the task card (⋯ More → 🗑 Delete).';
 
-export function telegramMissText(miss: TargetMiss): string {
+type GroupId = AiRequestContext['group']['_id'];
+
+/** `groupId` links each #N to the task (when an app link is configured). */
+export function telegramMissText(miss: TargetMiss, groupId?: GroupId): string {
   switch (miss.reason) {
     case 'missing':
       return `❌ There's no task #${miss.number} in this group. Check the number with /list.`;
@@ -47,7 +58,7 @@ export function telegramMissText(miss: TargetMiss): string {
     case 'ambiguous': {
       const list = miss.candidates
         .slice(0, 3)
-        .map((t) => `#${t.taskNumber} ${typeIcon(t.type)} ${escapeHtml(shorten(t.title))}`)
+        .map((t) => `${taskNumberHtml(t.taskNumber, groupId, t._id)} ${typeIcon(t.type)} ${escapeHtml(shorten(t.title))}`)
         .join('\n');
       const more = miss.candidates.length > 3 ? `\n…and ${miss.candidates.length - 3} more` : '';
       return `🤔 Which task? Several match:\n${list}${more}\n\nReply to its card or write #number.`;
@@ -57,20 +68,18 @@ export function telegramMissText(miss: TargetMiss): string {
   }
 }
 
-function updateText(u: UpdateOutcome): string {
+function updateText(u: UpdateOutcome, groupId: GroupId): string {
   if (u.failed) {
     return [
-      `❌ <b>#${u.original.taskNumber}</b> couldn't be fully updated. Please try again or use the card buttons.`,
+      `❌ ${taskNumberHtml(u.original.taskNumber, groupId, u.original._id)} couldn't be fully updated. Please try again or use the buttons on its card.`,
       ...u.changes.map(escapeHtml),
     ].join('\n');
   }
-  const header = `#${u.task.taskNumber} ${escapeHtml(shorten(u.task.title))}`;
-  return [`${u.changes.length ? '✅' : 'ℹ️'} <b>${header}</b>`, ...u.changes.map(escapeHtml), ...u.notes.map(escapeHtml)].join(
-    '\n',
-  );
+  const header = `${taskNumberHtml(u.task.taskNumber, groupId, u.task._id)} <b>${escapeHtml(shorten(u.task.title))}</b>`;
+  return [`${u.changes.length ? '✅' : 'ℹ️'} ${header}`, ...u.changes.map(escapeHtml), ...u.notes.map(escapeHtml)].join('\n');
 }
 
-function queryText(q: QueryOutcome, today: string): string {
+function queryText(q: QueryOutcome, today: string, groupId: GroupId): string {
   if (q.kind === 'unknown_person') {
     return `⚠️ Couldn't find ${escapeHtml(q.person)} in this group — they need to send a message here first.`;
   }
@@ -80,7 +89,7 @@ function queryText(q: QueryOutcome, today: string): string {
     return lines.join('\n');
   }
   for (const task of q.tasks.slice(0, QUERY_LIST_LIMIT)) {
-    const parts = [`#${task.taskNumber} ${typeIcon(task.type)} ${escapeHtml(shorten(task.title))}`];
+    const parts = [`${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeIcon(task.type)} ${escapeHtml(shorten(task.title))}`];
     if (q.showStatus) parts.push(statusText(task.status));
     const due = dueText(task.dueDate, task.status, today);
     if (due) parts.push(due);
@@ -92,23 +101,27 @@ function queryText(q: QueryOutcome, today: string): string {
   return lines.join('\n');
 }
 
-function sectionText(s: AiSection, today: string): string {
-  if (s.type === 'update') return updateText(s.update);
-  if (s.type === 'query') return queryText(s.query, today);
+function sectionText(s: AiSection, today: string, groupId: GroupId): string {
+  if (s.type === 'update') return updateText(s.update, groupId);
+  if (s.type === 'query') return queryText(s.query, today, groupId);
   return `🤖 ${escapeHtml(s.text)}`;
 }
 
 /** Exactly today's /ai HTML replies and buttons. */
 export function renderTelegram(c: AiRequestContext, result: AiResult): AiOutcome {
-  const board = appLinkButton('📋 Open board', c.group._id.toString());
+  const groupId = c.group._id;
+  const board = boardButton(groupId);
   const boardButtons = board ? [[board]] : undefined;
   const reply = (text: string, buttons?: InlineKeyboardButton[][]): AiOutcome => ({ kind: 'reply', reply: { text, buttons } });
 
   switch (result.kind) {
     case 'clarify':
-      return reply(`🤔 ${escapeHtml(result.question)}`);
-    case 'which_task':
-      return reply(telegramMissText(result.miss));
+      return reply(`🤔 ${escapeHtml(result.question)}\n\n<i>${CLARIFY_HINT}</i>`);
+    case 'which_task': {
+      // A wrong number / search: the board is where to look it up.
+      const lookUp = result.miss.reason === 'missing' || result.miss.reason === 'no_match';
+      return reply(telegramMissText(result.miss, groupId), lookUp ? boardButtons : undefined);
+    }
     case 'create':
       return { kind: 'create', useReply: result.useReply };
     case 'refused':
@@ -123,17 +136,23 @@ export function renderTelegram(c: AiRequestContext, result: AiResult): AiOutcome
   }
 
   const { sections } = result;
-  if (sections.length === 0) return reply(WHICH_TASK_MESSAGE);
+  if (sections.length === 0) return reply(NOT_UNDERSTOOD_MESSAGE);
 
   let buttons: InlineKeyboardButton[][] | undefined;
-  const updatedTasks = sections.flatMap((s) => (s.type === 'update' && s.update.changes.length ? [s.update.task] : []));
+  const updates = sections.flatMap((s) => (s.type === 'update' ? [s.update] : []));
+  const failed = updates.filter((u) => u.failed);
+  const updatedTasks = updates.filter((u) => !u.failed && u.changes.length).map((u) => u.task);
   if (sections.some((s) => s.type === 'query')) {
     buttons = boardButtons;
-  } else if (updatedTasks.length === 1) {
-    const open = appLinkButton('📱 Open task', c.group._id.toString(), updatedTasks[0]._id.toString());
+  } else if (failed.length === 1 && updatedTasks.length === 0) {
+    // "use the buttons on its card" → one tap to that task.
+    const open = taskButton(failed[0].original);
+    if (open) buttons = [[open]];
+  } else if (updatedTasks.length === 1 && failed.length === 0) {
+    const open = taskButton(updatedTasks[0]);
     if (open) buttons = [[open]];
   }
-  const outcome = reply(sections.map((s) => sectionText(s, c.today)).join('\n\n'), buttons);
-  const updates = changedUpdates(sections).filter((u) => !u.failed);
-  return updates.length && outcome.kind === 'reply' ? { ...outcome, updates } : outcome;
+  const outcome = reply(sections.map((s) => sectionText(s, c.today, groupId)).join('\n\n'), buttons);
+  const changed = changedUpdates(sections).filter((u) => !u.failed);
+  return changed.length && outcome.kind === 'reply' ? { ...outcome, updates: changed } : outcome;
 }

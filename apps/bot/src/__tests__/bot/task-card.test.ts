@@ -84,17 +84,30 @@ describe('task card renderer', () => {
     ['cancelled', '🔄 Reopen'],
   ])('primary action for %s is %s', async (status, label) => {
     const rows = await buildTaskButtons(task({ status }));
-    expect(texts(rows as any)).toEqual([[label, '👤 Assign', '⋯ More']]);
+    expect(texts(rows as any)).toEqual([[label, '👤 Assign', '⋯ More'], ['📱 Open #12']]);
   });
 
-  it('More keyboard has at most 3 per row and a url (not web_app) app link', async () => {
+  it('card keyboard opens the task with a url (not web_app) button on its own row', async () => {
+    const rows = (await buildTaskButtons(task())) as any[][];
+    expect(rows[1]).toEqual([{ text: '📱 Open #12', url: `https://t.me/tbot?startapp=${groupId}_${taskId}` }]);
+    expect(rows.flat().some((b) => b.web_app)).toBe(false);
+  });
+
+  it('card keyboard has no open row when no app link is configured', async () => {
+    configService.botHasMainWebApp = false;
+    const saved = configService.webappUrl;
+    configService.webappUrl = 'http://localhost:5173';
+    const rows = await buildTaskButtons(task());
+    configService.webappUrl = saved;
+    expect(texts(rows as any)).toEqual([['▶ Start', '👤 Assign', '⋯ More']]);
+  });
+
+  it('More keyboard has at most 3 per row', async () => {
     const rows = (await buildMoreButtons(task())) as any[][];
     expect(texts(rows)).toEqual([
       ['🔁 Status', '🏷 Type', '🔼 Priority'],
-      ['🗑 Delete', '📱 Open in App', '« Back'],
+      ['🗑 Delete', '« Back'],
     ]);
-    expect(rows[1][1]).toEqual({ text: '📱 Open in App', url: `https://t.me/tbot?startapp=${groupId}_${taskId}` });
-    expect(rows.flat().some((b) => b.web_app)).toBe(false);
   });
 
   it('pickers list every option, mark the current one, 2 per row', async () => {

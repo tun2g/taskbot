@@ -17,9 +17,19 @@ jest.mock('src/shared/services/ai/ai.service', () => ({
   parseJsonLoose: jest.fn(),
 }));
 jest.mock('src/database/models/task.model', () => ({ Task: { findById: jest.fn(), findByIdAndUpdate: jest.fn() } }));
-jest.mock('src/shared/utils/app-links', () => ({
-  appLinkButton: jest.fn((text: string) => ({ text, url: 'https://t.me/bot?startapp=g' })),
-}));
+jest.mock('src/shared/utils/app-links', () => {
+  const url = 'https://t.me/bot?startapp=g';
+  return {
+    OPEN_BOARD_LABEL: '📋 Open board',
+    appLinkButton: jest.fn((text: string) => ({ text, url })),
+    buildAppLink: jest.fn(() => url),
+    boardButton: jest.fn(() => ({ text: '📋 Open board', url })),
+    openTaskLabel: (n: number) => `📱 Open #${n}`,
+    taskButton: jest.fn((t: { taskNumber: number }) => ({ text: `📱 Open #${t.taskNumber}`, url })),
+    taskNumberHtml: (n: number) => `<a href="${url}"><b>#${n}</b></a>`,
+    taskNumberMarkdown: (n: number) => `[#${n}](${url})`,
+  };
+});
 jest.mock('src/bot/task-card.renderer', () => ({
   ...jest.requireActual('src/bot/task-card.renderer'),
   formatTaskCard: jest.fn(() => 'CARD'),
@@ -129,7 +139,7 @@ describe('web renderer (plain text)', () => {
       sections: [{ type: 'update', update: update() }],
     });
     expect(outcome.kind === 'reply' && outcome.reply.text).toBe(
-      '✅ <b>#12 Fix &lt;login&gt; &amp; logout</b>\n👤 Unassigned → @an\n✏️ Renamed (was “A &amp; B”)\n' +
+      '✅ <a href="https://t.me/bot?startapp=g"><b>#12</b></a> <b>Fix &lt;login&gt; &amp; logout</b>\n👤 Unassigned → @an\n✏️ Renamed (was “A &amp; B”)\n' +
         '⚠️ Couldn\'t find &lt;ghost&gt; in this group — they need to send a message in the group first.',
     );
   });
@@ -244,19 +254,31 @@ describe('group posts for app-created tasks', () => {
       { task: task({ taskNumber: 15, title: 'C' }), assignee: null },
     ]);
     const [, text, extra] = bot.telegram.sendMessage.mock.calls[0];
-    expect(text).toBe('<b>🤖 @me created 2 tasks (via app)</b>\n\n#14 🐞 A &amp; B → @an\n#15 🐞 C');
+    const link = (n: number) => `<a href="https://t.me/bot?startapp=g"><b>#${n}</b></a>`;
+    expect(text).toBe(`<b>🤖 @me created 2 tasks (via app)</b>\n\n${link(14)} 🐞 A &amp; B → @an\n${link(15)} 🐞 C`);
     const buttons = extra.reply_markup.inline_keyboard.flat();
-    expect(buttons).toEqual([expect.objectContaining({ text: '📱 Open board' })]);
+    expect(buttons).toEqual([expect.objectContaining({ text: '📋 Open board' })]);
     expect(JSON.stringify(extra)).not.toContain('batch:undo');
   });
 
-  it('marks the post as undone', async () => {
-    await new TaskSyncService().markBatchUndone({ chatId: -100123, messageId: 321 }, '@me', 2);
+  it('marks the post as undone, keeping the removed tasks (struck through) and the board button', async () => {
+    const removed = [task({ taskNumber: 14, title: 'A & B' }), task({ taskNumber: 15, title: 'C' })];
+    await new TaskSyncService().markBatchUndone({ chatId: -100123, messageId: 321 }, '@me', 2, removed, group._id);
     expect(bot.telegram.editMessageText).toHaveBeenCalledWith(
       -100123,
       321,
       undefined,
-      '↩️ Undone by @me (via app) · 2 tasks removed',
+      '↩️ <b>Undone by @me (via app)</b> · 2 tasks removed\n\n<s>#14 🐞 A &amp; B</s>\n<s>#15 🐞 C</s>',
+      expect.objectContaining({
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[expect.objectContaining({ text: '📋 Open board' })]] },
+      }),
     );
+  });
+
+  it('says so when the tasks were already deleted', async () => {
+    await new TaskSyncService().markBatchUndone({ chatId: -100123, messageId: 321 }, '@me', 0, [], group._id);
+    const [, , , text] = bot.telegram.editMessageText.mock.calls[0];
+    expect(text).toBe('↩️ <b>Undo by @me (via app)</b> · nothing to remove — these tasks were already deleted.');
   });
 });

@@ -6,10 +6,11 @@ import {
 import { BotContext } from 'src/bot/interface/context';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
-import { undoBatch } from 'src/shared/services/batch-undo.service';
+import { buildUndoneText, undoBatch } from 'src/shared/services/batch-undo.service';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { displayNameOf } from 'src/shared/services/message-buffer.service';
 import { redisService } from 'src/shared/services/redis.service';
+import { boardButton } from 'src/shared/utils/app-links';
 import { InlineKeyboardMarkup } from 'telegraf/types';
 
 const EXPIRED_ALERT = '⏱ Undo is only available for 10 minutes. Delete tasks one by one on the board instead.';
@@ -88,7 +89,7 @@ export async function handleBatchCallback(ctx: BotContext): Promise<void> {
     }
 
     const actor = await userService.findUserByTelegramId(fromId);
-    const { removed } = await undoBatch({
+    const { removed, tasks } = await undoBatch({
       batchId: batch.batchId,
       groupId: batch.groupId,
       actor: actor?._id ?? null,
@@ -96,9 +97,15 @@ export async function handleBatchCallback(ctx: BotContext): Promise<void> {
     });
     await callbackDataStorageService.delCallbackData(key, BATCH_CALLBACK_PREFIX);
 
-    const name = displayNameOf(query.from);
-    await ctx.editMessageText(`↩️ Undone by ${name} · ${removed} task${removed === 1 ? '' : 's'} removed`);
-    await ctx.answerCbQuery('Undone');
+    // Keep the list (struck through) and the board button, so the message isn't a dead end.
+    const text = buildUndoneText({ actorName: displayNameOf(query.from), removed, tasks });
+    const board = boardButton(batch.groupId);
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      ...(board ? { reply_markup: { inline_keyboard: [[board]] } } : {}),
+    });
+    await ctx.answerCbQuery(removed ? 'Undone' : 'Those tasks were already deleted');
   } catch (error) {
     logger.error(`Batch callback error: ${error}`);
     await ctx.answerCbQuery('Something went wrong. Please try again.').catch(() => undefined);

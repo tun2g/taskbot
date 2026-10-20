@@ -1,7 +1,9 @@
+import { replyGroupOnly } from 'src/bot/commands/private-chat-hint';
 import { BotContext } from 'src/bot/interface/context';
 import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
 import { groupMessengerService, topicOf } from 'src/shared/services/group-messenger.service';
+import { boardButton } from 'src/shared/utils/app-links';
 
 /** `/settopic` — run inside a forum topic to make it the "task events" topic. Admins only. */
 export class SetTopicCommand {
@@ -22,7 +24,11 @@ export class SetTopicCommand {
       const message = ctx.message as
         | { message_id: number; message_thread_id?: number; is_topic_message?: boolean; sender_chat?: { id: number } }
         | undefined;
-      if (!chat || !message || ctx.chat?.type === 'private') {
+      if (chat?.type === 'private') {
+        await replyGroupOnly(ctx, 'settopic');
+        return;
+      }
+      if (!chat || !message) {
         await ctx.reply('ℹ️ Use /settopic inside a group topic.');
         return;
       }
@@ -54,8 +60,10 @@ export class SetTopicCommand {
 
       await groupMessengerService.trackMessage(group, message as Record<string, unknown>, true);
       await groupMessengerService.setEventsTopic(group, threadId);
+      const board = boardButton(group._id.toString());
       await ctx.reply('✅ Task events will be posted in this topic: new tasks, status changes, the daily digest.', {
         message_thread_id: threadId,
+        ...(board ? { reply_markup: { inline_keyboard: [[board]] } } : {}),
       });
     } catch (error) {
       logger.error(`Error in /settopic: ${error}`);

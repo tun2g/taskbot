@@ -54,7 +54,7 @@ describe('help', () => {
 
   it('board links to the group board in groups and to /start in private', () => {
     const inGroup = renderHelpPage('board', { chatType: 'supergroup', groupId: 'g1' });
-    expect(inGroup.keyboard[0][0]).toEqual({ text: '📊 Open board', url: 'https://t.me/tbot_dev?startapp=g1' });
+    expect(inGroup.keyboard[0][0]).toEqual({ text: '📋 Open board', url: 'https://t.me/tbot_dev?startapp=g1' });
     const inPrivate = renderHelpPage('board', { chatType: 'private' });
     expect(inPrivate.text).toContain('/start');
     expect(inPrivate.keyboard.flat().some((b: any) => b.url)).toBe(false);

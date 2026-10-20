@@ -14,6 +14,7 @@ import {
   groupTimezone,
   mdName,
   populatedUser,
+  PRIMARY_ACTION,
   priorityLabel,
   priorityWord,
   refId,
@@ -26,7 +27,7 @@ import {
   typePickerText,
   typeWord,
 } from 'src/bot/task-card.renderer';
-import { Group } from 'src/database/models/group.model';
+import { Group, IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { IUser, User } from 'src/database/models/user.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
@@ -37,7 +38,10 @@ import { callbackDataStorageService } from 'src/shared/services/callback-data-st
 import logger from 'src/shared/logger/logger';
 import { configService } from 'src/configs/configuration';
 import { groupMessengerService, isForumChat, topicOf } from 'src/shared/services/group-messenger.service';
-import { notificationService } from 'src/shared/services/notification.service';
+import { DM_TASK_CALLBACK_PREFIX, dmTaskKeyboard, notificationService } from 'src/shared/services/notification.service';
+import { taskSyncService } from 'src/shared/services/task-sync.service';
+import { taskButton } from 'src/shared/utils/app-links';
+import { Telegram } from 'telegraf';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 interface TaskCallbackData {
@@ -51,6 +55,10 @@ export async function handleTaskCallback(ctx: BotContext) {
   if (!callbackQuery || !('data' in callbackQuery)) return;
 
   const data = callbackQuery.data;
+  if (data?.startsWith(DM_TASK_CALLBACK_PREFIX)) {
+    await handleDmTaskCallback(ctx, data);
+    return;
+  }
   if (!data?.startsWith('task:')) return;
 
   const parts = data.split(':');
@@ -169,7 +177,7 @@ async function postGroupLine(ctx: BotContext, task: ITask, text: string) {
   if (!chatId) return;
   const card = ctx.callbackQuery && 'message' in ctx.callbackQuery ? ctx.callbackQuery.message : undefined;
   const cardThread = topicOf(card as { is_topic_message?: boolean; message_thread_id?: number } | undefined);
-  const extra = { parse_mode: 'Markdown' as const, link_preview_options: { is_disabled: true } };
+  const extra = groupLineExtra(task);
   try {
     const group = await Group.findById(task.groupId).catch(() => null);
     if (!group || group.telegramGroupId !== chatId) {
@@ -189,6 +197,40 @@ async function postGroupLine(ctx: BotContext, task: ITask, text: string) {
   } catch (error) {
     logger.warn(`Failed to post group line: ${error}`);
   }
+}
+
+/** Markdown, no previews, and one tap from the line to the task ("📱 Open #N" / "💬 View card") when possible. */
+function groupLineExtra(task: ITask) {
+  const open = taskButton(task);
+  return {
+    parse_mode: 'Markdown' as const,
+    link_preview_options: { is_disabled: true },
+    ...(open ? { reply_markup: { inline_keyboard: [[open]] } } : {}),
+  };
+}
+
+/**
+ * Same group line, for a change made outside the group (a DM quick action): posted as an event
+ * in the task's group, replying to the card when there is one. Never sent to the DM itself.
+ */
+async function postGroupLineFor(telegram: Telegram, group: IGroup, task: ITask, text: string) {
+  try {
+    const card =
+      task.taskCardMessageId && task.taskCardChatId === group.telegramGroupId
+        ? { messageId: task.taskCardMessageId, linkFallback: false }
+        : undefined;
+    await groupMessengerService.sendEvent(telegram, group, text, {
+      extra: groupLineExtra(task),
+      ...(card ? { source: card } : {}),
+    });
+  } catch (error) {
+    logger.warn(`Failed to post group line for task ${task._id}: ${error}`);
+  }
+}
+
+/** "#12 · Fix login" — the task reference every group line uses. */
+function taskRefLine(task: ITask): string {
+  return `*#${task.taskNumber}* · ${shortTitle(task)}`;
 }
 
 function shortTitle(task: ITask): string {
@@ -227,11 +269,23 @@ async function handleStatusChange(ctx: BotContext, task: ITask, newStatus: strin
     return;
   }
 
-  const updatedTask = await taskService.updateTaskStatus(task._id, newStatus, user._id);
+  const updatedTask = await applyStatusChange(task, newStatus, user);
   if (!updatedTask) {
     await ctx.answerCbQuery("Couldn't update the status. Please try again.");
     return;
   }
+
+  await updateTaskCardMessage(ctx, updatedTask);
+  await ctx.answerCbQuery(`Status: ${statusWord(newStatus)}`);
+
+  await postGroupLine(ctx, updatedTask, statusLine(user, task.status, updatedTask));
+  await notifyAssigneeOfStatus(updatedTask, user);
+}
+
+/** Shared by the group card and DM quick actions: update the status and record the activity. */
+async function applyStatusChange(task: ITask, newStatus: string, user: IUser): Promise<ITask | null> {
+  const updatedTask = await taskService.updateTaskStatus(task._id, newStatus, user._id);
+  if (!updatedTask) return null;
 
   await taskActivityService.record({
     taskId: task._id,
@@ -242,20 +296,116 @@ async function handleStatusChange(ctx: BotContext, task: ITask, newStatus: strin
     to: statusLabel(newStatus),
     via: 'bot',
   });
+  return updatedTask;
+}
 
-  await updateTaskCardMessage(ctx, updatedTask);
-  await ctx.answerCbQuery(`Status: ${statusWord(newStatus)}`);
+/** "✅ @bob finished *#12* · Fix login" */
+function statusLine(user: IUser, from: string, updatedTask: ITask): string {
+  const emoji = statusLabel(updatedTask.status).split(' ')[0];
+  return `${emoji} ${mdName(user)} ${statusVerb(from, updatedTask.status)} ${taskRefLine(updatedTask)}`;
+}
 
-  const emoji = statusLabel(newStatus).split(' ')[0];
-  await postGroupLine(
-    ctx,
-    updatedTask,
-    `${emoji} ${mdName(user)} ${statusVerb(task.status, newStatus)} *#${updatedTask.taskNumber}* · ${shortTitle(updatedTask)}`,
-  );
-
+async function notifyAssigneeOfStatus(updatedTask: ITask, user: IUser) {
   const assignee = populatedUser(updatedTask.assigneeId) ?? (await findUser(updatedTask.assigneeId));
   if (assignee && assignee.telegramUserId !== user.telegramUserId) {
     await notificationService.notifyStatusChange(updatedTask, user, assignee);
+  }
+}
+
+// ── DM quick actions ("▶ Start" / "✅ Done" under a DM) ──
+
+/**
+ * May this user change the task from a DM? In the group, pressing the card is proof enough of
+ * membership; from a DM we check the user is (still) in the task's group — Telegram first,
+ * the members we've seen as a fallback.
+ */
+async function canChangeFromDm(telegram: Telegram, group: IGroup, task: ITask, user: IUser): Promise<boolean> {
+  try {
+    const member = await telegram.getChatMember(group.telegramGroupId, user.telegramUserId);
+    if (member.status === 'left' || member.status === 'kicked') return false;
+    if (member.status === 'restricted' && !member.is_member) return false;
+    return true;
+  } catch (error) {
+    logger.warn(`Could not check membership of ${user.telegramUserId} in ${group.telegramGroupId}: ${error}`);
+    return groupMemberService.isMember(task.groupId, user._id);
+  }
+}
+
+/** Swap only the DM's buttons; the DM text stays as it was. */
+async function setDmButtons(ctx: BotContext, rows: InlineKeyboardButton[][]) {
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: rows });
+  } catch (error) {
+    if (!String(error).includes('message is not modified')) logger.warn(`Failed to update DM buttons: ${error}`);
+  }
+}
+
+/**
+ * `tdm:<status>:<taskId>` from a DM. Self-contained (no Redis), so a reminder tapped the next
+ * day still works. Same service path as the group card; the card refreshes via the sync and the
+ * event line goes to the group, never to the DM.
+ */
+async function handleDmTaskCallback(ctx: BotContext, data: string) {
+  const callbackQuery = ctx.callbackQuery;
+  if (!callbackQuery) return;
+  const [, to, taskId] = data.split(':');
+
+  try {
+    if (to === 'noop') {
+      await ctx.answerCbQuery('This task is closed. Open it to reopen.');
+      return;
+    }
+
+    const task = taskId ? await taskService.getTaskById(taskId) : null;
+    if (!task) {
+      await setDmButtons(ctx, []);
+      await ctx.answerCbQuery('This task no longer exists.');
+      return;
+    }
+    if (!TASK_STATUS_ORDER.includes(to as TaskStatus)) {
+      await setDmButtons(ctx, dmTaskKeyboard(task));
+      await ctx.answerCbQuery('That button is outdated.');
+      return;
+    }
+
+    const user = await userService.findUserByTelegramId(callbackQuery.from.id);
+    const group = await Group.findById(task.groupId).catch(() => null);
+    if (!user || !group || !(await canChangeFromDm(ctx.telegram, group, task, user))) {
+      await ctx.answerCbQuery("You can't change this task — you're not in its group anymore.", { show_alert: true });
+      return;
+    }
+
+    if (task.status === to) {
+      await setDmButtons(ctx, dmTaskKeyboard(task));
+      await ctx.answerCbQuery(`#${task.taskNumber} is already ${statusWord(to).toLowerCase()}`);
+      return;
+    }
+    // Someone moved it meanwhile: don't apply a stale step, show the current next step instead.
+    if ((PRIMARY_ACTION[task.status] || PRIMARY_ACTION.todo).to !== to) {
+      await setDmButtons(ctx, dmTaskKeyboard(task));
+      await ctx.answerCbQuery(`#${task.taskNumber} is ${statusWord(task.status).toLowerCase()} now — buttons updated`);
+      return;
+    }
+
+    const updatedTask = await applyStatusChange(task, to, user);
+    if (!updatedTask) {
+      await ctx.answerCbQuery("Couldn't update the status. Please try again.");
+      return;
+    }
+
+    await setDmButtons(ctx, dmTaskKeyboard(updatedTask));
+    await ctx.answerCbQuery(`#${updatedTask.taskNumber}: ${statusWord(to)}`);
+
+    await taskSyncService.syncTaskCard(updatedTask);
+    await postGroupLineFor(ctx.telegram, group, updatedTask, statusLine(user, task.status, updatedTask));
+    await notifyAssigneeOfStatus(updatedTask, user);
+  } catch (error) {
+    logger.error(`DM task callback error: ${error}`);
+    try {
+      await ctx.answerCbQuery('Something went wrong. Please try again.');
+    } catch {
+      // query may already be answered
+    }
   }
 }
 
@@ -398,8 +548,8 @@ async function handleAssignTo(ctx: BotContext, task: ITask, actingUser: IUser, a
 
   const self = assignee.telegramUserId === actingUser.telegramUserId;
   let line = self
-    ? `👤 ${mdName(actingUser)} took *#${updatedTask.taskNumber}* · ${shortTitle(updatedTask)}`
-    : `👤 ${mdName(actingUser)} assigned *#${updatedTask.taskNumber}* to ${mdName(assignee)}`;
+    ? `👤 ${mdName(actingUser)} took ${taskRefLine(updatedTask)}`
+    : `👤 ${mdName(actingUser)} assigned ${taskRefLine(updatedTask)} to ${mdName(assignee)}`;
   if (result === 'not_started') line += dmHint(mdName(assignee));
   await postGroupLine(ctx, updatedTask, line);
 
@@ -438,7 +588,7 @@ async function handleUnassign(ctx: BotContext, task: ITask, actingUser: IUser) {
   await postGroupLine(
     ctx,
     updatedTask,
-    `🚫 ${mdName(actingUser)} unassigned ${mdName(previous)} from *#${updatedTask.taskNumber}*`,
+    `🚫 ${mdName(actingUser)} unassigned ${mdName(previous)} from ${taskRefLine(updatedTask)}`,
   );
   await notificationService.notifyUnassigned(updatedTask, previous, actingUser);
 }

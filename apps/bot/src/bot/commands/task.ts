@@ -1,3 +1,4 @@
+import { replyGroupOnly } from 'src/bot/commands/private-chat-hint';
 import { BotContext } from 'src/bot/interface/context';
 import { groupService } from 'src/database/services/group.service';
 import { userService } from 'src/database/services/user.service';
@@ -55,7 +56,7 @@ export class TaskCommand {
     try {
       const chat = ctx.chat;
       if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) {
-        await ctx.reply('📋 /new works in group chats. Add me to your team group and use it there.');
+        await replyGroupOnly(ctx, 'new');
         return;
       }
 

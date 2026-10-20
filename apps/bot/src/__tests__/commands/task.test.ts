@@ -42,7 +42,14 @@ jest.mock('src/shared/services/callback-data-storage.service', () => ({
   callbackDataStorageService: { setCallbackData: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock('src/shared/utils/app-links', () => ({
+  OPEN_BOARD_LABEL: '📋 Open board',
+  openTaskLabel: (n: number) => `📱 Open #${n}`,
+  buildAppLink: jest.fn(() => 'https://t.me/bot?startapp=g'),
   appLinkButton: jest.fn((text: string) => ({ text, url: 'https://t.me/bot?startapp=g' })),
+  boardButton: jest.fn(() => ({ text: '📋 Open board', url: 'https://t.me/bot?startapp=g' })),
+  taskButton: jest.fn((task: { taskNumber: number }) => ({ text: `📱 Open #${task.taskNumber}`, url: 'https://t.me/bot?startapp=g' })),
+  taskNumberHtml: jest.fn((n: number) => `<b>#${n}</b>`),
+  taskNumberMarkdown: jest.fn((n: number) => `*#${n}*`),
 }));
 jest.mock('src/bot/task-card.renderer', () => ({
   formatTaskCard: jest.fn().mockReturnValue('📋 *#1* Test task'),
@@ -114,7 +121,7 @@ describe('TaskCommand', () => {
   it('explains that /task works in groups when used in a private chat', async () => {
     const ctx = createMockCtx({ chat: { id: 123, type: 'private' } });
     await command.onTask(ctx);
-    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('works in group chats'));
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('/new works in group chats. Send /start'), {});
     expect(taskExtractionService.extract).not.toHaveBeenCalled();
   });
 
@@ -241,14 +248,14 @@ describe('TaskCommand', () => {
     expect(ctx.reply).toHaveBeenCalledTimes(1);
     const [text, extra] = (ctx.reply as jest.Mock).mock.calls[0];
     expect(text).toContain('<b>🤖 Created 2 tasks from <a href="https://t.me/c/123/42">2 messages</a></b>');
-    expect(text).toContain('#1 🐞 Fix login on iOS → @an');
-    expect(text).toContain('#2 📌 Replace blurry logo\n');
+    expect(text).toContain('<b>#1</b> 🐞 Fix login on iOS → @an');
+    expect(text).toContain('<b>#2</b> 📌 Replace blurry logo\n');
     expect(text).toContain('Couldn\'t find "Hùng" in this group — left unassigned');
     expect(extra.parse_mode).toBe('HTML');
     const row = extra.reply_markup.inline_keyboard[0];
     expect(row[0].callback_data).toMatch(/^batch:undo:[0-9a-f]+$/);
     expect(row[0].callback_data.length).toBeLessThanOrEqual(64);
-    expect(row[1]).toEqual(expect.objectContaining({ text: '📱 Open board' }));
+    expect(row[1]).toEqual(expect.objectContaining({ text: '📋 Open board' }));
     expect(callbackDataStorageService.setCallbackData).toHaveBeenCalledWith(
       expect.any(String),
       'batch_cb',
@@ -294,7 +301,7 @@ describe('TaskCommand', () => {
     expect(taskService.createTask).toHaveBeenCalledTimes(1);
     expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ via: 'bot' }));
     expect(ctx.reply).toHaveBeenCalledTimes(1);
-    expect((ctx.reply as jest.Mock).mock.calls[0][0]).toContain('AI was unavailable, created a basic task');
+    expect((ctx.reply as jest.Mock).mock.calls[0][0]).toContain('AI was unavailable, so I made a basic task. Use the buttons below to edit it.');
   });
 
   it('rate limited single message: creates a basic task instead of refusing', async () => {
@@ -380,9 +387,35 @@ describe('TaskCommand', () => {
     if (result.status !== 'created') throw new Error('expected created');
     expect(result.tasks).toHaveLength(1);
     expect(result.warnings).toEqual([
-      '⚠️ AI was unavailable, created a basic task. You can edit it on the board.',
+      '⚠️ AI was unavailable, so I made a basic task. You can edit it on the board.',
       '⚠️ Couldn\'t find "Hùng" in this group — left unassigned. They need to post in the group once first.',
     ]);
+  });
+
+  it('createTasks core: names the tasks that could not be saved', async () => {
+    (taskExtractionService.extract as jest.Mock).mockResolvedValue({
+      source: 'ai',
+      tasks: [
+        { title: 'Saved one', type: 'task', sourceMessageIds: [0] },
+        { title: 'Lost one', type: 'task', sourceMessageIds: [0] },
+        { title: 'Lost two', type: 'task', sourceMessageIds: [0] },
+      ],
+    });
+    const created = (taskService.createTask as jest.Mock).getMockImplementation();
+    (taskService.createTask as jest.Mock)
+      .mockImplementationOnce(created ?? (async (data: any) => ({ _id: new mongoose.Types.ObjectId(), taskNumber: 1, ...data })))
+      .mockRejectedValueOnce(new Error('db'))
+      .mockRejectedValueOnce(new Error('db'));
+
+    const result = await createTasks({
+      origin: 'app',
+      requester: mockUser as any,
+      group: mockGroup as any,
+      messages: [{ messageId: 0, chatId: -100123, text: 'x', fromUserId: 123, fromName: '@testuser', date: 1 }],
+    });
+
+    if (result.status !== 'created') throw new Error('expected created');
+    expect(result.warnings).toContain('⚠️ Couldn\'t save 2 tasks: “Lost one”, “Lost two”. Please add them again.');
   });
 
   describe('in a forum (Topics)', () => {

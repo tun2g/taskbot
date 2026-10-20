@@ -24,7 +24,7 @@ import {
   resolveMember,
   taskExtractionService,
 } from 'src/shared/services/task-extraction.service';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { boardButton, taskNumberHtml } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton, Message } from 'telegraf/types';
 
 export const BATCH_CALLBACK_PREFIX = 'batch_cb';
@@ -241,7 +241,9 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
       warnings.push(
         result.fallbackReason === 'unconfigured'
           ? 'ℹ️ AI is off, so I made a basic task from the text.'
-          : '⚠️ AI was unavailable, created a basic task. You can edit it on the board.',
+          : origin === 'app'
+            ? '⚠️ AI was unavailable, so I made a basic task. You can edit it on the board.'
+            : '⚠️ AI was unavailable, so I made a basic task. Use the buttons below to edit it.',
       );
     }
   }
@@ -259,7 +261,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
 
   const created: CreatedTask[] = [];
   const unknownNames: string[] = [];
-  let failed = 0;
+  const failedTitles: string[] = [];
 
   for (const extracted of result.tasks) {
     const assignee = extracted.assignee ? resolveMember(extracted.assignee, members, mentions) : null;
@@ -295,7 +297,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
         via,
       });
     } catch (error) {
-      failed++;
+      failedTitles.push(extracted.title);
       logger.error(`Failed to create extracted task "${extracted.title}": ${error}`);
     }
   }
@@ -307,8 +309,10 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
     const where = origin === 'app' ? 'in the group' : 'here';
     warnings.push(`⚠️ Couldn't find ${names} in this group — left unassigned. They need to post ${where} once first.`);
   }
-  if (failed) {
-    warnings.push(`⚠️ ${failed} task${failed > 1 ? 's' : ''} couldn't be saved. Please add ${failed > 1 ? 'them' : 'it'} again.`);
+  if (failedTitles.length) {
+    const titles = failedTitles.map((t) => `“${truncate(t, SUMMARY_TITLE_MAX)}”`).join(', ');
+    const many = failedTitles.length > 1;
+    warnings.push(`⚠️ Couldn't save ${many ? `${failedTitles.length} tasks` : 'a task'}: ${titles}. Please add ${many ? 'them' : 'it'} again.`);
   }
 
   for (const { task, assignee } of created) {
@@ -355,7 +359,7 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
         );
         return;
       case 'save_failed':
-        await progress.finish("❌ I couldn't save the task. Please try /new again in a moment.");
+        await progress.finish("❌ I couldn't save the task. Please try again in a moment.");
         return;
       default:
         await replyCreated(ctx, progress, input, result);
@@ -363,18 +367,18 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
   } catch (error) {
     logger.error(`Task creation pipeline failed: ${error instanceof Error ? error.stack : error}`);
     try {
-      await progress.finish('❌ Something went wrong and no task was created. Please try /new again in a moment.');
+      await progress.finish('❌ Something went wrong and no task was created. Please try again in a moment.');
     } catch (replyError) {
       logger.error(`Could not send task creation error reply: ${replyError}`);
     }
   }
 }
 
-/** Summary lines "#12 🐞 Fix login → @an" (HTML-escaped). */
-export function createdSummaryLines(created: CreatedTask[]): string[] {
+/** Summary lines "#12 🐞 Fix login → @an" (HTML-escaped; #12 opens the task when an app link exists). */
+export function createdSummaryLines(created: CreatedTask[], groupId: IGroup['_id'] | string): string[] {
   return created.map(({ task, assignee }) => {
     const who = assignee ? ` → ${escapeHtml(userName(assignee))}` : '';
-    return `#${task.taskNumber} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${who}`;
+    return `${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${who}`;
   });
 }
 
@@ -428,11 +432,11 @@ async function replyCreated(
   const sourceLabel = messages.length === 1 ? 'this message' : `${messages.length} messages`;
   const sourceUrl = eventSource ? messageLink(chatId, eventSource.messageId, eventSource.threadId) : '';
   const source = sourceUrl ? `<a href="${sourceUrl}">${sourceLabel}</a>` : sourceLabel;
-  const lines = [`<b>🤖 Created ${created.length} tasks from ${source}</b>`, '', ...createdSummaryLines(created)];
+  const lines = [`<b>🤖 Created ${created.length} tasks from ${source}</b>`, '', ...createdSummaryLines(created, group._id)];
   if (warnings.length) lines.push('', ...warnings.map(escapeHtml));
 
   const row: InlineKeyboardButton[] = [{ text: '↩️ Undo', callback_data: `batch:undo:${key}` }];
-  const board = appLinkButton('📱 Open board', group._id.toString());
+  const board = boardButton(group._id);
   if (board) row.push(board);
 
   await post(

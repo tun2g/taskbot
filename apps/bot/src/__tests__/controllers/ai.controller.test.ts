@@ -73,7 +73,16 @@ jest.mock('src/shared/services/task-sync.service', () => ({
 jest.mock('src/shared/services/notification.service', () => ({
   notificationService: { notifyAssignment: jest.fn(), notifyUnassigned: jest.fn(), notifyStatusChange: jest.fn() },
 }));
-jest.mock('src/shared/utils/app-links', () => ({ appLinkButton: jest.fn(() => null) }));
+jest.mock('src/shared/utils/app-links', () => ({
+  OPEN_BOARD_LABEL: '📋 Open board',
+  appLinkButton: jest.fn(() => null),
+  buildAppLink: jest.fn(() => null),
+  boardButton: jest.fn(() => null),
+  openTaskLabel: (n: number) => `📱 Open #${n}`,
+  taskButton: jest.fn(() => null),
+  taskNumberHtml: (n: number) => `<b>#${n}</b>`,
+  taskNumberMarkdown: (n: number) => `*#${n}*`,
+}));
 jest.mock('src/bot/task-card.renderer', () => ({
   ...jest.requireActual('src/bot/task-card.renderer'),
   formatTaskCard: jest.fn(() => 'card'),
@@ -415,7 +424,7 @@ describe('POST /api/batches/:batchId/undo', () => {
     expect(res.json).toHaveBeenCalledWith({ data: { removed: 2 } });
     expect(taskService.deleteTasks).toHaveBeenCalledWith(tasks.map((t) => t._id));
     expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', via: 'app' }));
-    expect(taskSyncService.markBatchUndone).toHaveBeenCalledWith({ chatId: -100123, messageId: 900 }, '@me', 2);
+    expect(taskSyncService.markBatchUndone).toHaveBeenCalledWith({ chatId: -100123, messageId: 900 }, '@me', 2, tasks, expect.anything());
     expect(redisService.del).toHaveBeenCalledWith(`app_batch_post:${batchId}`);
   });
 

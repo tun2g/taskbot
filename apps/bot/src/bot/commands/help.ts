@@ -4,7 +4,7 @@ import { escapeMarkdown } from 'src/bot/task-card.renderer';
 import { configService } from 'src/configs/configuration';
 import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { boardButton } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 export const HELP_TOPICS = ['create', 'ai', 'manage', 'board', 'reminders', 'setup'] as const;
@@ -112,7 +112,7 @@ function managePage(): HelpPage {
 
 function boardPage(ctx: HelpPageContext): HelpPage {
   const isGroup = ctx.chatType === 'group' || ctx.chatType === 'supergroup';
-  const open = isGroup && ctx.groupId ? appLinkButton('📊 Open board', ctx.groupId) : null;
+  const open = isGroup && ctx.groupId ? boardButton(ctx.groupId) : null;
 
   const lines = [
     '📊 *Board in the app*',

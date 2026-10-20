@@ -17,7 +17,7 @@ import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
 import { redisService } from 'src/shared/services/redis.service';
-import { appLinkButton } from 'src/shared/utils/app-links';
+import { boardButton, taskNumberMarkdown } from 'src/shared/utils/app-links';
 
 /** Local hour (in each group's timezone) at which the daily digest goes out. */
 export const DIGEST_HOUR = 9;
@@ -80,21 +80,23 @@ export async function buildDigest(
     `✅ Done in the last 24h: *${doneLast24h}*`,
   ];
 
+  // url button only — web_app buttons are rejected in groups.
+  const board = boardButton(group._id.toString());
+
   if (overdueCount > 0) {
     lines.push(`⚠️ Overdue: *${overdueCount}*`);
     for (const task of overdueTasks) {
       const assignee = populatedUser(task.assigneeId);
       lines.push(
-        `• #${task.taskNumber} ${escapeMarkdown(truncate(task.title, 60))} — ${assignee ? mdName(assignee) : 'unassigned'}`,
+        `• ${taskNumberMarkdown(task.taskNumber, group._id, task._id)} ${escapeMarkdown(truncate(task.title, 60))} — ${assignee ? mdName(assignee) : 'unassigned'}`,
       );
     }
     if (overdueCount > overdueTasks.length) {
-      lines.push(`…and ${overdueCount - overdueTasks.length} more`);
+      const more = overdueCount - overdueTasks.length;
+      lines.push(`…and ${more} more — ${board ? `tap ${board.text} below` : 'see them with /list'}`);
     }
   }
 
-  // url button only — web_app buttons are rejected in groups.
-  const board = appLinkButton('📋 Open board', group._id.toString());
   const buttons = board && 'url' in board ? [[{ text: board.text, url: board.url }]] : [];
 
   return { text: lines.join('\n'), buttons };

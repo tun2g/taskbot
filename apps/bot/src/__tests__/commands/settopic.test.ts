@@ -1,6 +1,7 @@
 import { SetTopicCommand } from 'src/bot/commands/settopic';
 import { groupService } from 'src/database/services/group.service';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
+import { configService } from 'src/configs/configuration';
 
 jest.mock('src/database/services/group.service', () => ({ groupService: { findOrCreateGroup: jest.fn() } }));
 jest.mock('src/shared/services/group-messenger.service', () => ({
@@ -66,6 +67,25 @@ describe('/settopic', () => {
     expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('✅ Task events will be posted in this topic'), {
       message_thread_id: 9,
     });
+  });
+
+  it('adds the board button to the confirmation when the app link exists', async () => {
+    const saved = { botUsername: configService.botUsername, botHasMainWebApp: configService.botHasMainWebApp };
+    Object.assign(configService, { botUsername: 'tbot', botHasMainWebApp: true });
+    const c = ctx();
+    await command.onSetTopic(c);
+    Object.assign(configService, saved);
+    expect(c.reply).toHaveBeenCalledWith(expect.any(String), {
+      message_thread_id: 9,
+      reply_markup: { inline_keyboard: [[{ text: '📋 Open board', url: 'https://t.me/tbot?startapp=g1' }]] },
+    });
+  });
+
+  it('points to /start in a private chat', async () => {
+    const c = { ...ctx(), chat: { id: 1, type: 'private' } };
+    await command.onSetTopic(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Send /start'), {});
+    expect(groupMessengerService.setEventsTopic).not.toHaveBeenCalled();
   });
 
   it('accepts anonymous admins (posting as the group)', async () => {

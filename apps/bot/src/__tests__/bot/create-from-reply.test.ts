@@ -95,4 +95,16 @@ describe('create tasks from a /tasks reply', () => {
     expect(createTasksFromInput).toHaveBeenCalledTimes(1);
     expect(again.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('expired'), { show_alert: true });
   });
+
+  it('shows an alert when creating fails', async () => {
+    const button = (await createFromReplyButton(
+      commandCtx({ message_id: 9, date: 1, from: { id: 3, first_name: 'Lan' }, text: 'fix login' }),
+    )) as { callback_data: string };
+    (userService.findOrCreateUser as jest.Mock).mockRejectedValue(new Error('db down'));
+    const ctx = callbackCtx(button.callback_data, [[button]]);
+
+    await handleCreateFromReplyCallback(ctx as never);
+
+    expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('Something went wrong'), { show_alert: true });
+  });
 });

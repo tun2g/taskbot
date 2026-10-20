@@ -3,7 +3,12 @@ import { taskActivityService } from 'src/database/services/task-activity.service
 import { taskService } from 'src/database/services/task.service';
 import { AiRequestContext, aiCommandService, DELETE_REFUSAL_MESSAGE, extractTaskNumbers, WHICH_TASK_MESSAGE } from 'src/shared/services/ai-command.service';
 import { aiPlanSchema } from 'src/shared/services/ai-command/plan.schema';
-import { telegramMissText } from 'src/shared/services/ai-command/telegram.renderer';
+import {
+  CLARIFY_HINT,
+  NOT_UNDERSTOOD_MESSAGE,
+  renderTelegram,
+  telegramMissText,
+} from 'src/shared/services/ai-command/telegram.renderer';
 import { notificationService } from 'src/shared/services/notification.service';
 
 jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
@@ -28,9 +33,19 @@ jest.mock('src/shared/services/notification.service', () => ({
     notifyStatusChange: jest.fn(),
   },
 }));
-jest.mock('src/shared/utils/app-links', () => ({
-  appLinkButton: jest.fn((text: string) => ({ text, url: 'https://t.me/bot?startapp=g' })),
-}));
+jest.mock('src/shared/utils/app-links', () => {
+  const url = 'https://t.me/bot?startapp=g';
+  return {
+    OPEN_BOARD_LABEL: '📋 Open board',
+    appLinkButton: jest.fn((text: string) => ({ text, url })),
+    buildAppLink: jest.fn(() => url),
+    boardButton: jest.fn(() => ({ text: '📋 Open board', url })),
+    openTaskLabel: (n: number) => `📱 Open #${n}`,
+    taskButton: jest.fn((t: { taskNumber: number }) => ({ text: `📱 Open #${t.taskNumber}`, url })),
+    taskNumberHtml: (n: number) => `<a href="${url}"><b>#${n}</b></a>`,
+    taskNumberMarkdown: (n: number) => `[#${n}](${url})`,
+  };
+});
 jest.mock('src/bot/task-card.renderer', () => ({
   ...jest.requireActual('src/bot/task-card.renderer'),
   formatTaskCard: jest.fn(() => 'card'),
@@ -77,6 +92,8 @@ function context(overrides: Partial<AiRequestContext> = {}): AiRequestContext {
 }
 
 const plan = (...actions: unknown[]) => aiPlanSchema.parse({ actions });
+/** #N as the mocked app link renders it. */
+const num = (n: number) => `<a href="https://t.me/bot?startapp=g"><b>#${n}</b></a>`;
 const editor = { editMessageText: jest.fn().mockResolvedValue(true) };
 
 function replyText(outcome: Awaited<ReturnType<typeof aiCommandService.execute>>): string {
@@ -133,9 +150,9 @@ describe('target resolution', () => {
     (taskService.getTasksByGroup as jest.Mock).mockResolvedValueOnce({ tasks: [a, b], total: 2 });
     const ambiguous = await aiCommandService.resolveTarget(context(), { search: 'login' });
     expect(ambiguous).toEqual({ miss: { reason: 'ambiguous', candidates: [a, b] } });
-    const text = telegramMissText((ambiguous as any).miss);
+    const text = telegramMissText((ambiguous as any).miss, group._id);
     expect(text).toContain('Which task?');
-    expect(text).toContain('#3');
+    expect(text).toContain(`${num(3)} 🐞 Fix login`);
   });
 
   it('never mutates when any target is unclear', async () => {
@@ -162,7 +179,7 @@ describe('updates', () => {
     );
 
     expect(taskService.assignTask).toHaveBeenCalledWith(t._id, ttt._id);
-    expect(replyText(outcome)).toBe('✅ <b>#12 Fix login on iOS</b>\n👤 @an → @ttt');
+    expect(replyText(outcome)).toBe(`✅ ${num(12)} <b>Fix login on iOS</b>\n👤 @an → @ttt`);
     expect(taskActivityService.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'assignee', from: '@an', to: '@ttt', via: 'ai', actor: me._id }),
     );
@@ -201,7 +218,7 @@ describe('updates', () => {
       expect.objectContaining({ action: 'status', from: '🔄 In progress', to: '👀 In review', via: 'ai' }),
     );
     expect(notificationService.notifyStatusChange).toHaveBeenCalledWith(updated, me, an);
-    expect(replyText(outcome)).toBe('✅ <b>#12 Fix login on iOS</b>\n⬆️ High priority\n👀 In review');
+    expect(replyText(outcome)).toBe(`✅ ${num(12)} <b>Fix login on iOS</b>\n⬆️ High priority\n👀 In review`);
   });
 
   it('replaces the description and logs it', async () => {
@@ -282,7 +299,8 @@ describe('refusals', () => {
       plan({ action: 'clarify', question: 'Task nào <vậy>?' }, { action: 'update_task', taskRef: 1, changes: { status: 'done' } }),
       editor,
     );
-    expect(replyText(outcome)).toBe('🤔 Task nào &lt;vậy&gt;?');
+    expect(replyText(outcome)).toBe(`🤔 Task nào &lt;vậy&gt;?\n\n<i>${CLARIFY_HINT}</i>`);
+    expect(replyText(outcome)).toContain('/ai');
     expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
   });
 
@@ -309,11 +327,12 @@ describe('queries', () => {
 
     expect(taskService.getTasksByGroup).toHaveBeenCalledWith(group._id, expect.objectContaining({ assigneeId: me._id }));
     expect(lines[0]).toBe('<b>📋 Your open tasks · 12</b>');
-    expect(lines[1]).toBe('#12 🐞 Fix login on iOS · 🔄 In progress · due today');
-    expect(lines[2]).toMatch(/^#30 📌 x+… · 📝 To do$/);
-    expect(lines[2].length).toBeLessThan(90);
+    expect(lines[1]).toBe(`${num(12)} 🐞 Fix login on iOS · 🔄 In progress · due today`);
+    const visible = lines[2].replace(/<[^>]+>/g, '');
+    expect(visible).toMatch(/^#30 📌 x+… · 📝 To do$/);
+    expect(visible.length).toBeLessThan(90);
     expect(lines[lines.length - 1]).toBe('…and 2 more');
-    expect(text).not.toContain('#9 ');
+    expect(text).not.toContain('#9<');
     expect(outcome.kind === 'reply' && outcome.reply.buttons).toBeDefined();
   });
 
@@ -327,8 +346,8 @@ describe('queries', () => {
     });
     const text = replyText(await aiCommandService.execute(context(), plan({ action: 'query', kind: 'overdue' }), editor));
     expect(text).toContain('<b>⚠️ Overdue tasks · 1</b>');
-    expect(text).toContain('#1 🐞 Fix login on iOS · 🔄 In progress · ⚠️ overdue (Sat, Oct 10) · @an');
-    expect(text).not.toContain('#2 ');
+    expect(text).toContain(`${num(1)} 🐞 Fix login on iOS · 🔄 In progress · ⚠️ overdue (Sat, Oct 10) · @an`);
+    expect(text).not.toContain('#2<');
   });
 
   it('reports an unknown person instead of listing everything', async () => {
@@ -343,5 +362,53 @@ describe('queries', () => {
     (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 0 });
     const text = replyText(await aiCommandService.execute(context(), plan({ action: 'query', kind: 'mine' }), editor));
     expect(text).toBe('<b>📋 Your open tasks · 0</b>\nNothing here. 🎉');
+  });
+});
+
+describe('telegram renderer', () => {
+  const buttonsOf = (outcome: ReturnType<typeof renderTelegram>) => (outcome.kind === 'reply' ? outcome.reply.buttons : undefined);
+  const outcomeOf = (t: ReturnType<typeof task>, overrides: Record<string, unknown> = {}) => ({
+    original: t,
+    task: t,
+    changes: ['✅ Done'],
+    notes: [],
+    fieldChanges: [],
+    failed: false,
+    ...overrides,
+  });
+
+  it('shows usage examples instead of "Which task?" when nothing was understood', () => {
+    const outcome = renderTelegram(context(), { kind: 'sections', sections: [] });
+    expect(replyText(outcome)).toBe(NOT_UNDERSTOOD_MESSAGE);
+    expect(NOT_UNDERSTOOD_MESSAGE).toContain('/ai');
+    expect(NOT_UNDERSTOOD_MESSAGE).not.toContain('Which task');
+  });
+
+  it('attaches the board to a missing #N or a search with no match, not to "which"', () => {
+    const board = [[expect.objectContaining({ text: '📋 Open board' })]];
+    expect(buttonsOf(renderTelegram(context(), { kind: 'which_task', miss: { reason: 'missing', number: 99 } }))).toEqual(board);
+    expect(buttonsOf(renderTelegram(context(), { kind: 'which_task', miss: { reason: 'no_match', search: 'x' } }))).toEqual(board);
+    expect(buttonsOf(renderTelegram(context(), { kind: 'which_task', miss: { reason: 'which' } }))).toBeUndefined();
+  });
+
+  it('opens the one updated task with "📱 Open #N"', () => {
+    const t = task();
+    const outcome = renderTelegram(context(), { kind: 'sections', sections: [{ type: 'update', update: outcomeOf(t) as any }] });
+    expect(buttonsOf(outcome)).toEqual([[expect.objectContaining({ text: '📱 Open #12' })]]);
+  });
+
+  it('a failed update links to the task whose card buttons it suggests', () => {
+    const t = task();
+    const outcome = renderTelegram(context(), {
+      kind: 'sections',
+      sections: [{ type: 'update', update: outcomeOf(t, { failed: true }) as any }],
+    });
+    expect(replyText(outcome)).toContain(`❌ ${num(12)} couldn't be fully updated`);
+    expect(buttonsOf(outcome)).toEqual([[expect.objectContaining({ text: '📱 Open #12' })]]);
+    expect(outcome.kind === 'reply' && outcome.updates).toBeFalsy();
+  });
+
+  it('tells the user to answer a question with /ai', () => {
+    expect(CLARIFY_HINT).toContain('/ai');
   });
 });

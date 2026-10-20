@@ -1,3 +1,4 @@
+import { replyGroupOnly } from 'src/bot/commands/private-chat-hint';
 import { BotContext } from 'src/bot/interface/context';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
@@ -19,6 +20,13 @@ import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
 import { notificationService } from 'src/shared/services/notification.service';
+import { taskButton } from 'src/shared/utils/app-links';
+import { InlineKeyboardButton } from 'telegraf/types';
+
+/** `reply_markup` with a single button, or nothing when there's no link to offer. */
+function withButton(button: InlineKeyboardButton | null) {
+  return button ? { reply_markup: { inline_keyboard: [[button]] } } : {};
+}
 
 export class DoneCommand {
   private map: Map<string, (ctx: BotContext) => void>;
@@ -38,7 +46,7 @@ export class DoneCommand {
       const chatType = ctx.chat?.type;
 
       if (!chatId || (chatType !== 'group' && chatType !== 'supergroup')) {
-        await ctx.reply('⚠️ /done can only be used in group chats.');
+        await replyGroupOnly(ctx, 'done');
         return;
       }
 
@@ -109,13 +117,13 @@ export class DoneCommand {
 
   private async completeTask(ctx: BotContext, task: ITask, user: IUser, group: IGroup) {
     if (task.status === 'done') {
-      await ctx.reply(`ℹ️ Task #${task.taskNumber} is already done.`);
+      await ctx.reply(`ℹ️ Task #${task.taskNumber} is already done.`, withButton(taskButton(task)));
       return;
     }
 
     const updatedTask = await taskService.updateTaskStatus(task._id, 'done', user._id);
     if (!updatedTask) {
-      await ctx.reply(`❌ Couldn't update #${task.taskNumber}. Please try again.`);
+      await ctx.reply(`❌ Couldn't update #${task.taskNumber}. Please try again.`, withButton(taskButton(task)));
       return;
     }
 
@@ -134,7 +142,7 @@ export class DoneCommand {
       ctx,
       group,
       `✅ ${mdName(user)} finished *#${updatedTask.taskNumber}* · ${escapeMarkdown(truncate(updatedTask.title, 60))}`,
-      { extra: { parse_mode: 'Markdown' } },
+      { extra: { parse_mode: 'Markdown', ...withButton(taskButton(updatedTask)) } },
     );
 
     await this.refreshTaskCard(ctx, updatedTask, group);

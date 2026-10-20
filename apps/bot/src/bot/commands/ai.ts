@@ -33,6 +33,7 @@ import {
   ReplyProgress,
 } from 'src/shared/services/task-creation.service';
 import { buildChangeLine, userDisplayName } from 'src/shared/services/task-event-lines';
+import { buildAppLink } from 'src/shared/utils/app-links';
 import { IGroup } from 'src/database/models/group.model';
 import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
@@ -214,7 +215,16 @@ export class AiCommand {
         if (await groupMessengerService.claimSetupHint(group)) reply = { ...reply, text: `${reply.text}\n\n${TOPIC_SETUP_HINT}` };
       } else if (eventsThread !== commandThread) {
         const lines = outcome.updates
-          .map((u) => buildChangeLine(userDisplayName(user), u.task.taskNumber, u.task.title, u.fieldChanges, '/ai'))
+          .map((u) =>
+            buildChangeLine(
+              userDisplayName(user),
+              u.task.taskNumber,
+              u.task.title,
+              u.fieldChanges,
+              '/ai',
+              buildAppLink(group._id, u.task._id),
+            ),
+          )
           .filter((line): line is string => !!line);
         eventText = lines.length ? lines.join('\n') : null;
       }
