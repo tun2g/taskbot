@@ -26,6 +26,23 @@ export type TargetMiss =
   /** "it" after an answer that showed several tasks (web chat). */
   | { reason: 'previous_ambiguous'; numbers: number[] };
 
+/** An epic as the AI replies show it: colored dot + title (plain). */
+export interface EpicRef {
+  _id: string;
+  title: string;
+  color: string;
+}
+
+/** "Put #5 in epic Login" when the group has no epic "Login" (nothing was created). */
+export interface EpicMiss {
+  /** The title as the user wrote it. */
+  title: string;
+  /** Open epics of the group (closest matches first, at most MAX_EPIC_SUGGESTIONS). */
+  suggestions: EpicRef[];
+  /** Open epics not listed. */
+  more: number;
+}
+
 export interface UpdateOutcome {
   /** The task as it was before. */
   original: ITask;
@@ -39,6 +56,22 @@ export interface UpdateOutcome {
   fieldChanges: TaskChange[];
   /** True when the update stopped half-way (DB error). */
   failed: boolean;
+  /** The requested epic doesn't exist (the other changes were still applied). */
+  epicMiss?: EpicMiss;
+}
+
+/** "/ai tạo epic Login". */
+export interface EpicCreateOutcome {
+  /** The new epic, or the existing one with that title when `duplicate`. */
+  epic: EpicRef;
+  duplicate: boolean;
+}
+
+/** One row of the epics overview: "🔵 Login — 3/7 done". */
+export interface EpicOverviewRow extends EpicRef {
+  status: string;
+  total: number;
+  done: number;
 }
 
 export type QueryOutcome =
@@ -59,11 +92,32 @@ export type QueryOutcome =
       showAssignee: boolean;
       /** Text for an empty list. */
       emptyText: string;
+      /** The epic the list is filtered by. */
+      epic?: EpicRef;
     }
-  | { kind: 'unknown_person'; person: string };
+  | { kind: 'unknown_person'; person: string }
+  | { kind: 'unknown_epic'; miss: EpicMiss }
+  /** Every epic with its progress, open ones first (renderers show at most MAX_EPIC_OVERVIEW). */
+  | { kind: 'epics'; epics: EpicOverviewRow[] };
+
+/** A read-only explanation of one task ("giải thích #5"). */
+export interface ExplainOutcome {
+  /** The task as it is now (after any change made by the same request). */
+  task: ITask;
+  /** Plain text written by the AI from the full task; null when the AI was unavailable. */
+  text: string | null;
+  /** Display name of the assignee (null = unassigned), for the state line. */
+  assignee: string | null;
+  /** The task is the replied card (web: the open task) — already on screen, so no state lines / Open button. */
+  fromReply?: boolean;
+}
 
 export type AiSection =
   | { type: 'update'; update: UpdateOutcome }
+  | { type: 'explain'; explain: ExplainOutcome }
+  | { type: 'epic_created'; epic: EpicCreateOutcome }
+  /** Short plain notes, e.g. "❌ No task #55." next to the explanations that did work. */
+  | { type: 'note'; lines: string[] }
   | { type: 'query'; query: QueryOutcome }
   | { type: 'answer'; text: string };
 

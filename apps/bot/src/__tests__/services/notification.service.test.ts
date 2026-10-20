@@ -21,6 +21,7 @@ const taskId = new mongoose.Types.ObjectId();
 const bob = { _id: new mongoose.Types.ObjectId(), telegramUserId: 1, username: 'bob' } as any;
 const an = { _id: new mongoose.Types.ObjectId(), telegramUserId: 2, username: 'an_dev' } as any;
 const openButton = { text: '📱 Open #12', url: 'https://t.me/tbot?startapp=g_t' };
+const explainButton = { text: '💡 Explain', callback_data: `tdm:explain:${taskId}` };
 
 function task(overrides: Record<string, unknown> = {}) {
   return {
@@ -51,7 +52,7 @@ describe('notification DMs', () => {
   describe('dmTaskKeyboard', () => {
     it('offers the next status step next to the open button', () => {
       expect(dmTaskKeyboard(task())).toEqual([
-        [{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }, openButton],
+        [{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }, explainButton, openButton],
       ]);
       expect(dmTaskKeyboard(task({ status: 'in_review' }))[0][0]).toEqual({
         text: '✅ Done',
@@ -59,16 +60,23 @@ describe('notification DMs', () => {
       });
     });
 
-    it('shows a state button for a closed task, and fits the 64-byte limit', () => {
+    it('shows a state button for a closed task (still explainable), and fits the 64-byte limit', () => {
       const [row] = dmTaskKeyboard(task({ status: 'done' }));
       expect(row[0]).toEqual({ text: '✅ Marked done', callback_data: `tdm:noop:${taskId}` });
+      expect(row[1]).toEqual(explainButton);
+      expect(row.length).toBeLessThanOrEqual(3);
       expect(Buffer.byteLength(`tdm:in_progress:${taskId}`)).toBeLessThanOrEqual(64);
     });
 
     it('works without any open button', () => {
       (taskButton as jest.Mock).mockReturnValue(null);
-      expect(dmTaskKeyboard(task())).toEqual([[{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }]]);
+      expect(dmTaskKeyboard(task())).toEqual([[{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }, explainButton]]);
     });
+  });
+
+  it('assignment DM shows an overdue due date in the same wording as /ai', async () => {
+    await notificationService.notifyAssignment(task({ dueDate: new Date('2020-01-05T00:00:00Z') }), an, bob);
+    expect(sent().text).toContain('Due: ⚠️ overdue since Sun, Jan 5, 2020');
   });
 
   it('assignment DM has the quick action and the open button', async () => {
@@ -77,7 +85,7 @@ describe('notification DMs', () => {
     expect(chat).toBe(2);
     expect(text).toContain('*You were assigned #12*');
     expect(text).toContain('By @bob in Team\\_A');
-    expect(rows).toEqual([[{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }, openButton]]);
+    expect(rows).toEqual([[{ text: '▶ Start', callback_data: `tdm:in_progress:${taskId}` }, explainButton, openButton]]);
   });
 
   it('status DM uses the shared status word (pending, not "on hold") and the open button only', async () => {

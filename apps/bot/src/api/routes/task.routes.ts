@@ -11,6 +11,7 @@ const taskScope = [validateObjectId('taskId'), asyncHandler(requireTaskMember())
 
 // Group-scoped task routes (caller must be a member of the group)
 router.get('/groups/:groupId/tasks', ...groupScope, asyncHandler((req, res) => taskController.listTasks(req, res)));
+router.get('/groups/:groupId/tasks/counts', ...groupScope, asyncHandler((req, res) => taskController.countTasks(req, res)));
 router.post('/groups/:groupId/tasks', ...groupScope, asyncHandler((req, res) => taskController.createTask(req, res)));
 router.get('/groups/:groupId/stats', ...groupScope, asyncHandler((req, res) => taskController.getStats(req, res)));
 

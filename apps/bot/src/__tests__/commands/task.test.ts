@@ -13,6 +13,16 @@ import { callbackDataStorageService } from 'src/shared/services/callback-data-st
 import mongoose from 'mongoose';
 import { createTasks } from 'src/shared/services/task-creation.service';
 
+jest.mock('src/database/services/epic.service', () => ({
+  ...jest.requireActual('src/database/services/epic.service'),
+  epicService: {
+    listOpen: jest.fn(async () => []),
+    listWithProgress: jest.fn(async () => []),
+    findByTitle: jest.fn(async () => null),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+  },
+}));
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');

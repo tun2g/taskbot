@@ -91,7 +91,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         className="pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-4"
-        style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+        style={{ bottom: 'calc(6rem + var(--app-safe-bottom))' }}
         aria-live="polite"
         role="status"
       >

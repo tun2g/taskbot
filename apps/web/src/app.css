@@ -160,13 +160,136 @@ body {
   background: color-mix(in srgb, var(--tg-theme-link-color) 10%, transparent);
 }
 
+/*
+ * Safe areas. Outside Telegram fullscreen these are the plain device insets (top = 0, so the
+ * layout is unchanged). In fullscreen (Bot API 8.0+, mobile only) Telegram draws its close /
+ * menu buttons over the page: --tg-safe-area-inset-* (device notch / home bar) plus
+ * --tg-content-safe-area-inset-* (Telegram's own controls) are set by telegram-web-app.js, and
+ * __root toggles html[data-tg-fullscreen] from WebApp.isFullscreen.
+ */
+:root {
+  --app-safe-top: 0px;
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Landscape notch / Telegram side controls. */
+  --app-safe-left: max(
+    env(safe-area-inset-left, 0px),
+    calc(var(--tg-safe-area-inset-left, 0px) + var(--tg-content-safe-area-inset-left, 0px))
+  );
+  --app-safe-right: max(
+    env(safe-area-inset-right, 0px),
+    calc(var(--tg-safe-area-inset-right, 0px) + var(--tg-content-safe-area-inset-right, 0px))
+  );
+  /* Where mobile sheets may start (top). */
+  --app-sheet-top: calc(max(env(safe-area-inset-top, 0px), var(--app-safe-top)) + 0.5rem);
+  /* Visible height / px covered by the on-screen keyboard — kept live by lib/telegram.ts from visualViewport. */
+  --app-vh: 100dvh;
+  --app-kb: 0px;
+}
+html[data-tg-fullscreen='true'] {
+  --app-safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  --app-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    calc(var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px))
+  );
+  /* Sheets cover the pill band (their header clears the pills sideways, see .sheet-header). */
+  --app-sheet-top: calc(var(--tg-safe-area-inset-top, 0px) + 0.5rem);
+}
+/* Keyboard open: the home-bar inset is under the keyboard — don't pad for it. Must follow the fullscreen rule. */
+html[data-kb='true'] {
+  --app-safe-bottom: 0px;
+}
+
+.pt-app-safe {
+  padding-top: var(--app-safe-top);
+}
+
+.px-app-safe {
+  padding-left: var(--app-safe-left);
+  padding-right: var(--app-safe-right);
+}
+
 .pb-safe {
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-bottom: max(1rem, var(--app-safe-bottom));
 }
 
 .fab-safe {
-  bottom: calc(1.5rem + env(safe-area-inset-bottom));
-  right: calc(1.25rem + env(safe-area-inset-right));
+  bottom: calc(1.5rem + var(--app-safe-bottom));
+  right: calc(1.25rem + var(--app-safe-right));
+}
+
+/* ---------- Page header (components/layout/layout.tsx) ---------- */
+.app-header {
+  padding-top: var(--app-safe-top);
+  padding-left: var(--app-safe-left);
+  padding-right: var(--app-safe-right);
+}
+.app-header-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'lead title actions';
+  align-items: center;
+  column-gap: 0.25rem;
+  min-height: 3.5rem;
+}
+.app-header-lead {
+  grid-area: lead;
+}
+.app-header-title {
+  grid-area: title;
+}
+.app-header-actions {
+  grid-area: actions;
+}
+/*
+ * Fullscreen: the title row lives INSIDE Telegram's pill band (between its Close and ⋯
+ * buttons) instead of below it, so the header costs no extra height. Actions drop to a
+ * slim row underneath.
+ */
+html[data-tg-fullscreen='true'] .app-header {
+  padding-top: var(--tg-safe-area-inset-top, 0px);
+}
+html[data-tg-fullscreen='true'] .app-header-row {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'title' 'actions';
+  min-height: 0;
+}
+html[data-tg-fullscreen='true'] .app-header-lead {
+  display: none;
+}
+html[data-tg-fullscreen='true'] .app-header-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: max(var(--tg-content-safe-area-inset-top, 0px), 2.5rem);
+  padding: 0 96px;
+  text-align: center;
+}
+html[data-tg-fullscreen='true'] .app-header-title h1 {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+html[data-tg-fullscreen='true'] .app-header-actions {
+  justify-content: flex-end;
+  min-height: 2.75rem;
+}
+
+/*
+ * Mobile sheet header (Ask AI): in fullscreen the sheet starts inside the pill band, so its
+ * title goes between the pills and its buttons wrap to a row below them.
+ */
+html[data-tg-fullscreen='true'] .sheet-header {
+  flex-wrap: wrap;
+}
+html[data-tg-fullscreen='true'] .sheet-header > :first-child {
+  flex-basis: 100%;
+  justify-content: center;
+  min-height: max(calc(var(--tg-content-safe-area-inset-top, 0px) - 0.5rem), 2.5rem);
+  padding-left: 96px;
+  padding-right: 96px;
+}
+html[data-tg-fullscreen='true'] .sheet-header > :nth-child(2) {
+  margin-left: auto;
 }
 
 .no-scrollbar {
@@ -182,7 +305,7 @@ body {
     padding-right: 400px;
   }
   html[data-ai-drawer='open'] .fab-safe {
-    right: calc(400px + 1.25rem + env(safe-area-inset-right));
+    right: calc(400px + 1.25rem + var(--app-safe-right));
   }
 }
 

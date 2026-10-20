@@ -8,6 +8,8 @@ export interface PaginatedResponse<T> {
     page: number;
     limit: number;
     total: number;
+    /** True when later pages exist (page * limit < total, give or take concurrent changes). */
+    hasMore?: boolean;
   };
 }
 

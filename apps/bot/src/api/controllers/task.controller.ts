@@ -1,4 +1,6 @@
 import {
+  EPIC_COLOR_EMOJI,
+  EpicColor,
   getStatusCategory,
   isClosedStatus,
   statusesInCategory,
@@ -26,12 +28,15 @@ import {
   taskQuerySchema,
   updateTaskSchema,
 } from 'src/api/validation';
+import { Epic, IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask, Task } from 'src/database/models/task.model';
 import { IUser, User } from 'src/database/models/user.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
+import { epicService } from 'src/database/services/epic.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
+import { TASK_POPULATE_FULL } from 'src/database/services/task-populate';
 import { taskService, TaskFilters } from 'src/database/services/task.service';
 import { notificationService } from 'src/shared/services/notification.service';
 import { TaskChange, taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
@@ -39,21 +44,35 @@ import { TaskChange, taskSyncService, userDisplayName } from 'src/shared/service
 export const DELETE_FORBIDDEN_MESSAGE = 'Only the task creator or a group admin can delete this task.';
 export const ASSIGNEE_NOT_MEMBER_MESSAGE =
   'That person is not a member of this group. Pick someone from the member list.';
+export const EPIC_NOT_IN_GROUP_MESSAGE = 'That epic is not part of this group. Pick an epic from the list.';
 const SIGN_IN_MESSAGE = 'Please sign in to continue.';
 const ACTIVITY_TEXT_MAX = 300;
 
-const POPULATE_PATHS = 'createdBy assigneeId completedBy';
-
 type UserLike = IUser;
 
-/** Populate user refs for API responses (no-op for plain objects). */
+/** Populate user + epic refs for API responses (no-op for plain objects). */
 async function populateTask<T>(task: T): Promise<T> {
-  const doc = task as unknown as { populate?: (paths: string) => Promise<unknown> };
+  const doc = task as unknown as { populate?: (paths: unknown) => Promise<unknown> };
   if (doc && typeof doc.populate === 'function') {
-    await doc.populate(POPULATE_PATHS);
+    await doc.populate(TASK_POPULATE_FULL);
   }
   return task;
 }
+
+type EpicLike = Pick<IEpic, 'title' | 'color'> & { _id: unknown };
+
+function isEpicDoc(value: unknown): value is EpicLike {
+  return !!value && typeof value === 'object' && 'title' in (value as object) && 'color' in (value as object);
+}
+
+/** A task's epic as a doc with title/color (populated ref, or loaded by id), or null. */
+async function resolveEpic(ref: unknown): Promise<EpicLike | null> {
+  if (!ref) return null;
+  if (isEpicDoc(ref)) return ref;
+  return Epic.findById(refId(ref));
+}
+
+const epicIcon = (epic: EpicLike | null) => (epic ? (EPIC_COLOR_EMOJI[epic.color as EpicColor] ?? null) : null);
 
 /** Id of a ref that may be populated (user doc) or a bare ObjectId/string. */
 export function refId(ref: unknown): string | null {
@@ -130,19 +149,27 @@ function notifyUnassigned(task: ITask, previous: UserLike, changedBy: UserLike) 
 }
 
 export class TaskController {
-  /** GET /api/groups/:groupId/tasks */
-  async listTasks(req: Request, res: Response) {
+  /**
+   * Parse GET /groups/:groupId/tasks query params into service filters. Sends a 400/401 and
+   * returns null when they're invalid.
+   */
+  private async parseListFilters(req: Request, res: Response): Promise<TaskFilters | null> {
     const authReq = req as AuthenticatedRequest;
     const groupId = req.params.groupId as string;
 
     const queryResult = taskQuerySchema.safeParse(req.query);
     if (!queryResult.success) {
       sendError(res, 400, validationMessage(queryResult.error), 'Invalid query params');
-      return;
+      return null;
     }
 
-    const { assigneeId, status, category, open, due, ...rest } = queryResult.data;
+    const { assigneeId, epicId, status, category, open, due, ...rest } = queryResult.data;
     const filters: TaskFilters = { ...rest };
+    if (epicId === 'none') {
+      filters.epicId = null;
+    } else if (epicId) {
+      filters.epicId = new mongoose.Types.ObjectId(epicId);
+    }
     // Overdue only counts tasks that are still open (done/cancelled are never overdue).
     const statuses = resolveStatusFilter({ status, category, open: open || due === 'overdue' });
     if (statuses) {
@@ -156,7 +183,7 @@ export class TaskController {
     if (assigneeId === 'me') {
       if (!authReq.user) {
         sendError(res, 401, SIGN_IN_MESSAGE);
-        return;
+        return null;
       }
       filters.assigneeId = authReq.user._id as mongoose.Types.ObjectId;
     } else if (assigneeId === 'none') {
@@ -164,13 +191,42 @@ export class TaskController {
     } else if (assigneeId) {
       filters.assigneeId = new mongoose.Types.ObjectId(assigneeId);
     }
+    return filters;
+  }
 
-    const { tasks, total } = await taskService.getTasksByGroup(new mongoose.Types.ObjectId(groupId), filters);
+  /**
+   * GET /api/groups/:groupId/tasks — one page (`page`, `limit` ≤ 100, default 20), newest first
+   * unless `sort`/`dir` are set. Every filter combines with `status`, so a board column is this
+   * endpoint with `status=<column>`.
+   */
+  async listTasks(req: Request, res: Response) {
+    const filters = await this.parseListFilters(req, res);
+    if (!filters) return;
+
+    const { tasks, total, hasMore } = await taskService.getTasksByGroup(
+      new mongoose.Types.ObjectId(req.params.groupId as string),
+      filters,
+    );
 
     res.json({
       data: tasks,
-      meta: { page: rest.page, limit: rest.limit, total },
+      meta: { page: filters.page, limit: filters.limit, total, hasMore },
     });
+  }
+
+  /**
+   * GET /api/groups/:groupId/tasks/counts — how many tasks match the same filters as the list,
+   * per status (board column headers, hidden-column hint) and in total. page/limit/sort are ignored.
+   */
+  async countTasks(req: Request, res: Response) {
+    const filters = await this.parseListFilters(req, res);
+    if (!filters) return;
+
+    const { byStatus, total } = await taskService.countTasksByStatus(
+      new mongoose.Types.ObjectId(req.params.groupId as string),
+      filters,
+    );
+    res.json({ data: { byStatus, total } });
   }
 
   /** POST /api/groups/:groupId/tasks */
@@ -208,6 +264,15 @@ export class TaskController {
       }
     }
 
+    let epic: IEpic | null = null;
+    if (data.epicId) {
+      epic = await epicService.findInGroup(objectGroupId, data.epicId);
+      if (!epic) {
+        sendError(res, 400, EPIC_NOT_IN_GROUP_MESSAGE, 'Validation error');
+        return;
+      }
+    }
+
     const task = await taskService.createTask({
       groupId: objectGroupId,
       createdBy: user._id as mongoose.Types.ObjectId,
@@ -217,6 +282,7 @@ export class TaskController {
       priority: data.priority,
       assigneeId: data.assigneeId ? new mongoose.Types.ObjectId(data.assigneeId) : undefined,
       dueDate: data.dueDate ? (parseDueDate(data.dueDate) ?? undefined) : undefined,
+      epicId: epic ? (epic._id as mongoose.Types.ObjectId) : undefined,
       // So the card is posted to the group
       taskCardChatId: group.telegramGroupId,
     });
@@ -348,6 +414,29 @@ export class TaskController {
         updates.dueDate = next;
         updates.reminderSent = false;
         changes.push({ field: 'due_date', from: prevDay, to: nextDay });
+      }
+    }
+
+    if (data.epicId !== undefined) {
+      const nextId = data.epicId || null;
+      if (nextId !== refId(before.epicId)) {
+        let nextEpic: IEpic | null = null;
+        if (nextId) {
+          nextEpic = await epicService.findInGroup(before.groupId, nextId);
+          if (!nextEpic) {
+            sendError(res, 400, EPIC_NOT_IN_GROUP_MESSAGE, 'Validation error');
+            return;
+          }
+        }
+        const prevEpic = await resolveEpic(before.epicId);
+        updates.epicId = nextEpic ? nextEpic._id : null;
+        changes.push({
+          field: 'epic',
+          from: prevEpic ? clip(prevEpic.title) : null,
+          to: nextEpic ? clip(nextEpic.title) : null,
+          fromIcon: epicIcon(prevEpic),
+          toIcon: epicIcon(nextEpic),
+        });
       }
     }
 

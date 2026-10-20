@@ -3,18 +3,21 @@ import type {
   CreateTaskInput,
   ITask,
   ITaskActivity,
-  PaginatedResponse,
+  TaskCounts,
   TaskFilters,
   TaskStatusCategory,
   UpdateTaskInput,
 } from '@tbot/shared';
-import { type QueryKey, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/lib/api-client';
 
+import { epicKeys } from './epics';
 import { groupKeys } from './groups';
+import { applyTaskChange, findCachedTask, type TaskPage, type TaskPages } from './task-cache';
 
-export const BOARD_LIMIT = 500;
+/** Tasks per page (list view, each board column). The API caps a page at 100. */
+export const TASK_PAGE_SIZE = 20;
 
 /**
  * Query params of GET /groups/:id/tasks. Shared `TaskFilters` doesn't have the
@@ -27,7 +30,11 @@ export const taskKeys = {
   all: ['tasks'] as const,
   lists: () => [...taskKeys.all, 'list'] as const,
   groupLists: (groupId: string) => [...taskKeys.lists(), groupId] as const,
+  /** A paged list (or one board column when `filters.status` is set). `page` is never part of the key. */
   list: (groupId: string, filters?: ApiTaskFilters) => [...taskKeys.groupLists(groupId), filters ?? {}] as const,
+  /** Per-status counts for the same filters (board headers). Under groupLists so list invalidation hits it. */
+  counts: (groupId: string, filters?: ApiTaskFilters) =>
+    [...taskKeys.groupLists(groupId), 'counts', filters ?? {}] as const,
   details: () => [...taskKeys.all, 'detail'] as const,
   detail: (taskId: string) => [...taskKeys.details(), taskId] as const,
   activity: (taskId: string) => [...taskKeys.all, 'activity', taskId] as const,
@@ -40,18 +47,50 @@ export type TaskStats = Partial<Record<string, number>> & {
   byCategory?: Record<TaskStatusCategory, number>;
 };
 
-export function useTasksList(groupId: string, filters: ApiTaskFilters) {
-  return useQuery({
-    queryKey: taskKeys.list(groupId, filters),
-    queryFn: async ({ signal }) => {
-      const params: Record<string, string> = {};
-      for (const [key, value] of Object.entries(filters)) {
-        if (value !== undefined && value !== null && value !== '') params[key] = String(value);
-      }
-      const { data } = await apiClient.get<PaginatedResponse<ITask>>(`/groups/${groupId}/tasks`, { params, signal });
+function toParams(filters: ApiTaskFilters): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') params[key] = String(value);
+  }
+  return params;
+}
+
+/**
+ * Paged GET /groups/:id/tasks — `fetchNextPage()` loads the next `TASK_PAGE_SIZE` tasks.
+ * Used for the list view, the assignee board and (with `status`) each status-board column.
+ */
+export function useTaskPages(groupId: string, filters: ApiTaskFilters, options: { enabled?: boolean } = {}) {
+  const { page: _page, ...keyFilters } = filters;
+  return useInfiniteQuery<TaskPage, Error, TaskPages, QueryKey, number>({
+    queryKey: taskKeys.list(groupId, keyFilters),
+    queryFn: async ({ pageParam, signal }) => {
+      const params = toParams({ limit: TASK_PAGE_SIZE, ...keyFilters, page: pageParam });
+      const { data } = await apiClient.get<TaskPage>(`/groups/${groupId}/tasks`, { params, signal });
       return data;
     },
-    enabled: !!groupId,
+    initialPageParam: 1,
+    getNextPageParam: (last) => {
+      const { page, limit, total, hasMore } = last.meta;
+      return (hasMore ?? page * limit < total) ? page + 1 : undefined;
+    },
+    enabled: !!groupId && (options.enabled ?? true),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Per-status counts of the tasks matching `filters` (page/limit/sort ignored). */
+export function useTaskCounts(groupId: string, filters: ApiTaskFilters, options: { enabled?: boolean } = {}) {
+  const { page: _page, limit: _limit, sort: _sort, dir: _dir, ...keyFilters } = filters;
+  return useQuery({
+    queryKey: taskKeys.counts(groupId, keyFilters),
+    queryFn: async ({ signal }) => {
+      const { data } = await apiClient.get<ApiResponse<TaskCounts>>(`/groups/${groupId}/tasks/counts`, {
+        params: toParams(keyFilters),
+        signal,
+      });
+      return data.data;
+    },
+    enabled: !!groupId && (options.enabled ?? true),
     placeholderData: (prev) => prev,
   });
 }
@@ -93,6 +132,8 @@ function invalidateGroup(queryClient: ReturnType<typeof useQueryClient>, groupId
   queryClient.invalidateQueries({ queryKey: taskKeys.groupLists(groupId) });
   queryClient.invalidateQueries({ queryKey: taskKeys.stats(groupId) });
   queryClient.invalidateQueries({ queryKey: groupKeys.list() });
+  // Epic progress counts follow task status / epic changes.
+  queryClient.invalidateQueries({ queryKey: epicKeys.list(groupId) });
 }
 
 export function useCreateTask(groupId: string) {
@@ -102,7 +143,11 @@ export function useCreateTask(groupId: string) {
       const { data } = await apiClient.post<ApiResponse<ITask>>(`/groups/${groupId}/tasks`, input);
       return data.data;
     },
-    onSuccess: () => invalidateGroup(queryClient, groupId),
+    onSuccess: (task) => {
+      // Show it in its column / the list right away; the refetch confirms.
+      applyTaskChange(queryClient, groupId, null, task);
+      invalidateGroup(queryClient, groupId);
+    },
   });
 }
 
@@ -138,9 +183,10 @@ export function useUpdateTask(groupId: string) {
         ...queryClient.getQueriesData({ queryKey: taskKeys.groupLists(groupId) }),
         [taskKeys.detail(taskId), queryClient.getQueryData(taskKeys.detail(taskId))],
       ];
-      queryClient.setQueriesData<PaginatedResponse<ITask>>({ queryKey: taskKeys.groupLists(groupId) }, (old) =>
-        old ? { ...old, data: old.data.map((t) => (t._id === taskId ? { ...t, ...optimistic } : t)) } : old,
-      );
+      // Patch every cached copy; a status change moves the card between board columns' pages.
+      const before =
+        findCachedTask(queryClient, groupId, taskId) ?? queryClient.getQueryData<ITask>(taskKeys.detail(taskId));
+      if (before) applyTaskChange(queryClient, groupId, before, { ...before, ...optimistic });
       queryClient.setQueryData<ITask>(taskKeys.detail(taskId), (old) => (old ? { ...old, ...optimistic } : old));
       return { snapshots };
     },
@@ -165,6 +211,9 @@ export function useDeleteTask(groupId: string) {
       return taskId;
     },
     onSuccess: (taskId) => {
+      const before =
+        findCachedTask(queryClient, groupId, taskId) ?? queryClient.getQueryData<ITask>(taskKeys.detail(taskId));
+      if (before) applyTaskChange(queryClient, groupId, before, null);
       queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) });
       invalidateGroup(queryClient, groupId);
     },

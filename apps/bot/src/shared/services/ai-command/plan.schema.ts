@@ -1,8 +1,10 @@
-import { TASK_PRIORITY_VALUES, TASK_STATUS_VALUES, TASK_TYPE_VALUES } from '@tbot/shared';
+import { EPIC_TITLE_MAX, TASK_PRIORITY_VALUES, TASK_STATUS_VALUES, TASK_TYPE_VALUES } from '@tbot/shared';
 import { z } from 'zod';
 
 /** Most task mutations one /ai request may perform; bigger jobs go to the board. */
 export const MAX_AI_MUTATIONS = 5;
+/** Most tasks one request may explain (each explanation is a second AI call; read-only, not a mutation). */
+export const MAX_AI_EXPLAINS = 3;
 /** Hard cap on parsed actions (bigger plans are still parsed so we can refuse them politely). */
 const MAX_PARSED_ACTIONS = 20;
 
@@ -56,6 +58,9 @@ export const taskRefSchema = z.preprocess(
   ]),
 );
 
+/** An epic title as the user wrote it ("Login"); resolved case-insensitively in the group by code. */
+const epicTitleSchema = z.string().trim().min(1).max(EPIC_TITLE_MAX);
+
 const dueDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -79,8 +84,19 @@ export const updateTaskActionSchema = z.object({
       dueDate: dueDateSchema.nullable().optional(),
       title: z.string().trim().min(1).max(200).optional(),
       description: z.string().trim().max(2000).nullable().optional(),
+      /** Epic title as written, or null to take the task out of its epic. */
+      epic: epicTitleSchema.nullable().optional(),
     })
     .refine((c) => Object.values(c).some((v) => v !== undefined), 'No changes'),
+  /** True only when the user explicitly asked for a NEW epic ("epic mới", "new epic") — then a missing one is created. */
+  newEpic: z.boolean().nullish(),
+});
+
+/** "/ai tạo epic Login" — a new epic (bucket of tasks) in the group. */
+export const createEpicActionSchema = z.object({
+  action: z.literal('create_epic'),
+  title: epicTitleSchema,
+  description: z.string().trim().max(2000).nullish(),
 });
 
 export const deleteTaskActionSchema = z.object({
@@ -88,12 +104,19 @@ export const deleteTaskActionSchema = z.object({
   taskRef: taskRefSchema.optional(),
 });
 
+/** The user asks what a task is / why it exists / what's left ("giải thích #5", "#5 là gì"). Read-only. */
+export const explainTaskActionSchema = z.object({
+  action: z.literal('explain_task'),
+  taskRef: taskRefSchema,
+});
+
 /** The request targets many tasks at once ("move all of @an's tasks to done"). */
 export const bulkActionSchema = z.object({
   action: z.literal('bulk'),
 });
 
-export const QUERY_KINDS = ['mine', 'person', 'overdue', 'status', 'type', 'search', 'open'] as const;
+/** `epic` = tasks of one epic; `epics` = the overview of every epic with its progress. */
+export const QUERY_KINDS = ['mine', 'person', 'overdue', 'status', 'type', 'search', 'open', 'epic', 'epics'] as const;
 
 export const queryActionSchema = z.object({
   action: z.literal('query'),
@@ -102,6 +125,8 @@ export const queryActionSchema = z.object({
   status: statusSchema.nullish(),
   type: typeSchema.nullish(),
   text: z.string().trim().min(1).max(100).nullish(),
+  /** Only tasks of this epic (title as written). */
+  epic: epicTitleSchema.nullish(),
 });
 
 export const answerActionSchema = z.object({
@@ -117,7 +142,9 @@ export const clarifyActionSchema = z.object({
 export const aiActionSchema = z.discriminatedUnion('action', [
   createTasksActionSchema,
   updateTaskActionSchema,
+  createEpicActionSchema,
   deleteTaskActionSchema,
+  explainTaskActionSchema,
   bulkActionSchema,
   queryActionSchema,
   answerActionSchema,
@@ -135,4 +162,6 @@ export type AiPlan = z.infer<typeof aiPlanSchema>;
 export type TaskRef = z.infer<typeof taskRefSchema>;
 export type UpdateTaskAction = z.infer<typeof updateTaskActionSchema>;
 export type UpdateChanges = UpdateTaskAction['changes'];
+export type ExplainTaskAction = z.infer<typeof explainTaskActionSchema>;
+export type CreateEpicAction = z.infer<typeof createEpicActionSchema>;
 export type QueryAction = z.infer<typeof queryActionSchema>;

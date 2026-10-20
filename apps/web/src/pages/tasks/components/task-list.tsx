@@ -1,10 +1,11 @@
 import type { ITask, IUser } from '@tbot/shared';
-import { TASK_PRIORITY_ORDER, TASK_STATUS_ORDER, TASK_TYPE_ORDER, TaskStatus } from '@tbot/shared';
-import { useMemo } from 'react';
+import { TaskStatus } from '@tbot/shared';
+import type { ReactNode } from 'react';
 
+import { EpicChip } from '@/components/epics/epic-chip';
 import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
 import { type SelectOption, SelectMenu } from '@/components/ui/select-menu';
-import { toDueDay } from '@/lib/dates';
+import type { EpicRef } from '@/lib/epics';
 import { displayName, getUserId } from '@/lib/user';
 
 import type { ListSortKey } from '../board-search';
@@ -14,12 +15,17 @@ import { StatusMenu } from './status-menu';
 interface TaskListProps {
   tasks: ITask[];
   members: IUser[];
+  epics?: EpicRef[];
+  /** List already filtered to one epic → skip the chip. */
+  hideEpic?: boolean;
   timeZone?: string | null;
   sort?: ListSortKey;
   dir?: 'asc' | 'desc';
   onSortChange: (sort: ListSortKey | undefined, dir: 'asc' | 'desc' | undefined) => void;
   onTaskClick: (task: ITask) => void;
   onStatusChange: (task: ITask, status: TaskStatus) => void;
+  /** Under the rows, e.g. "Load more". */
+  footer?: ReactNode;
 }
 
 const SORT_OPTIONS: SelectOption<string>[] = [
@@ -41,49 +47,21 @@ const COLUMNS: { key: ListSortKey; label: string; className: string }[] = [
   { key: 'due', label: 'Due', className: 'w-36' },
 ];
 
-function sortTasks(tasks: ITask[], members: IUser[], sort?: ListSortKey, dir: 'asc' | 'desc' = 'asc') {
-  if (!sort) return tasks;
-  const factor = dir === 'asc' ? 1 : -1;
-  const value = (t: ITask): string | number | null => {
-    switch (sort) {
-      case 'type':
-        return TASK_TYPE_ORDER.indexOf(t.type);
-      case 'key':
-        return t.taskNumber;
-      case 'summary':
-        return t.title.toLocaleLowerCase();
-      case 'status':
-        return TASK_STATUS_ORDER.indexOf(t.status);
-      case 'priority':
-        return TASK_PRIORITY_ORDER.indexOf(t.priority);
-      case 'assignee':
-        return getUserId(t.assigneeId) ? displayName(t.assigneeId, { members }).toLocaleLowerCase() : null;
-      case 'due':
-        return toDueDay(t.dueDate);
-    }
-  };
-  return [...tasks].sort((a, b) => {
-    const va = value(a);
-    const vb = value(b);
-    if (va === vb) return b.taskNumber - a.taskNumber;
-    if (va === null) return 1; // empty values always last
-    if (vb === null) return -1;
-    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * factor;
-    return String(va).localeCompare(String(vb)) * factor;
-  });
-}
-
 export function TaskList({
   tasks,
   members,
+  epics,
+  hideEpic,
   timeZone,
   sort,
   dir,
   onSortChange,
   onTaskClick,
   onStatusChange,
+  footer,
 }: TaskListProps) {
-  const rows = useMemo(() => sortTasks(tasks, members, sort, dir), [tasks, members, sort, dir]);
+  // Sorted by the server (sort/dir are query params), so paging stays in order.
+  const rows = tasks;
 
   // asc → desc → default (server order)
   const cycleSort = (key: ListSortKey) => {
@@ -138,17 +116,20 @@ export function TaskList({
               </td>
               <td className="px-2 py-1.5 font-mono text-xs text-tg-hint">#{task.taskNumber}</td>
               <td className="px-2 py-1.5">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTaskClick(task);
-                  }}
-                  title={task.title}
-                  className="block w-full truncate text-left text-tg-text hover:text-tg-link hover:underline"
-                >
-                  {task.title}
-                </button>
+                <span className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTaskClick(task);
+                    }}
+                    title={task.title}
+                    className="block min-w-0 truncate text-left text-tg-text hover:text-tg-link hover:underline"
+                  >
+                    {task.title}
+                  </button>
+                  {!hideEpic && <EpicChip epic={task.epicId} epics={epics} className="max-w-[7.5rem]" />}
+                </span>
               </td>
               <td className="px-2 py-1.5">
                 <StatusLozenge status={task.status} />
@@ -217,7 +198,8 @@ export function TaskList({
                   <StatusLozenge status={task.status} />
                   <PriorityIcon priority={task.priority} />
                   <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
-                  <span className="ml-auto">
+                  {!hideEpic && <EpicChip epic={task.epicId} epics={epics} />}
+                  <span className="ml-auto shrink-0">
                     <Avatar user={task.assigneeId} members={members} />
                   </span>
                 </span>
@@ -227,6 +209,7 @@ export function TaskList({
           ))}
         </ul>
       </div>
+      {footer && <div className="mt-2">{footer}</div>}
     </div>
   );
 }

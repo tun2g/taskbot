@@ -1,9 +1,11 @@
-import type { ITask, ITaskActivity, IUser, UpdateTaskInput } from '@tbot/shared';
-import { isClosedStatus, TaskPriority, TaskStatus, TaskType } from '@tbot/shared';
+import type { EpicWithProgress, IEpic, ITask, ITaskActivity, IUser, UpdateTaskInput } from '@tbot/shared';
+import { EpicStatus, isClosedStatus, TaskPriority, TaskStatus, TaskType } from '@tbot/shared';
 import { type ReactNode, useState } from 'react';
 
 import { AiChatPanel } from '@/components/ai-chat/ai-chat-panel';
 import { AskAiButton, useAskAi } from '@/components/ai-chat/ask-ai';
+import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
+import { EpicPicker } from '@/components/epics/epic-picker';
 import { Layout } from '@/components/layout/layout';
 import { Avatar, TypeIcon } from '@/components/ui/badges';
 import { SelectMenu } from '@/components/ui/select-menu';
@@ -14,6 +16,7 @@ import { StateMessage } from '@/components/ui/state';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { dueLabel, dueState, formatDate, formatRelative, toDueDay } from '@/lib/dates';
+import { getEpicId } from '@/lib/epics';
 import { displayName, getUserId } from '@/lib/user';
 
 import { ActivityTimeline } from './components/activity-timeline';
@@ -22,6 +25,13 @@ import { DeleteDialog } from './components/delete-dialog';
 import { EditableText } from './components/editable-text';
 import { getSourceMessages, SourceMessages } from './components/source-messages';
 import type { SaveResult } from './task-detail.container';
+
+/** Short hint under the Epic field: "3/8 done", or "Done" once the epic is closed. */
+function epicFieldHint(epic: EpicWithProgress | undefined): string | null {
+  if (!epic) return null;
+  if (epic.status === EpicStatus.DONE) return 'Done';
+  return `${epic.progress.done}/${epic.progress.total} done`;
+}
 
 const dueTextClass = {
   overdue: 'text-tg-destructive font-semibold',
@@ -55,11 +65,21 @@ interface TaskDetailContentProps {
   timeZone?: string | null;
   groupName?: string;
   members: IUser[];
+  epics: EpicWithProgress[];
+  onCreateEpic: (values: EpicFormValues) => Promise<IEpic | string>;
+  isCreatingEpic?: boolean;
+  /** Board filtered to this epic. */
+  onOpenEpicBoard: (epicId: string) => void;
   activity: ITaskActivity[];
   activityLoading: boolean;
   activityError: string | null;
   onRetryActivity: () => void;
   onBack: () => void;
+  /**
+   * Opened straight from a chat deep link: no native BackButton (Telegram shows "Close"); the
+   * breadcrumb still leads to the board.
+   */
+  quickLook?: boolean;
   onUpdate: (input: UpdateTaskInput, optimistic?: Partial<ITask>) => Promise<SaveResult>;
   isUpdating?: boolean;
   onDelete: () => void;
@@ -69,13 +89,14 @@ interface TaskDetailContentProps {
 }
 
 export function TaskDetailContent(props: TaskDetailContentProps) {
-  const { task, isLoading, notFound, loadError, onRetry, timeZone, groupName, members, onBack, onUpdate } = props;
+  const { task, isLoading, notFound, loadError, onRetry, timeZone, groupName, members, onBack, onUpdate, quickLook } =
+    props;
   const [showDelete, setShowDelete] = useState(false);
   const ai = useAskAi();
 
   if (isLoading) {
     return (
-      <Layout title={<Skeleton className="h-5 w-16" />} onBack={onBack}>
+      <Layout title={<Skeleton className="h-5 w-16" />} onBack={onBack} nativeBack={!quickLook}>
         <div className="flex flex-col gap-4 p-4">
           <Skeleton className="h-7 w-4/5" />
           <Skeleton className="h-16 w-full" />
@@ -90,7 +111,7 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
   if (notFound || loadError || !task) {
     const forbidden = notFound?.status === 403;
     return (
-      <Layout title="Task" onBack={onBack}>
+      <Layout title="Task" onBack={onBack} nativeBack={!quickLook}>
         <StateMessage
           icon={forbidden ? '🔒' : notFound ? '🔍' : '⚠️'}
           title={forbidden ? 'No access to this task' : notFound ? 'Task not found' : "Couldn't load this task"}
@@ -122,6 +143,9 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
     return onUpdate({ assigneeId }, { assigneeId: member ?? assigneeId });
   };
 
+  const epicId = getEpicId(task.epicId);
+  const epicProgress = epicFieldHint(props.epics.find((e) => e._id === epicId));
+
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1.5 text-base">
       <button type="button" onClick={onBack} className="min-h-11 truncate font-normal text-tg-link hover:underline">
@@ -150,6 +174,35 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
         </Field>
         <Field label="Assignee" htmlFor="detail-assignee">
           <AssigneePicker id="detail-assignee" members={members} assignee={task.assigneeId} onSelect={saveAssignee} />
+        </Field>
+        <Field label="Epic" htmlFor="detail-epic">
+          <EpicPicker
+            id="detail-epic"
+            epics={props.epics}
+            value={task.epicId}
+            onSelect={(epic) =>
+              onUpdate(
+                { epicId: epic?._id ?? null },
+                {
+                  epicId: epic ? { _id: epic._id, title: epic.title, color: epic.color, status: epic.status } : null,
+                },
+              )
+            }
+            onCreateEpic={props.onCreateEpic}
+            isCreating={props.isCreatingEpic}
+          />
+          {epicId && (
+            <button
+              type="button"
+              onClick={() => props.onOpenEpicBoard(epicId)}
+              className="mt-0.5 flex min-h-8 items-center gap-1 text-xs text-tg-hint hover:underline"
+              aria-label="See all tasks in this epic on the board"
+            >
+              {epicProgress && <span>{epicProgress}</span>}
+              {epicProgress && <span aria-hidden>·</span>}
+              <span className="text-tg-link">See all tasks ›</span>
+            </button>
+          )}
         </Field>
         <Field label="Type" htmlFor="detail-type">
           <SelectMenu<TaskType>
@@ -231,6 +284,8 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
     <Layout
       title={breadcrumb}
       onBack={ai.backHandler(onBack)}
+      // Quick look: BackButton only while the Ask AI sheet is open (it closes the sheet).
+      nativeBack={!quickLook || ai.open}
       width="medium"
       actions={<AskAiButton onClick={ai.open ? ai.close : ai.openChat} active={ai.open} />}
     >
@@ -247,7 +302,7 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
           />
         </div>
 
-        <aside className="md:sticky md:top-20 md:col-start-2 md:row-span-2 md:row-start-1">{details}</aside>
+        <aside className="md:sticky md:top-[calc(5rem+var(--app-safe-top))] md:col-start-2 md:row-span-2 md:row-start-1">{details}</aside>
 
         <div className="flex flex-col gap-6 md:col-start-1 md:row-start-2">
           <EditableText

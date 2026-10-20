@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { AiRequestContext } from 'src/shared/services/ai-command.service';
+import { AiRequestContext, extractTaskNumbers } from 'src/shared/services/ai-command.service';
 import { aiPlanSchema } from 'src/shared/services/ai-command/plan.schema';
 import { buildAiCommandPrompt } from 'src/shared/services/ai-command/prompt';
 import { AiResult, UpdateOutcome } from 'src/shared/services/ai-command/result';
@@ -7,6 +7,16 @@ import { renderTelegram } from 'src/shared/services/ai-command/telegram.renderer
 import { detectLang, renderWeb, renderWebCreated } from 'src/shared/services/ai-command/web.renderer';
 import { TaskSyncService } from 'src/shared/services/task-sync.service';
 
+jest.mock('src/database/services/epic.service', () => ({
+  ...jest.requireActual('src/database/services/epic.service'),
+  epicService: {
+    listOpen: jest.fn(async () => []),
+    listWithProgress: jest.fn(async () => []),
+    findByTitle: jest.fn(async () => null),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+  },
+}));
 jest.mock('src/bot', () => ({
   bot: { telegram: { sendMessage: jest.fn().mockResolvedValue({ message_id: 321 }), editMessageText: jest.fn() } },
 }));
@@ -124,6 +134,14 @@ describe('web renderer (plain text)', () => {
         { type: 'answer', text: 'Mình có thể giúp & tạo task' },
       ],
     },
+    {
+      kind: 'sections',
+      sections: [{ type: 'explain', explain: { task: task(), text: '🎯 Fix <login> & logout', assignee: null } }],
+    },
+    {
+      kind: 'sections',
+      sections: [{ type: 'explain', explain: { task: task({ description: 'a & b' }), text: null, assignee: '@an' } }],
+    },
   ];
 
   it.each(results.map((r, i) => [i, r]))('result %i has no HTML', (_i, result) => {
@@ -167,6 +185,34 @@ describe('web renderer (plain text)', () => {
     expect(data.kind).toBe('query');
     expect(data.text).toBe('📋 Your open tasks · 1\n#12 🐞 Fix login');
     expect(data.suggestions).toEqual(['Mark #12 done', "What's overdue?", 'What is still open?']);
+  });
+
+  it('explain: plain text with the task number, the task as a chip and follow-ups for it', () => {
+    const t = task({ taskNumber: 5, title: 'Fix login', dueDate: new Date('2026-10-20T00:00:00Z') });
+    const data = renderWeb(context({ request: 'giải thích task này', replyTask: t }), {
+      kind: 'sections',
+      sections: [
+        {
+          type: 'explain',
+          explain: { task: t, text: '🎯 Sửa lỗi login trên iOS.\n❓ Mô tả chưa có — có thể hỏi @me', assignee: null },
+        },
+      ],
+    });
+    expect(data).toEqual({
+      kind: 'answer',
+      text: [
+        '💡 #5 Fix login',
+        '🎯 Sửa lỗi login trên iOS.',
+        '❓ Mô tả chưa có — có thể hỏi @me',
+        '',
+        '🐞 Bug · 📝 To do',
+        '👤 Unassigned · 📅 due tomorrow',
+      ].join('\n'),
+      tasks: [expect.objectContaining({ taskNumber: 5 })],
+      suggestions: ['Giao #5 cho tôi', 'Tôi còn task nào?'],
+    });
+    // The next turn can say "giao nó cho @an": exactly one task number in the answer.
+    expect(extractTaskNumbers(data.text)).toEqual([5]);
   });
 
   it('created: one task, Vietnamese suggestions, undo window', () => {

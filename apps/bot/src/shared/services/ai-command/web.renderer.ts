@@ -4,9 +4,30 @@ import { refId } from 'src/bot/task-card.renderer';
 import { ITask } from 'src/database/models/task.model';
 import type { AiRequestContext } from 'src/shared/services/ai-command.service';
 import { unknownPersonText } from 'src/shared/services/ai-command.service';
-import { shorten, typeIcon } from 'src/shared/services/ai-command/format';
+import {
+  createEpicCommand,
+  detectLang,
+  epicLabel,
+  epicOf,
+  epicProgressLine,
+  type Lang,
+  MAX_EPIC_OVERVIEW,
+  shorten,
+  taskStateLines,
+  typeIcon,
+} from 'src/shared/services/ai-command/format';
 import { MAX_AI_MUTATIONS } from 'src/shared/services/ai-command/plan.schema';
-import { AiResult, AiSection, changedUpdates, QueryOutcome, TargetMiss, UpdateOutcome } from 'src/shared/services/ai-command/result';
+import {
+  AiResult,
+  AiSection,
+  changedUpdates,
+  EpicCreateOutcome,
+  EpicMiss,
+  ExplainOutcome,
+  QueryOutcome,
+  TargetMiss,
+  UpdateOutcome,
+} from 'src/shared/services/ai-command/result';
 import type { CreatedTask } from 'src/shared/services/task-creation.service';
 
 // Web "Ask AI" replies: PLAIN text only (no HTML/Markdown) in short lines; the web app renders
@@ -23,13 +44,7 @@ const MAX_SUGGESTIONS = 3;
 /** API tasks are the shared shape (refs populated); the DB model type differs only in ref typing. */
 const asShared = (task: ITask) => task as unknown as SharedTask;
 
-type Lang = 'vi' | 'en';
-
-const VIETNAMESE = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
-
-export function detectLang(text: string): Lang {
-  return VIETNAMESE.test(text) ? 'vi' : 'en';
-}
+export { detectLang };
 
 const PHRASES: Record<Lang, {
   mine: string;
@@ -38,6 +53,8 @@ const PHRASES: Record<Lang, {
   assignMe: (n: number) => string;
   done: (n: number) => string;
   due: (n: number) => string;
+  epics: string;
+  epicLeft: (title: string) => string;
 }> = {
   en: {
     mine: 'What are my open tasks?',
@@ -46,6 +63,8 @@ const PHRASES: Record<Lang, {
     assignMe: (n) => `Assign #${n} to me`,
     done: (n) => `Mark #${n} done`,
     due: (n) => `Set due date for #${n}`,
+    epics: 'How are the epics going?',
+    epicLeft: (title) => `What's left in epic ${title}?`,
   },
   vi: {
     mine: 'Tôi còn task nào?',
@@ -54,6 +73,8 @@ const PHRASES: Record<Lang, {
     assignMe: (n) => `Giao #${n} cho tôi`,
     done: (n) => `#${n} xong rồi`,
     due: (n) => `Đặt hạn cho #${n}`,
+    epics: 'Tiến độ các epic',
+    epicLeft: (title) => `Epic ${title} còn gì?`,
   },
 };
 
@@ -93,6 +114,26 @@ function missText(miss: TargetMiss): string {
   }
 }
 
+/** "⚠️ There's no epic “Login” yet." + open epics + the exact message that creates it. */
+function epicMissLines(miss: EpicMiss): string[] {
+  const lines = [`⚠️ There's no epic “${shorten(miss.title, 30)}” yet.`];
+  if (miss.suggestions.length) {
+    const more = miss.more ? ` · +${miss.more} more` : '';
+    lines.push(`Open epics: ${miss.suggestions.map((e) => epicLabel(e, 24)).join(' · ')}${more}`);
+  } else {
+    lines.push('This group has no epics yet.');
+  }
+  lines.push(`➕ Create it: “${createEpicCommand(miss.title, 'web')}”`);
+  return lines;
+}
+
+function epicCreatedText(o: EpicCreateOutcome): string {
+  return [
+    o.duplicate ? `ℹ️ Epic ${epicLabel(o.epic)} already exists.` : `✅ Epic ${epicLabel(o.epic)} created`,
+    `➕ Add tasks: “Thêm #N vào epic ${shorten(o.epic.title, 30)}”`,
+  ].join('\n');
+}
+
 function updateText(u: UpdateOutcome): string {
   if (u.failed) {
     return [`❌ #${u.original.taskNumber} couldn't be fully updated. Please try again or edit it on the board.`, ...u.changes].join(
@@ -100,11 +141,32 @@ function updateText(u: UpdateOutcome): string {
     );
   }
   const header = `${u.changes.length ? '✅' : 'ℹ️'} #${u.task.taskNumber} ${shorten(u.task.title)}`;
-  return [header, ...u.changes, ...u.notes].join('\n');
+  return [header, ...u.changes, ...u.notes, ...(u.epicMiss ? epicMissLines(u.epicMiss) : [])].join('\n');
+}
+
+/** "💡 #5 Title", the explanation, then the state lines. #5 stays in the text so "giao nó cho @an" works next. */
+function explainText(e: ExplainOutcome, today: string): string {
+  const t = e.task;
+  const body = e.text
+    ? [e.text]
+    : [
+        '🤖 AI can’t explain it right now — here’s what the task says:',
+        t.description?.trim() ? `📝 ${shorten(t.description, 300)}` : '📝 No description yet.',
+      ];
+  const state = e.fromReply ? [] : ['', ...taskStateLines(t, e.assignee, today)];
+  return [`💡 #${t.taskNumber} ${shorten(t.title)}`, ...body, ...state].join('\n');
 }
 
 function queryText(q: QueryOutcome): string {
   if (q.kind === 'unknown_person') return `⚠️ ${unknownPersonText(q.person, 'web')}`;
+  if (q.kind === 'unknown_epic') return epicMissLines(q.miss).join('\n');
+  if (q.kind === 'epics') {
+    const lines = [`🗂 Epics · ${q.epics.length}`];
+    if (q.epics.length === 0) lines.push('No epics yet.', `➕ Create one: “${createEpicCommand('Login', 'web')}”`);
+    for (const row of q.epics.slice(0, MAX_EPIC_OVERVIEW)) lines.push(epicProgressLine(row));
+    if (q.epics.length > MAX_EPIC_OVERVIEW) lines.push(`…and ${q.epics.length - MAX_EPIC_OVERVIEW} more`);
+    return lines.join('\n');
+  }
   const lines = [`${q.icon} ${q.title} · ${q.tasks.length}`];
   if (q.tasks.length === 0) lines.push(q.emptyText);
   // One task is spelled out so a follow-up ("assign it to @an") can refer to it.
@@ -112,9 +174,12 @@ function queryText(q: QueryOutcome): string {
   return lines.join('\n');
 }
 
-function sectionText(s: AiSection): string {
+function sectionText(s: AiSection, today: string): string {
   if (s.type === 'update') return updateText(s.update);
   if (s.type === 'query') return queryText(s.query);
+  if (s.type === 'explain') return explainText(s.explain, today);
+  if (s.type === 'epic_created') return epicCreatedText(s.epic);
+  if (s.type === 'note') return s.lines.join('\n');
   return s.text;
 }
 
@@ -145,7 +210,7 @@ export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind:
   const { sections } = result;
   if (sections.length === 0) return { kind: 'clarify', text: WHICH_TASK_TEXT, suggestions: [] };
 
-  const text = sections.map(sectionText).join('\n\n');
+  const text = sections.map((s) => sectionText(s, c.today)).join('\n\n');
   const changed = changedUpdates(sections);
   const list = sections.find(
     (s): s is { type: 'query'; query: Extract<QueryOutcome, { kind: 'list' }> } =>
@@ -157,6 +222,13 @@ export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind:
     response.tasks = list.tasks.slice(0, WEB_QUERY_LIMIT).map(asShared);
     if (list.tasks.length > WEB_QUERY_LIMIT) response.totalMatches = list.tasks.length;
   }
+
+  const explained = sections.flatMap((s) => (s.type === 'explain' ? [s.explain.task] : []));
+  const epicMiss = sections
+    .map((s) => (s.type === 'update' ? s.update.epicMiss : s.type === 'query' && s.query.kind === 'unknown_epic' ? s.query.miss : undefined))
+    .find((m): m is EpicMiss => !!m);
+  const epicRows = sections.flatMap((s) => (s.type === 'query' && s.query.kind === 'epics' ? [s.query.epics] : []))[0];
+  const createdEpic = sections.some((s) => s.type === 'epic_created');
 
   if (changed.length) {
     response.kind = 'updated';
@@ -172,6 +244,19 @@ export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind:
       !list.mine && p.mine,
       list.mine && p.open,
     ]);
+  } else if (epicMiss) {
+    response.suggestions = pick([createEpicCommand(epicMiss.title, 'web'), p.epics]);
+  } else if (epicRows) {
+    const firstOpen = epicRows.find((e) => e.total > e.done);
+    response.suggestions = pick([firstOpen && p.epicLeft(shorten(firstOpen.title, 30)), p.mine, p.overdue]);
+  } else if (createdEpic) {
+    response.suggestions = pick([p.epics, p.mine]);
+  } else if (explained.length) {
+    // The explained task as a chip (tap to open) + what people usually do next with it.
+    // The open task (fromReply) is already on screen — no chip for it.
+    const chips = sections.flatMap((s) => (s.type === 'explain' && !s.explain.fromReply ? [s.explain.task] : []));
+    if (chips.length) response.tasks = chips.map(asShared);
+    response.suggestions = pick([...(explained.length === 1 ? taskFollowUps(explained[0], c, lang) : []), p.mine]);
   } else {
     response.suggestions = pick([p.mine, p.overdue]);
   }
@@ -187,9 +272,10 @@ export function renderWebCreated(
   undoUntil: Date,
 ): AiChatResponse {
   const tasks = created.map((x) => x.task);
+  const single = tasks.length === 1 ? epicOf(tasks[0].epicId) : null;
   const text =
     tasks.length === 1
-      ? `✅ Created #${tasks[0].taskNumber} ${shorten(tasks[0].title)}`
+      ? `✅ Created #${tasks[0].taskNumber} ${shorten(tasks[0].title)}${single ? `\nEpic: ${epicLabel(single)}` : ''}`
       : `🤖 Created ${tasks.length} tasks: ${tasks.map((t) => `#${t.taskNumber}`).join(', ')}`;
   const lang = detectLang(c.request);
   const p = PHRASES[lang];

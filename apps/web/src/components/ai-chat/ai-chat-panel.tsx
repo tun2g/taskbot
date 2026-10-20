@@ -270,8 +270,8 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
   const groupName = group?.groupName ?? 'this group';
 
   const shell = isDesktop
-    ? 'fixed inset-y-0 right-0 z-40 flex w-[400px] max-w-full flex-col border-l border-tg-separator bg-tg-bg shadow-xl'
-    : 'fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-tg-bg shadow-xl';
+    ? 'fixed bottom-0 right-0 z-40 flex w-[400px] max-w-full flex-col border-l border-tg-separator bg-tg-bg shadow-xl'
+    : 'fixed z-50 flex flex-col rounded-t-2xl bg-tg-bg shadow-xl';
 
   const panel = (
     <div
@@ -282,9 +282,22 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
       data-ai-chat
       onKeyDown={onPanelKeyDown}
       className={shell}
-      style={isDesktop ? undefined : { top: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+      style={
+        isDesktop
+          ? // Below Telegram's fullscreen pills (landscape phones are "desktop" width too).
+            { top: 'var(--app-safe-top)', paddingRight: 'var(--app-safe-right)' }
+          : {
+              // Keyboard: the sheet ends where the keyboard begins (--app-kb), capped to the visible height.
+              top: 'max(var(--app-sheet-top), calc(100% - var(--app-kb) - var(--app-vh)))',
+              bottom: 'var(--app-kb)',
+              left: 'var(--app-safe-left)',
+              right: 'var(--app-safe-right)',
+            }
+      }
     >
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-tg-separator px-2">
+      <header
+        className={`flex min-h-14 shrink-0 items-center gap-1 border-b border-tg-separator px-2 ${isDesktop ? '' : 'sheet-header'}`}
+      >
         <h2 id="ai-chat-title" className="flex flex-1 items-center gap-2 px-2 text-base font-semibold text-tg-text">
           <span aria-hidden>✨</span> Ask AI
         </h2>
@@ -361,7 +374,7 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
           send(input);
         }}
         className="shrink-0 border-t border-tg-separator bg-tg-bg px-3 pt-2"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: 'max(0.75rem, var(--app-safe-bottom))' }}
       >
         {context && (
           <div className="mb-2 flex">

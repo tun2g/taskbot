@@ -3,6 +3,7 @@ import { refId } from 'src/bot/task-card.renderer';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
+import { TASK_POPULATE_FULL } from 'src/database/services/task-populate';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import {
@@ -26,7 +27,6 @@ import { redisService } from 'src/shared/services/redis.service';
 import { BATCH_UNDO_WINDOW_MS, checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 
-const POPULATE_PATHS = 'createdBy assigneeId completedBy';
 /** Where the "(via app)" group post of a web-created batch is remembered (for undo). */
 const APP_BATCH_POST_PREFIX = 'app_batch_post';
 const APP_BATCH_POST_TTL_SECONDS = 15 * 60;
@@ -51,13 +51,13 @@ const unavailable = (text = WEB_AI_UNAVAILABLE_TEXT): WebChatOutcome => ({
   data: { kind: 'unavailable', text, suggestions: [] },
 });
 
-/** API responses carry populated users (no-op for plain objects in tests). */
+/** API responses carry populated users + epic (no-op for plain objects in tests). */
 async function populate(tasks: ITask[] | undefined) {
   if (!tasks) return;
   await Promise.all(
     tasks.map(async (task) => {
-      const doc = task as unknown as { populate?: (paths: string) => Promise<unknown> };
-      if (typeof doc.populate === 'function') await doc.populate(POPULATE_PATHS);
+      const doc = task as unknown as { populate?: (paths: unknown) => Promise<unknown> };
+      if (typeof doc.populate === 'function') await doc.populate(TASK_POPULATE_FULL);
     }),
   );
 }

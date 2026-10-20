@@ -1,5 +1,6 @@
 import {
-  isClosedStatus,
+  EPIC_COLOR_EMOJI,
+  EpicColor,
   TASK_PRIORITY_LABELS,
   TASK_PRIORITY_ORDER,
   TASK_STATUS_HINTS,
@@ -15,6 +16,7 @@ import {
 import { configService } from 'src/configs/configuration';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
+import { dueWhen } from 'src/shared/services/ai-command/format';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { appLinkButton, openTaskLabel } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
@@ -104,6 +106,20 @@ export function refId(ref: unknown): string | null {
   return value._id ? value._id.toString() : value.toString();
 }
 
+/** A populated epic ref (`{ _id, title, color }` from TASK_POPULATE) or null. */
+export function populatedEpic(ref: unknown): { title: string; color: string } | null {
+  if (ref && typeof ref === 'object' && 'title' in (ref as object)) return ref as { title: string; color: string };
+  return null;
+}
+
+/** "🔵 Login" — the epic as a colored dot + name (escaped, cut for mobile), or null without a (populated) epic. */
+export function epicTag(ref: unknown, max = 40): string | null {
+  const epic = populatedEpic(ref);
+  if (!epic?.title) return null;
+  const dot = EPIC_COLOR_EMOJI[epic.color as EpicColor] ?? EPIC_COLOR_EMOJI[EpicColor.GRAY];
+  return `${dot} ${escapeMarkdown(truncate(epic.title, max))}`;
+}
+
 // ── Due dates: a due date is a calendar day stored at 00:00Z ──
 
 export function safeTimezone(tz?: string | null): string {
@@ -172,21 +188,16 @@ export function dueState(dueDate: Date | string, timezone: string, now: Date = n
   return 'later';
 }
 
-/** "today" / "tomorrow" / "overdue since Oct 18, 2026" / "Oct 21, 2026" (no emoji). */
-export function describeDue(task: Pick<ITask, 'dueDate' | 'status'>, timezone: string): string | null {
-  if (!task.dueDate) return null;
-  const date = formatDay(task.dueDate);
-  if (isClosedStatus(task.status)) return date;
-  switch (dueState(task.dueDate, timezone)) {
-    case 'overdue':
-      return `⚠️ overdue since ${date}`;
-    case 'today':
-      return 'today';
-    case 'tomorrow':
-      return `tomorrow (${date})`;
-    default:
-      return date;
-  }
+/**
+ * "today" / "tomorrow" / "⚠️ overdue since Fri, Oct 16" / "Fri, Oct 23" — the same wording as DMs and
+ * /ai answers (ai-command/format `dueWhen`), with "today" in the group timezone.
+ */
+export function describeDue(
+  task: Pick<ITask, 'dueDate' | 'status'>,
+  timezone: string,
+  now: Date = new Date(),
+): string | null {
+  return dueWhen(task.dueDate, task.status, todayIn(timezone, now));
 }
 
 // ── Callback data ──
@@ -243,6 +254,8 @@ export function formatTaskCard(
   lines.push(`${typeEmoji(task.type)} *${typeWord(task.type)} #${task.taskNumber}* · ${escapeMarkdown(task.title)}`);
   lines.push(`Status: ${statusLabel(task.status)}`);
   lines.push(`Priority: ${priorityLabel(task.priority)}`);
+  const epic = epicTag(task.epicId);
+  if (epic) lines.push(`Epic: ${epic}`);
   if (assignee) lines.push(`Assignee: ${mdName(assignee)}`);
 
   const due = describeDue(task, tz);
@@ -288,7 +301,7 @@ export async function buildTaskButtons(task: ITask, _userId?: string): Promise<I
   return rows;
 }
 
-/** "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [🗑 Delete] [« Back]. */
+/** "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [💡 Explain] [🗑 Delete] [« Back]. */
 export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButton[][]> {
   const taskId = task._id.toString();
   const rows: InlineKeyboardButton[][] = [
@@ -300,6 +313,7 @@ export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButto
   ];
 
   rows.push([
+    { text: '💡 Explain', callback_data: await storeTaskCallbackData(taskId, 'explain') },
     { text: '🗑 Delete', callback_data: await storeTaskCallbackData(taskId, 'delete') },
     { text: '« Back', callback_data: await storeTaskCallbackData(taskId, 'back') },
   ]);

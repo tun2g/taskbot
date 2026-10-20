@@ -1,5 +1,12 @@
 import mongoose from 'mongoose';
-import { TaskController, DELETE_FORBIDDEN_MESSAGE, ASSIGNEE_NOT_MEMBER_MESSAGE } from 'src/api/controllers/task.controller';
+import {
+  TaskController,
+  DELETE_FORBIDDEN_MESSAGE,
+  ASSIGNEE_NOT_MEMBER_MESSAGE,
+  EPIC_NOT_IN_GROUP_MESSAGE,
+} from 'src/api/controllers/task.controller';
+import { Epic } from 'src/database/models/epic.model';
+import { epicService } from 'src/database/services/epic.service';
 import { isTelegramGroupAdmin } from 'src/api/telegram-admin';
 import { Task } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
@@ -14,6 +21,8 @@ jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/group-member.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task-activity.service');
+jest.mock('src/database/services/epic.service');
+jest.mock('src/database/models/epic.model', () => ({ Epic: { findById: jest.fn() } }));
 jest.mock('src/database/models/task.model', () => ({ Task: { countDocuments: jest.fn() } }));
 jest.mock('src/database/models/user.model', () => ({ User: { findById: jest.fn() } }));
 jest.mock('src/api/telegram-admin', () => ({ isTelegramGroupAdmin: jest.fn() }));
@@ -80,9 +89,52 @@ describe('TaskController', () => {
       return { req, res, filters: (taskService.getTasksByGroup as jest.Mock).mock.calls[0]?.[1] };
     };
 
-    it('returns the true total in meta', async () => {
-      const { res } = await run({ limit: '500' });
-      expect(res.json).toHaveBeenCalledWith({ data: [], meta: { page: 1, limit: 500, total: 742 } });
+    it('returns the true total and hasMore in meta', async () => {
+      const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, query: { page: '2' } });
+      (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 742, hasMore: true });
+      await controller.listTasks(req, res);
+      expect(res.json).toHaveBeenCalledWith({ data: [], meta: { page: 2, limit: 20, total: 742, hasMore: true } });
+    });
+
+    it('defaults to 20 per page and caps limit at 100', async () => {
+      const { filters, res } = await run({ limit: '500' });
+      expect(filters.limit).toBe(100);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ meta: expect.objectContaining({ limit: 100 }) }));
+      jest.clearAllMocks();
+      const { filters: defaults } = await run({});
+      expect(defaults).toEqual(expect.objectContaining({ page: 1, limit: 20 }));
+    });
+
+    it('combines a board column status with every other filter', async () => {
+      const epicId = new mongoose.Types.ObjectId().toString();
+      const { filters } = await run({
+        status: 'in_progress',
+        epicId,
+        assigneeId: binh._id.toString(),
+        type: 'bug',
+        priority: 'high',
+        search: 'login',
+        category: 'in_progress',
+        open: 'true',
+        page: '3',
+        limit: '20',
+      });
+      expect(filters).toEqual(
+        expect.objectContaining({ type: 'bug', priority: 'high', search: 'login', page: 3, limit: 20 }),
+      );
+      expect(filters.statuses).toEqual(['in_progress']);
+      expect(String(filters.epicId)).toBe(epicId);
+      expect(String(filters.assigneeId)).toBe(String(binh._id));
+    });
+
+    it('a column status outside the category matches nothing', async () => {
+      const { filters } = await run({ status: 'done', category: 'todo' });
+      expect(filters.statuses).toEqual([]);
+    });
+
+    it('passes the list sort through', async () => {
+      const { filters } = await run({ sort: 'due', dir: 'desc' });
+      expect(filters).toEqual(expect.objectContaining({ sort: 'due', dir: 'desc' }));
     });
 
     it('maps assigneeId=me to the caller', async () => {
@@ -107,12 +159,34 @@ describe('TaskController', () => {
       expect('assigneeId' in filters).toBe(false);
     });
 
-    it('rejects limit over 500 with a readable message', async () => {
-      const { res } = await run({ limit: '501' });
+    it('rejects a non-positive limit with a readable message', async () => {
+      const { res } = await run({ limit: '0' });
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'You can load at most 500 tasks at once.', statusCode: 400 }),
+        expect.objectContaining({ message: 'Limit must be 1 or more.', statusCode: 400 }),
       );
+      expect(taskService.getTasksByGroup).not.toHaveBeenCalled();
+    });
+    describe('countTasks', () => {
+      it('counts with the same filters as the list', async () => {
+        const { req, res } = createMockReqRes({
+          params: { groupId: groupId.toString() },
+          query: { assigneeId: 'none', type: 'bug', limit: '5' },
+        });
+        (taskService.countTasksByStatus as jest.Mock).mockResolvedValue({ byStatus: { todo: 3, done: 1 }, total: 4 });
+        await controller.countTasks(req, res);
+        const filters = (taskService.countTasksByStatus as jest.Mock).mock.calls[0][1];
+        expect(filters.assigneeId).toBeNull();
+        expect(filters.type).toBe('bug');
+        expect(res.json).toHaveBeenCalledWith({ data: { byStatus: { todo: 3, done: 1 }, total: 4 } });
+      });
+
+      it('rejects invalid filters', async () => {
+        const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, query: { due: 'soon' } });
+        await controller.countTasks(req, res);
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(taskService.countTasksByStatus).not.toHaveBeenCalled();
+      });
     });
 
     it('maps category to the statuses in it', async () => {
@@ -421,6 +495,126 @@ describe('TaskController', () => {
         },
       });
       expect(groupService.findGroupById).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('TaskController — epics', () => {
+  let controller: TaskController;
+  const login = { _id: new mongoose.Types.ObjectId(), groupId, title: 'Login', color: 'blue', status: 'open' };
+  const billing = { _id: new mongoose.Types.ObjectId(), groupId, title: 'Billing', color: 'green', status: 'open' };
+
+  beforeEach(() => {
+    controller = new TaskController();
+    jest.clearAllMocks();
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
+    (taskActivityService.record as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  describe('listTasks epic filter', () => {
+    const run = async (query: Record<string, string>) => {
+      const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, query });
+      (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [], total: 0 });
+      await controller.listTasks(req, res);
+      return { res, filters: (taskService.getTasksByGroup as jest.Mock).mock.calls[0]?.[1] };
+    };
+
+    it('maps an epic id to an ObjectId', async () => {
+      const { filters } = await run({ epicId: login._id.toString() });
+      expect(filters.epicId).toBeInstanceOf(mongoose.Types.ObjectId);
+      expect(String(filters.epicId)).toBe(String(login._id));
+    });
+
+    it('maps epicId=none to null (no epic)', async () => {
+      const { filters } = await run({ epicId: 'none' });
+      expect(filters.epicId).toBeNull();
+    });
+
+    it('leaves epicId unset when not filtered', async () => {
+      const { filters } = await run({});
+      expect('epicId' in filters).toBe(false);
+    });
+
+    it('rejects a malformed epic filter', async () => {
+      const { res } = await run({ epicId: 'nope' });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(taskService.getTasksByGroup).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createTask with an epic', () => {
+    const create = async (body: Record<string, any>) => {
+      const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, body, group });
+      (taskService.createTask as jest.Mock).mockResolvedValue(makeTask({ title: body.title }));
+      await controller.createTask(req, res);
+      return { res, input: (taskService.createTask as jest.Mock).mock.calls[0]?.[0] };
+    };
+
+    it('puts the task in an epic of the same group', async () => {
+      (epicService.findInGroup as jest.Mock).mockResolvedValue(login);
+      const { res, input } = await create({ title: 'New', epicId: login._id.toString() });
+      expect(epicService.findInGroup).toHaveBeenCalledWith(expect.any(mongoose.Types.ObjectId), login._id.toString());
+      expect(String((epicService.findInGroup as jest.Mock).mock.calls[0][0])).toBe(String(groupId));
+      expect(input.epicId).toBe(login._id);
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('rejects an epic from another group with 400', async () => {
+      (epicService.findInGroup as jest.Mock).mockResolvedValue(null);
+      const { res } = await create({ title: 'New', epicId: new mongoose.Types.ObjectId().toString() });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: EPIC_NOT_IN_GROUP_MESSAGE }));
+      expect(taskService.createTask).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateTask epic', () => {
+    const patch = async (before: any, body: Record<string, any>) => {
+      const { req, res } = createMockReqRes({ params: { taskId: taskId.toString() }, body, task: before });
+      const updated = { ...before, ...body };
+      (taskService.updateTask as jest.Mock).mockResolvedValue(updated);
+      await controller.updateTask(req, res);
+      const actions = (taskActivityService.record as jest.Mock).mock.calls.map((c) => c[0]);
+      return { res, actions };
+    };
+
+    it('adds the task to an epic: writes epicId, logs the title and passes the color square to the change summary', async () => {
+      (epicService.findInGroup as jest.Mock).mockResolvedValue(login);
+      const { actions } = await patch(makeTask(), { epicId: login._id.toString() });
+      expect(taskService.updateTask).toHaveBeenCalledWith(taskId.toString(), { epicId: login._id });
+      expect(actions).toEqual([expect.objectContaining({ action: 'epic', from: null, to: 'Login', via: 'app' })]);
+      expect(taskSyncService.postChangeSummary).toHaveBeenCalledWith(expect.anything(), me._id, [
+        { field: 'epic', from: null, to: 'Login', fromIcon: null, toIcon: '🟦' },
+      ]);
+    });
+
+    it('moves between epics (previous epic populated on the task)', async () => {
+      (epicService.findInGroup as jest.Mock).mockResolvedValue(billing);
+      const { actions } = await patch(makeTask({ epicId: login }), { epicId: billing._id.toString() });
+      expect(actions).toEqual([expect.objectContaining({ action: 'epic', from: 'Login', to: 'Billing' })]);
+    });
+
+    it('removes the task from its epic with null (previous epic loaded by id)', async () => {
+      (Epic.findById as jest.Mock).mockResolvedValue(login);
+      const { actions } = await patch(makeTask({ epicId: login._id }), { epicId: null });
+      expect(taskService.updateTask).toHaveBeenCalledWith(taskId.toString(), { epicId: null });
+      expect(actions).toEqual([expect.objectContaining({ action: 'epic', from: 'Login', to: null })]);
+    });
+
+    it('treats the same epic as unchanged', async () => {
+      const { actions } = await patch(makeTask({ epicId: login }), { epicId: login._id.toString() });
+      expect(epicService.findInGroup).not.toHaveBeenCalled();
+      expect(taskService.updateTask).not.toHaveBeenCalled();
+      expect(actions).toEqual([]);
+    });
+
+    it('rejects an epic from another group with 400', async () => {
+      (epicService.findInGroup as jest.Mock).mockResolvedValue(null);
+      const { res } = await patch(makeTask(), { epicId: new mongoose.Types.ObjectId().toString() });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: EPIC_NOT_IN_GROUP_MESSAGE }));
+      expect(String((epicService.findInGroup as jest.Mock).mock.calls[0][0])).toBe(String(groupId));
+      expect(taskService.updateTask).not.toHaveBeenCalled();
     });
   });
 });

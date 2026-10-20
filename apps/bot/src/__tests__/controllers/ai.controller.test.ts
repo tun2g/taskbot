@@ -18,6 +18,16 @@ import { redisService } from 'src/shared/services/redis.service';
 import { checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 
+jest.mock('src/database/services/epic.service', () => ({
+  ...jest.requireActual('src/database/services/epic.service'),
+  epicService: {
+    listOpen: jest.fn(async () => []),
+    listWithProgress: jest.fn(async () => []),
+    findByTitle: jest.fn(async () => null),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+  },
+}));
 jest.mock('src/bot', () => ({ bot: { telegram: { editMessageText: jest.fn().mockResolvedValue(true) } } }));
 jest.mock('src/shared/services/redis.service', () => ({
   redisService: { get: jest.fn(), set: jest.fn().mockResolvedValue('OK'), del: jest.fn().mockResolvedValue(1) },

@@ -9,6 +9,8 @@ import {
 } from '@tbot/shared';
 import type { TaskDueFilter } from '@tbot/shared';
 
+import { isObjectId } from '@/lib/epics';
+
 export const DUE_FILTERS: TaskDueFilter[] = ['overdue', 'today', 'week', 'none'];
 
 /** List-view status filter by category; `open` = every status that isn't closed. */
@@ -19,7 +21,6 @@ const CATEGORY_FILTERS: StatusCategoryFilter[] = [
   TaskStatusCategory.IN_PROGRESS,
   TaskStatusCategory.DONE,
 ];
-
 
 export type BoardView = 'list' | 'board';
 export type ListSortKey = 'type' | 'key' | 'summary' | 'status' | 'priority' | 'assignee' | 'due';
@@ -34,6 +35,8 @@ export interface BoardSearch {
   /** A member `_id`, `"me"` or `"none"` (unassigned). */
   assignee?: string;
   priority?: TaskPriority;
+  /** An epic `_id`, or `"none"` for tasks without an epic. */
+  epic?: string;
   /** Due window by calendar day in the group's timezone (overdue = past due and still open). */
   due?: TaskDueFilter;
   /** List view only: one status… */
@@ -45,7 +48,7 @@ export interface BoardSearch {
   everyone?: boolean;
   /** Status board: show a column for every status, not just the default ones. */
   allStatuses?: boolean;
-  /** List view sort (client-side over the loaded tasks). */
+  /** List view sort (done by the API, so every page follows it). */
   sort?: ListSortKey;
   dir?: 'asc' | 'desc';
 }
@@ -63,6 +66,8 @@ export function validateBoardSearch(search: Record<string, unknown>): BoardSearc
     type: oneOf(search.type, TASK_TYPE_ORDER),
     assignee,
     priority: oneOf(search.priority, TASK_PRIORITY_ORDER),
+    // An epic id or "none"; anything else (a hand-edited / cut-off link) is dropped instead of breaking the board.
+    epic: search.epic === 'none' || isObjectId(search.epic) ? search.epic : undefined,
     due: oneOf(search.due, DUE_FILTERS),
     status: oneOf(search.status, TASK_STATUS_ORDER),
     category: oneOf(search.category, CATEGORY_FILTERS),
@@ -81,4 +86,9 @@ export function rememberBoardSearch(groupId: string, search: BoardSearch) {
 }
 export function recallBoardSearch(groupId: string): BoardSearch {
   return lastSearch.get(groupId) ?? {};
+}
+/** An epic was deleted: "back" must not land on a board filtered to it. */
+export function forgetEpicInBoardSearch(groupId: string, epicId: string) {
+  const last = lastSearch.get(groupId);
+  if (last?.epic === epicId) lastSearch.set(groupId, { ...last, epic: undefined });
 }

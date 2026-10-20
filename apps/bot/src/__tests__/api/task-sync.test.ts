@@ -36,6 +36,35 @@ describe('group lines', () => {
     ).toBe('📝 @an moved <b>#12</b> Fix login to 🔄 In progress (via app)');
   });
 
+  it('an epic change alone is not announced (the card still refreshes)', () => {
+    expect(buildChangeLine('@an', 12, 'Fix login', [{ field: 'epic', from: null, to: 'Login', toIcon: '🟦' }])).toBeNull();
+    expect(
+      buildChangeLine('@an', 12, 'Fix login', [{ field: 'epic', from: 'Login', to: 'Billing', fromIcon: '🟦', toIcon: '🟩' }]),
+    ).toBeNull();
+    expect(buildChangeLine('@an', 12, 'Fix login', [{ field: 'epic', from: 'Login', to: null, fromIcon: '🟦' }])).toBeNull();
+    expect(
+      buildChangeLine('@an', 12, 'Fix login', [
+        { field: 'priority', from: 'Low', to: 'High' },
+        { field: 'epic', from: null, to: 'Login', toIcon: '🟦' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('an epic change rides along with an announced change, with its color square', () => {
+    expect(
+      buildChangeLine('@an', 12, 'Fix login', [
+        { field: 'status', from: '📝 To do', to: '🔄 In progress' },
+        { field: 'epic', from: null, to: 'A <b>', toIcon: '🟦' },
+      ]),
+    ).toBe('📝 @an updated <b>#12</b> Fix login: moved it to 🔄 In progress, epic → 🟦 A &lt;b&gt; (via app)');
+    expect(
+      buildChangeLine('@an', 12, 'Fix login', [
+        { field: 'assignee', from: null, to: '@binh' },
+        { field: 'epic', from: 'Login', to: null, fromIcon: '🟦' },
+      ]),
+    ).toBe('📝 @an updated <b>#12</b> Fix login: assigned it to @binh, removed from epic 🟦 Login (via app)');
+  });
+
   it('assignment and unassignment', () => {
     expect(buildChangeLine('@an', 12, 'Fix login', [{ field: 'assignee', from: null, to: '@binh' }])).toBe(
       '📝 @an assigned <b>#12</b> Fix login to @binh (via app)',

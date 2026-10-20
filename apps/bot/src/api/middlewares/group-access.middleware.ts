@@ -4,12 +4,14 @@ import { sendError } from 'src/api/http-error';
 import { AuthenticatedRequest } from 'src/api/middlewares/auth.middleware';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
+import { epicService } from 'src/database/services/epic.service';
 import { taskService } from 'src/database/services/task.service';
 import { memberSyncService } from 'src/shared/services/member-sync.service';
 
 export const NOT_A_MEMBER_MESSAGE = 'You are not a member of this group.';
 export const GROUP_NOT_FOUND_MESSAGE = 'This group could not be found. It may have been removed.';
 export const TASK_NOT_FOUND_MESSAGE = 'This task could not be found. It may have been deleted.';
+export const EPIC_NOT_FOUND_MESSAGE = 'This epic could not be found. It may have been deleted.';
 
 /**
  * Group-scoped routes: loads the group (404) and requires the caller to be a member (403).
@@ -79,6 +81,39 @@ export function requireTaskMember(paramName = 'taskId') {
     }
 
     authReq.task = task;
+    next();
+  };
+}
+
+/**
+ * Epic-scoped routes: loads the epic (404), then requires the caller to be a member of the
+ * epic's group (403). Any member may edit or delete an epic. Sets `req.epic`.
+ */
+export function requireEpicMember(paramName = 'epicId') {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const authReq = req as AuthenticatedRequest;
+    const user = authReq.user;
+    if (!user) {
+      sendError(res, 401, 'Please sign in to continue.');
+      return;
+    }
+
+    const epicId = req.params[paramName] as string;
+    const epic = mongoose.Types.ObjectId.isValid(epicId) ? await epicService.findById(epicId) : null;
+    if (!epic) {
+      sendError(res, 404, EPIC_NOT_FOUND_MESSAGE);
+      return;
+    }
+
+    if (!(await groupMemberService.isMember(epic.groupId, user._id))) {
+      const group = await groupService.findGroupById(epic.groupId);
+      if (!group || !(await memberSyncService.verifyAndAddMember(group, user))) {
+        sendError(res, 403, NOT_A_MEMBER_MESSAGE);
+        return;
+      }
+    }
+
+    authReq.epic = epic;
     next();
   };
 }

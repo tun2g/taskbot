@@ -3,6 +3,7 @@ import { validate, parse } from '@telegram-apps/init-data-node';
 import { verifyWebToken } from 'src/api/auth/web-token';
 import { sendError } from 'src/api/http-error';
 import { configService } from 'src/configs/configuration';
+import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
@@ -15,6 +16,8 @@ export interface AuthenticatedRequest extends Request {
   group?: IGroup;
   /** Set by requireTaskMember (createdBy / assigneeId populated). */
   task?: ITask;
+  /** Set by requireEpicMember. */
+  epic?: IEpic;
 }
 
 export interface TelegramUserProfile {

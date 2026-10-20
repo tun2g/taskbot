@@ -24,6 +24,14 @@ const VIA: Record<ITaskActivity['via'], { label: string; className: string }> = 
   ai: { label: '✨ AI', className: 'tint-neutral' },
 };
 
+/** `from` / `to` of an "epic" activity are plain epic titles. */
+function describeEpicChange(from?: string | null, to?: string | null): string {
+  if (to && from) return `moved it from epic “${from}” to “${to}”`;
+  if (to) return `added it to epic “${to}”`;
+  if (from) return `removed it from epic “${from}”`;
+  return 'changed the epic';
+}
+
 interface ActivityTimelineProps {
   items: ITaskActivity[];
   members: IUser[];
@@ -58,8 +66,10 @@ export function ActivityTimeline({ items, members, isLoading, error, onRetry }: 
               : item.via === 'ai'
                 ? 'AI'
                 : 'Someone';
-            const verb = VERBS[item.action] ?? 'updated the task';
-            const showChange = item.action !== 'description' && item.action !== 'created' && (item.from || item.to);
+            const epicVerb = item.action === 'epic' ? describeEpicChange(item.from, item.to) : null;
+            const verb = epicVerb ?? VERBS[item.action] ?? 'updated the task';
+            const showChange =
+              !epicVerb && item.action !== 'description' && item.action !== 'created' && (item.from || item.to);
             const via = VIA[item.via];
             return (
               <li key={item._id} className="mb-3 ml-4 last:mb-0">

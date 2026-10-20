@@ -31,7 +31,18 @@ export interface ExtractionInput {
   members: ExtractionMember[];
   timezone: string;
   now?: Date;
+  /** The group's OPEN epics; the model may put a task in one ONLY when it clearly fits. */
+  epics?: ExtractionEpic[];
 }
+
+export interface ExtractionEpic {
+  title: string;
+  description?: string | null;
+}
+
+/** Most epics shown to the extractor, and how much of each description. */
+export const EXTRACTION_EPICS_MAX = 30;
+const EPIC_DESCRIPTION_PROMPT_MAX = 160;
 
 export interface ExtractedTask {
   title: string;
@@ -42,6 +53,8 @@ export interface ExtractedTask {
   assignee?: string;
   /** YYYY-MM-DD */
   dueDate?: string;
+  /** Title of an existing epic, as the model returned it (resolved against the group's epics by code). */
+  epic?: string;
   sourceMessageIds: number[];
 }
 
@@ -84,6 +97,7 @@ export const extractedTaskSchema = z.object({
     .nullish()
     .catch(undefined)
     .transform((v) => v ?? undefined),
+  epic: optionalString,
   sourceMessageIds: z.array(z.number().int()).catch([]),
 });
 
@@ -98,7 +112,7 @@ const TYPE_RULES = TASK_TYPE_ORDER.map((t) => `"${t}" = ${TASK_TYPE_HINTS[t].toL
 const SYSTEM_PROMPT = `You turn Telegram group chat messages into well-formed work items for a team task board.
 
 Return ONLY JSON of this shape:
-{"tasks":[{"title":string,"details":{...template fields},"type":${TASK_TYPE_VALUES.map((t) => `"${t}"`).join('|')},"priority":"low"|"medium"|"high"|"urgent"?,"assignee":string?,"dueDate":"YYYY-MM-DD"?,"sourceMessageIds":number[]}]}
+{"tasks":[{"title":string,"details":{...template fields},"type":${TASK_TYPE_VALUES.map((t) => `"${t}"`).join('|')},"priority":"low"|"medium"|"high"|"urgent"?,"assignee":string?,"dueDate":"YYYY-MM-DD"?,"epic":string?,"sourceMessageIds":number[]}]}
 
 Rules:
 - One task per distinct actionable item (something someone must do, fix, build, decide or answer). Skip greetings, chit-chat, thanks, status chatter and items that are already done. Merge duplicates. At most 20 tasks. If nothing is actionable, return {"tasks":[]}.
@@ -111,6 +125,7 @@ ${describeTemplatesForPrompt()}
 - priority: include ONLY when urgency is stated explicitly (e.g. "urgent", "gấp", "ASAP", "khẩn", "low priority"); otherwise omit it.
 - assignee: the person the messages say should do it, copied exactly as written (e.g. "@an" or "Hùng"). Prefer a name from the member list when it clearly refers to them. Omit if nobody is named. Never assign to someone just because they wrote the message.
 - dueDate: include ONLY when a date or deadline is stated explicitly. Resolve relative dates ("tomorrow", "thứ 6", "next Monday", "cuối tuần", "EOD") against the date of the message that says it, in the group timezone. Format YYYY-MM-DD. Otherwise omit it.
+- epic: ONLY when an "Open epics" list is given below AND the task clearly belongs to one of them — the messages name the epic, or the task is obviously about that epic's topic (its title/description). Copy the epic title exactly from the list. Otherwise omit it (the default). Never invent an epic or use a title that is not in the list.
 - sourceMessageIds: the ids of the messages this task comes from.
 - The requester's note, if present, is an instruction from the person creating the tasks (e.g. a preferred title or who to assign). Follow it.`;
 
@@ -162,6 +177,16 @@ export function buildExtractionPrompt(input: ExtractionInput): string {
   if (input.members.length === 0) lines.push('- (unknown)');
   for (const m of input.members.slice(0, 200)) lines.push(`- ${memberLabel(m)}`);
   lines.push('');
+  const epics = input.epics ?? [];
+  if (epics.length) {
+    lines.push('Open epics (groups of related tasks):');
+    for (const epic of epics.slice(0, EXTRACTION_EPICS_MAX)) {
+      const about = epic.description?.replace(/\s+/g, ' ').trim();
+      const clipped = about && about.length > EPIC_DESCRIPTION_PROMPT_MAX ? `${about.slice(0, EPIC_DESCRIPTION_PROMPT_MAX - 1)}…` : about;
+      lines.push(`- ${JSON.stringify(epic.title)}${clipped ? ` — ${clipped}` : ''}`);
+    }
+    lines.push('');
+  }
   lines.push('Messages (oldest first):');
   for (const msg of input.messages) {
     const when = dateTimeLabel(new Date(msg.date * 1000), tz);
@@ -205,6 +230,7 @@ export function normalizeExtractedTasks(
       ...(task.priority ? { priority: task.priority } : {}),
       ...(task.assignee ? { assignee: task.assignee } : {}),
       ...(task.dueDate ? { dueDate: task.dueDate } : {}),
+      ...(task.epic ? { epic: task.epic } : {}),
     });
     if (tasks.length >= MAX_EXTRACTED_TASKS) break;
   }

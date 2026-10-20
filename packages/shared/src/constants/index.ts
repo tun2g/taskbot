@@ -24,3 +24,13 @@ export {
   isClosedStatus,
   statusesInCategory,
 } from './task.js';
+export {
+  EpicColor,
+  EpicStatus,
+  EPIC_COLOR_ORDER,
+  EPIC_COLOR_VALUES,
+  EPIC_COLOR_EMOJI,
+  EPIC_AUTO_COLORS,
+  EPIC_STATUS_VALUES,
+  EPIC_TITLE_MAX,
+} from './epic.js';

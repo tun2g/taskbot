@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GroupIdTasksIndexRouteImport } from './routes/$groupId/tasks/index'
+import { Route as GroupIdEpicsIndexRouteImport } from './routes/$groupId/epics/index'
 import { Route as GroupIdTasksTaskIdRouteImport } from './routes/$groupId/tasks/$taskId'
 
 const LoginRoute = LoginRouteImport.update({
@@ -29,6 +30,11 @@ const GroupIdTasksIndexRoute = GroupIdTasksIndexRouteImport.update({
   path: '/$groupId/tasks/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GroupIdEpicsIndexRoute = GroupIdEpicsIndexRouteImport.update({
+  id: '/$groupId/epics/',
+  path: '/$groupId/epics/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GroupIdTasksTaskIdRoute = GroupIdTasksTaskIdRouteImport.update({
   id: '/$groupId/tasks/$taskId',
   path: '/$groupId/tasks/$taskId',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
+  '/$groupId/epics/': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
+  '/$groupId/epics': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks': typeof GroupIdTasksIndexRoute
 }
 export interface FileRoutesById {
@@ -52,18 +60,30 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
+  '/$groupId/epics/': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/$groupId/tasks/$taskId' | '/$groupId/tasks/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/$groupId/tasks/$taskId'
+    | '/$groupId/epics/'
+    | '/$groupId/tasks/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/$groupId/tasks/$taskId' | '/$groupId/tasks'
+  to:
+    | '/'
+    | '/login'
+    | '/$groupId/tasks/$taskId'
+    | '/$groupId/epics'
+    | '/$groupId/tasks'
   id:
     | '__root__'
     | '/'
     | '/login'
     | '/$groupId/tasks/$taskId'
+    | '/$groupId/epics/'
     | '/$groupId/tasks/'
   fileRoutesById: FileRoutesById
 }
@@ -71,6 +91,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   GroupIdTasksTaskIdRoute: typeof GroupIdTasksTaskIdRoute
+  GroupIdEpicsIndexRoute: typeof GroupIdEpicsIndexRoute
   GroupIdTasksIndexRoute: typeof GroupIdTasksIndexRoute
 }
 
@@ -97,6 +118,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GroupIdTasksIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$groupId/epics/': {
+      id: '/$groupId/epics/'
+      path: '/$groupId/epics'
+      fullPath: '/$groupId/epics/'
+      preLoaderRoute: typeof GroupIdEpicsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$groupId/tasks/$taskId': {
       id: '/$groupId/tasks/$taskId'
       path: '/$groupId/tasks/$taskId'
@@ -111,6 +139,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   GroupIdTasksTaskIdRoute: GroupIdTasksTaskIdRoute,
+  GroupIdEpicsIndexRoute: GroupIdEpicsIndexRoute,
   GroupIdTasksIndexRoute: GroupIdTasksIndexRoute,
 }
 export const routeTree = rootRouteImport

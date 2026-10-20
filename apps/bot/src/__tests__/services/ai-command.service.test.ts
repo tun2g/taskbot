@@ -10,7 +10,19 @@ import {
   telegramMissText,
 } from 'src/shared/services/ai-command/telegram.renderer';
 import { notificationService } from 'src/shared/services/notification.service';
+import { aiService } from 'src/shared/services/ai/ai.service';
+import { EXPLAIN_TASK_SYSTEM_PROMPT } from 'src/shared/services/ai-command/explain.prompt';
 
+jest.mock('src/database/services/epic.service', () => ({
+  ...jest.requireActual('src/database/services/epic.service'),
+  epicService: {
+    listOpen: jest.fn(async () => []),
+    listWithProgress: jest.fn(async () => []),
+    findByTitle: jest.fn(async () => null),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+  },
+}));
 jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
 jest.mock('src/shared/services/ai/ai.service', () => ({
   aiService: { isConfigured: jest.fn(), generateJson: jest.fn() },
@@ -18,6 +30,7 @@ jest.mock('src/shared/services/ai/ai.service', () => ({
 }));
 jest.mock('src/database/services/task.service', () => ({
   taskService: {
+    getTaskById: jest.fn(),
     getTaskByNumber: jest.fn(),
     getTasksByGroup: jest.fn(),
     updateTask: jest.fn(),
@@ -25,7 +38,9 @@ jest.mock('src/database/services/task.service', () => ({
     updateTaskStatus: jest.fn(),
   },
 }));
-jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn() } }));
+jest.mock('src/database/services/task-activity.service', () => ({
+  taskActivityService: { record: jest.fn(), getForTask: jest.fn() },
+}));
 jest.mock('src/shared/services/notification.service', () => ({
   notificationService: {
     notifyAssignment: jest.fn(),
@@ -346,7 +361,7 @@ describe('queries', () => {
     });
     const text = replyText(await aiCommandService.execute(context(), plan({ action: 'query', kind: 'overdue' }), editor));
     expect(text).toContain('<b>⚠️ Overdue tasks · 1</b>');
-    expect(text).toContain(`${num(1)} 🐞 Fix login on iOS · 🔄 In progress · ⚠️ overdue (Sat, Oct 10) · @an`);
+    expect(text).toContain(`${num(1)} 🐞 Fix login on iOS · 🔄 In progress · ⚠️ overdue since Sat, Oct 10 · @an`);
     expect(text).not.toContain('#2<');
   });
 
@@ -410,5 +425,300 @@ describe('telegram renderer', () => {
 
   it('tells the user to answer a question with /ai', () => {
     expect(CLARIFY_HINT).toContain('/ai');
+  });
+});
+
+describe('explain_task', () => {
+  const { AIUnavailableError } = jest.requireMock('src/shared/services/ai/ai.service');
+  const generateJson = aiService.generateJson as jest.Mock;
+
+  const explained = (overrides: Record<string, unknown> = {}) =>
+    task({
+      taskNumber: 5,
+      title: 'Fix login timeout',
+      description: null,
+      priority: 'high',
+      createdBy: me,
+      createdAt: new Date('2026-10-10T08:00:00Z'),
+      dueDate: new Date('2026-10-16T00:00:00Z'),
+      sourceMessages: [
+        { messageId: 1, chatId: -100, text: 'Login bị timeout sau 30s trên iOS', fromUserId: 3, fromName: 'Tú', link: '' },
+        { messageId: 2, chatId: -100, text: '@an xem giúp nhé', fromUserId: 3, fromName: 'Tú', link: '' },
+      ],
+      ...overrides,
+    });
+
+  beforeEach(() => {
+    (taskActivityService.getForTask as jest.Mock).mockResolvedValue([
+      { action: 'status', from: '📝 To do', to: '🔄 In progress', actor: an, createdAt: new Date('2026-10-12T09:00:00Z') },
+    ]);
+    generateJson.mockResolvedValue({
+      text: '🎯 Sửa lỗi login bị timeout sau 30s trên iOS (Tú báo).\n🏁 Có lẽ xong khi login iOS không còn timeout.\n💬 Chưa có mô tả — hỏi @Tú',
+    });
+  });
+
+  it('writes the explanation with a second AI call from the full task and renders it', async () => {
+    const t = explained();
+    const outcome = await aiCommandService.execute(
+      context({ request: 'giải thích #5', referencedNumbers: [5], referencedTasks: [t] }),
+      plan({ action: 'explain_task', taskRef: 5 }),
+      editor,
+    );
+
+    expect(generateJson).toHaveBeenCalledTimes(1);
+    const [request] = generateJson.mock.calls[0];
+    expect(request.system).toBe(EXPLAIN_TASK_SYSTEM_PROMPT);
+    expect(request.user).toContain('Request: giải thích #5');
+    expect(request.user).toContain('answer in Vietnamese');
+    expect(request.user).toContain('Task #5: "Fix login timeout"');
+    expect(request.user).toContain('Priority: High');
+    expect(request.user).toContain('Assignee: @an');
+    expect(request.user).toContain('Created by: @me on 2026-10-10');
+    expect(request.user).toContain('Due date: 2026-10-16');
+    expect(request.user).toContain('Asked by: me');
+    // Source author → creator → assignee, never the requester (@me created it).
+    expect(request.user).toContain('Who could answer (best first): Tú, an');
+    expect(request.user).toContain('- Tú: Login bị timeout sau 30s trên iOS');
+    expect(request.user).toContain('- 2026-10-12 @an: status 📝 To do → 🔄 In progress');
+
+    expect(replyText(outcome)).toBe(
+      [
+        `💡 ${num(5)} <b>Fix login timeout</b>`,
+        '🎯 Sửa lỗi login bị timeout sau 30s trên iOS (Tú báo).',
+        '🏁 Có lẽ xong khi login iOS không còn timeout.',
+        '💬 Chưa có mô tả — hỏi Tú',
+        '',
+        '🐞 Bug · 🔄 In progress · ⬆️ High',
+        '👤 @an · ⚠️ overdue since Fri, Oct 16',
+      ].join('\n'),
+    );
+    expect(outcome.kind === 'reply' && outcome.reply.buttons).toEqual([[expect.objectContaining({ text: '📱 Open #5' })]]);
+    expect(outcome.kind === 'reply' && outcome.updates).toBeFalsy();
+    // Read-only.
+    expect(taskService.updateTask).not.toHaveBeenCalled();
+    expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
+    expect(taskActivityService.record).not.toHaveBeenCalled();
+  });
+
+  it('uses the legacy single sourceMessage and the replied card', async () => {
+    const t = explained({
+      sourceMessages: [],
+      sourceMessage: { messageId: 1, chatId: -100, text: 'cần đổi màu nút <Login>', fromUserId: 3, fromName: 'Tú', link: '' },
+    });
+    await aiCommandService.execute(
+      context({ request: 'task này làm gì', replyTask: t }),
+      plan({ action: 'explain_task', taskRef: 'reply' }),
+      editor,
+    );
+    expect(generateJson.mock.calls[0][0].user).toContain('- Tú: cần đổi màu nút <Login>');
+  });
+
+  it('the replied card is on screen: no state lines and no Open button', async () => {
+    const t = explained();
+    const outcome = await aiCommandService.execute(
+      context({ request: 'task này làm gì', replyTask: t }),
+      plan({ action: 'explain_task', taskRef: 'reply' }),
+      editor,
+    );
+    const text = replyText(outcome);
+    expect(text.startsWith(`💡 ${num(5)} <b>Fix login timeout</b>\n🎯`)).toBe(true);
+    expect(text).not.toContain('👤');
+    expect(outcome.kind === 'reply' && outcome.reply.buttons).toBeUndefined();
+  });
+
+  it('explains the tasks it found and notes the missing one instead of aborting', async () => {
+    const t = explained();
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
+    const outcome = await aiCommandService.execute(
+      context({ request: 'giải thích #5 và #55', referencedNumbers: [5, 55], referencedTasks: [t] }),
+      plan({ action: 'explain_task', taskRef: 5 }, { action: 'explain_task', taskRef: 55 }),
+      editor,
+    );
+    const text = replyText(outcome);
+    expect(text).toContain(`💡 ${num(5)}`);
+    expect(text.endsWith('\n\n❌ No task #55.')).toBe(true);
+    expect(generateJson).toHaveBeenCalledTimes(1);
+  });
+
+  it('escapes the AI text for Telegram', async () => {
+    generateJson.mockResolvedValue({ text: '🎯 Fix <script> & co' });
+    const t = explained();
+    const text = replyText(
+      await aiCommandService.execute(
+        context({ referencedNumbers: [5], referencedTasks: [t] }),
+        plan({ action: 'explain_task', taskRef: 5 }),
+        editor,
+      ),
+    );
+    expect(text).toContain('🎯 Fix &lt;script&gt; &amp; co');
+  });
+
+  it('reports an unknown task number without calling the AI again', async () => {
+    (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
+    const outcome = await aiCommandService.execute(
+      context({ request: 'giải thích #99', referencedNumbers: [99] }),
+      plan({ action: 'explain_task', taskRef: 99 }),
+      editor,
+    );
+    expect(replyText(outcome)).toBe("❌ There's no task #99 in this group. Check the number with /list.");
+    expect(outcome.kind === 'reply' && outcome.reply.buttons).toEqual([[expect.objectContaining({ text: '📋 Open board' })]]);
+    expect(generateJson).not.toHaveBeenCalled();
+  });
+
+  it('asks which task when "this task" is used without a replied card', async () => {
+    const outcome = await aiCommandService.execute(context(), plan({ action: 'explain_task', taskRef: 'reply' }), editor);
+    expect(replyText(outcome)).toBe(WHICH_TASK_MESSAGE);
+    expect(generateJson).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the task details when the AI is unavailable', async () => {
+    generateJson.mockRejectedValue(new AIUnavailableError('failed', 'down'));
+    const t = explained({ description: 'Repro: <iPhone 12>, iOS 17' });
+    const text = replyText(
+      await aiCommandService.execute(
+        context({ referencedNumbers: [5], referencedTasks: [t] }),
+        plan({ action: 'explain_task', taskRef: 5 }),
+        editor,
+      ),
+    );
+    expect(text).toContain('<i>🤖 AI can’t explain it right now — here’s what the task says:</i>');
+    expect(text).toContain('📝 Repro: &lt;iPhone 12&gt;, iOS 17');
+    expect(text).toContain('👤 @an · ⚠️ overdue since Fri, Oct 16');
+  });
+
+  it('does not count toward the mutation cap', async () => {
+    const tasks = Array.from({ length: 5 }, (_, i) => task({ taskNumber: i + 1, status: 'done' }));
+    const actions = [
+      ...tasks.map((t) => ({ action: 'update_task', taskRef: t.taskNumber, changes: { status: 'done' } })),
+      { action: 'explain_task', taskRef: 1 },
+    ];
+    const outcome = await aiCommandService.execute(
+      context({ referencedNumbers: [1, 2, 3, 4, 5], referencedTasks: tasks }),
+      plan(...actions),
+      editor,
+    );
+    expect(replyText(outcome)).not.toContain('at most 5 tasks');
+    expect(replyText(outcome)).toContain(`💡 ${num(1)}`);
+  });
+
+  it('explains after applying a change in the same request, and drops a duplicate "answer"', async () => {
+    const t = explained({ assigneeId: null });
+    const assigned = explained({ _id: t._id, assigneeId: ttt });
+    (taskService.assignTask as jest.Mock).mockResolvedValue(assigned);
+    const outcome = await aiCommandService.execute(
+      context({ request: 'tóm tắt #5 rồi giao cho @ttt', referencedNumbers: [5], referencedTasks: [t] }),
+      plan(
+        { action: 'update_task', taskRef: 5, changes: { assignee: '@ttt' } },
+        { action: 'explain_task', taskRef: 5 },
+        { action: 'answer', text: 'Task #5 là sửa lỗi login' },
+      ),
+      editor,
+    );
+    const text = replyText(outcome);
+    expect(text.indexOf('✅')).toBeLessThan(text.indexOf('💡'));
+    expect(text).toContain('👤 @ttt · ⚠️ overdue since Fri, Oct 16');
+    expect(text).not.toContain('🤖 Task #5');
+    // One "Open" button for the one task on screen.
+    expect(outcome.kind === 'reply' && outcome.reply.buttons).toEqual([[expect.objectContaining({ text: '📱 Open #5' })]]);
+    expect(outcome.kind === 'reply' && outcome.updates).toHaveLength(1);
+  });
+
+  it('explains at most 3 tasks, one Open button each in one row', async () => {
+    const tasks = Array.from({ length: 4 }, (_, i) => explained({ _id: oid(), taskNumber: i + 1 }));
+    const outcome = await aiCommandService.execute(
+      context({ referencedNumbers: [1, 2, 3, 4], referencedTasks: tasks }),
+      plan(...tasks.map((t) => ({ action: 'explain_task', taskRef: t.taskNumber }))),
+      editor,
+    );
+    expect(generateJson).toHaveBeenCalledTimes(3);
+    expect(replyText(outcome).endsWith('ℹ️ Explained 3 of 4 — ask about #4 separately.')).toBe(true);
+    const buttons = outcome.kind === 'reply' ? outcome.reply.buttons : undefined;
+    expect(buttons).toHaveLength(1);
+    expect(buttons![0].map((b) => b.text)).toEqual(['📱 Open #1', '📱 Open #2', '📱 Open #3']);
+  });
+
+  describe('without the planner', () => {
+    it('AI down: "giải thích #5" answers from the task, quoting the source message when there is no description', () => {
+      const t = explained();
+      const reply = aiCommandService.explainWithoutAi(
+        context({ request: 'giải thích #5', referencedNumbers: [5], referencedTasks: [t] }),
+      );
+      expect(reply!.text).toBe(
+        [
+          `💡 ${num(5)} <b>Fix login timeout</b>`,
+          '<i>🤖 AI can’t explain it right now — here’s what the task says:</i>',
+          '💬 Tú: “Login bị timeout sau 30s trên iOS”',
+          '',
+          '🐞 Bug · 🔄 In progress · ⬆️ High',
+          '👤 @an · ⚠️ overdue since Fri, Oct 16',
+        ].join('\n'),
+      );
+      expect(reply!.buttons).toEqual([[{ text: '📱 Open #5', url: 'https://t.me/bot?startapp=g' }]]);
+    });
+
+    it('AI down: cuts a long source quote to ~100 characters', () => {
+      const long = `Login ${'rất '.repeat(60)}chậm`;
+      const t = explained({ sourceMessages: [{ text: long, fromName: 'Tú' }] });
+      const reply = aiCommandService.explainWithoutAi(
+        context({ request: 'what is #5', referencedNumbers: [5], referencedTasks: [t] }),
+      );
+      const quote = reply!.text.split('\n')[2];
+      expect(quote.startsWith('💬 Tú: “Login rất')).toBe(true);
+      expect(quote.endsWith('…”')).toBe(true);
+      expect(quote.length).toBeLessThanOrEqual(110);
+    });
+
+    it('AI down: a question on the card itself ("task này làm gì?") answers without repeating the card', () => {
+      const t = explained({ description: 'Tăng timeout lên 60s' });
+      const reply = aiCommandService.explainWithoutAi(context({ request: 'task này làm gì?', replyTask: t }));
+      expect(reply!.text).toContain('📝 Tăng timeout lên 60s');
+      expect(reply!.text).not.toContain('👤');
+      expect(reply!.buttons).toBeUndefined();
+    });
+
+    it('AI down: nothing to say for other requests, several numbers or an unknown number', () => {
+      const t = explained();
+      expect(aiCommandService.explainWithoutAi(context({ request: '#5 xong rồi', referencedNumbers: [5], referencedTasks: [t] }))).toBeNull();
+      expect(
+        aiCommandService.explainWithoutAi(
+          context({ request: 'giải thích #5 và #6', referencedNumbers: [5, 6], referencedTasks: [t] }),
+        ),
+      ).toBeNull();
+      expect(aiCommandService.explainWithoutAi(context({ request: 'giải thích #9', referencedNumbers: [9] }))).toBeNull();
+    });
+
+    it('explainTaskById: one AI call, no planner; in a DM with state and Open button', async () => {
+      const t = explained();
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(t);
+      const reply = await aiCommandService.explainTaskById(t._id.toString(), me, group);
+      expect(generateJson).toHaveBeenCalledTimes(1);
+      expect(generateJson.mock.calls[0][0].system).toBe(EXPLAIN_TASK_SYSTEM_PROMPT);
+      expect(reply!.text).toContain(`💡 ${num(5)} <b>Fix login timeout</b>\n🎯 Sửa lỗi login`);
+      expect(reply!.text).toContain('👤 @an · ⚠️ overdue since Fri, Oct 16');
+      expect(reply!.buttons).toEqual([[{ text: '📱 Open #5', url: 'https://t.me/bot?startapp=g' }]]);
+    });
+
+    it('explainTaskById: under the card, no state lines and no Open button', async () => {
+      const t = explained();
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(t);
+      const reply = await aiCommandService.explainTaskById(t._id.toString(), me, group, { onCard: true });
+      expect(reply!.text).not.toContain('👤');
+      expect(reply!.buttons).toBeUndefined();
+    });
+
+    it('explainTaskById: null for a task of another group', async () => {
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(explained({ groupId: oid() }));
+      expect(await aiCommandService.explainTaskById('x', me, group)).toBeNull();
+      expect(generateJson).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses explain mixed with create like any other mixed request', async () => {
+    const outcome = await aiCommandService.execute(
+      context({ referencedNumbers: [5] }),
+      plan({ action: 'create_tasks', useReply: false }, { action: 'explain_task', taskRef: 5 }),
+      editor,
+    );
+    expect(replyText(outcome)).toContain('One thing at a time');
   });
 });

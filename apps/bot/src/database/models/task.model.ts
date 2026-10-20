@@ -21,6 +21,8 @@ export interface ITask extends Document {
   assigneeId?: mongoose.Types.ObjectId;
   dueDate?: Date;
   taskNumber: number;
+  /** Epic the task belongs to (at most one); populated as `{ _id, title, color, status }` where cards/API need it. */
+  epicId?: mongoose.Types.ObjectId | null;
   sourceMessage?: ISourceMessage;
   sourceMessages?: ISourceMessage[];
   batchId?: string;
@@ -95,6 +97,11 @@ const TaskSchema: Schema = new Schema(
       type: Number,
       required: true,
     },
+    epicId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Epic',
+      default: null,
+    },
     sourceMessage: {
       type: SourceMessageSchema,
       default: null,
@@ -139,8 +146,11 @@ const TaskSchema: Schema = new Schema(
 TaskSchema.index({ groupId: 1, status: 1 });
 TaskSchema.index({ groupId: 1, assigneeId: 1 });
 TaskSchema.index({ groupId: 1, createdAt: -1 });
+// Board columns: one status, newest first (paged with an _id tiebreak).
+TaskSchema.index({ groupId: 1, status: 1, createdAt: -1, _id: -1 });
 TaskSchema.index({ assigneeId: 1, status: 1 });
 TaskSchema.index({ groupId: 1, type: 1 });
 TaskSchema.index({ groupId: 1, taskNumber: 1 }, { unique: true });
+TaskSchema.index({ groupId: 1, epicId: 1 });
 
 export const Task = mongoose.model<ITask>('Task', TaskSchema);

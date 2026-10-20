@@ -9,6 +9,16 @@ import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { checkGroupAiRateLimit, createTasksFromInput } from 'src/shared/services/task-creation.service';
 
+jest.mock('src/database/services/epic.service', () => ({
+  ...jest.requireActual('src/database/services/epic.service'),
+  epicService: {
+    listOpen: jest.fn(async () => []),
+    listWithProgress: jest.fn(async () => []),
+    findByTitle: jest.fn(async () => null),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+  },
+}));
 jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
@@ -37,7 +47,7 @@ jest.mock('src/shared/services/task-creation.service', () => {
 });
 jest.mock('src/shared/services/ai-command.service', () => ({
   ...jest.requireActual('src/shared/services/ai-command.service'),
-  aiCommandService: { plan: jest.fn(), execute: jest.fn() },
+  aiCommandService: { plan: jest.fn(), execute: jest.fn(), explainWithoutAi: jest.fn(() => null) },
 }));
 jest.mock('src/shared/services/notification.service', () => ({ notificationService: {} }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
@@ -150,6 +160,58 @@ describe('AiCommand', () => {
     await command.onAi(c);
     expect(c.reply).toHaveBeenCalledTimes(1);
     expect(c.reply).toHaveBeenCalledWith(AI_UNAVAILABLE_MESSAGE, expect.any(Object));
+  });
+
+  describe('AI down, explain wording', () => {
+    const fallback = { text: '💡 #5 <b>Fix login</b>\n<i>🤖 AI can’t explain it right now — here’s what the task says:</i>' };
+    const five = { _id: 't5', taskNumber: 5, title: 'Fix login', status: 'todo' };
+
+    beforeEach(() => {
+      (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(five);
+      (aiCommandService.explainWithoutAi as jest.Mock).mockReturnValue(fallback);
+    });
+
+    it('planner fails: "giải thích #5" still answers from the task', async () => {
+      (aiCommandService.plan as jest.Mock).mockRejectedValue(new AIUnavailableError('failed', 'down'));
+      const c = ctx('/ai giải thích #5');
+      await command.onAi(c);
+      const context = (aiCommandService.explainWithoutAi as jest.Mock).mock.calls[0][0];
+      expect(context).toMatchObject({ request: 'giải thích #5', referencedNumbers: [5], referencedTasks: [five] });
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.reply).toHaveBeenCalledWith(fallback.text, expect.objectContaining({ parse_mode: 'HTML' }));
+    });
+
+    it('AI not configured: same fallback, without spending the rate limit', async () => {
+      (aiService.isConfigured as jest.Mock).mockReturnValue(false);
+      const c = ctx('/ai #5 là gì');
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledWith(fallback.text, expect.any(Object));
+      expect(rateLimitService.checkRateLimit).not.toHaveBeenCalled();
+      expect(aiCommandService.plan).not.toHaveBeenCalled();
+    });
+
+    it('other requests just say AI is unavailable', async () => {
+      (aiCommandService.plan as jest.Mock).mockRejectedValue(new AIUnavailableError('failed', 'down'));
+      const c = ctx('/ai #5 xong rồi');
+      await command.onAi(c);
+      expect(aiCommandService.explainWithoutAi).not.toHaveBeenCalled();
+      expect(c.reply).toHaveBeenCalledWith(AI_UNAVAILABLE_MESSAGE, expect.any(Object));
+    });
+  });
+
+  it('takes the request from options when routed from a plain message (reply to a card)', async () => {
+    const card = { _id: 't1', taskNumber: 12, title: 'Fix', status: 'todo' };
+    (taskService.getTaskByCardMessage as jest.Mock).mockResolvedValue(card);
+    (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+    (aiCommandService.execute as jest.Mock).mockResolvedValue({ kind: 'reply', reply: { text: '💡 #12' } });
+    const c = ctx('task này làm gì?', { reply_to_message: { message_id: 5, text: 'card' } });
+    await command.onAi(c, 'ai', { request: 'task này làm gì?' });
+    const context = (aiCommandService.plan as jest.Mock).mock.calls[0][0];
+    expect(context).toMatchObject({ request: 'task này làm gì?', replyTask: card });
+    expect(c.reply).toHaveBeenCalledWith(
+      '💡 #12',
+      expect.objectContaining({ reply_parameters: { message_id: 77, allow_sending_without_reply: true } }),
+    );
   });
 
   it('is rate limited per user', async () => {

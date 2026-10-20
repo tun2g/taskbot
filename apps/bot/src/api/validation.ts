@@ -1,4 +1,7 @@
 import {
+  EPIC_COLOR_VALUES,
+  EPIC_STATUS_VALUES,
+  EPIC_TITLE_MAX,
   TASK_PRIORITY_LABELS,
   TASK_PRIORITY_ORDER,
   TASK_PRIORITY_VALUES,
@@ -74,6 +77,7 @@ const category = z.enum(Object.values(TaskStatusCategory) as [string, ...string[
   error: 'Choose a valid status group: To do, In progress or Done.',
 });
 const assigneeId = objectIdString('The selected assignee could not be found. Please pick someone from the list.');
+const epicId = objectIdString('The selected epic could not be found. Please pick one from the list.');
 
 export const createTaskSchema = z.object({
   title,
@@ -82,6 +86,7 @@ export const createTaskSchema = z.object({
   priority: priority.optional().default('medium'),
   assigneeId: assigneeId.optional(),
   dueDate: dueDateString.optional(),
+  epicId: epicId.optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -92,9 +97,16 @@ export const updateTaskSchema = z.object({
   priority: priority.optional(),
   assigneeId: assigneeId.nullable().optional(),
   dueDate: dueDateString.nullable().optional(),
+  /** null removes the task from its epic. */
+  epicId: epicId.nullable().optional(),
 });
 
-export const TASK_LIST_MAX_LIMIT = 500;
+/** Largest page GET /groups/:id/tasks returns; bigger `limit`s are capped to it. */
+export const TASK_LIST_MAX_LIMIT = 100;
+export const TASK_LIST_DEFAULT_LIMIT = 20;
+
+/** List-view sort columns (see taskService.getTasksByGroup). */
+export const TASK_LIST_SORTS = ['type', 'key', 'summary', 'status', 'priority', 'assignee', 'due'] as const;
 
 export const TASK_DUE_FILTERS = ['overdue', 'today', 'week', 'none'] as const;
 export type TaskDueFilter = (typeof TASK_DUE_FILTERS)[number];
@@ -118,6 +130,11 @@ export const taskQuerySchema = z.object({
       'The assignee filter is invalid. Pick a member, "Mine" or "Unassigned".',
     )
     .optional(),
+  /** An epic id or `none` (tasks without an epic). */
+  epicId: z
+    .string()
+    .refine((v) => v === 'none' || mongoose.Types.ObjectId.isValid(v), 'The epic filter is invalid. Pick an epic or "No epic".')
+    .optional(),
   /** Due-date window, by calendar day in the group's timezone (overdue excludes closed tasks). */
   due: z
     .enum(TASK_DUE_FILTERS, { error: 'The due filter must be overdue, today, week or none.' })
@@ -128,9 +145,46 @@ export const taskQuerySchema = z.object({
     .number()
     .int()
     .positive('Limit must be 1 or more.')
-    .max(TASK_LIST_MAX_LIMIT, `You can load at most ${TASK_LIST_MAX_LIMIT} tasks at once.`)
     .optional()
-    .default(20),
+    .default(TASK_LIST_DEFAULT_LIMIT)
+    .transform((v) => Math.min(v, TASK_LIST_MAX_LIMIT)),
+  /** Order by a list column (default: newest first). */
+  sort: z
+    .enum(TASK_LIST_SORTS, { error: `Sort by one of: ${TASK_LIST_SORTS.join(', ')}.` })
+    .optional(),
+  dir: z.enum(['asc', 'desc'], { error: 'The sort direction must be asc or desc.' }).optional(),
+});
+
+const epicTitle = z
+  .string({ error: 'Please enter an epic name.' })
+  .trim()
+  .min(1, 'Please enter an epic name.')
+  .max(EPIC_TITLE_MAX, `The epic name must be ${EPIC_TITLE_MAX} characters or fewer.`);
+const epicColor = z.enum(EPIC_COLOR_VALUES, {
+  error: `Choose a valid color: ${choices([...EPIC_COLOR_VALUES])}.`,
+});
+const epicStatus = z.enum(EPIC_STATUS_VALUES, { error: 'Choose a valid epic status: open or done.' });
+
+/** POST /api/groups/:groupId/epics (CreateEpicInput). */
+export const createEpicSchema = z.object({
+  title: epicTitle,
+  description: description.optional(),
+  color: epicColor.optional(),
+  /** Undo of a delete: recreate it as it was (open / done)… */
+  status: epicStatus.optional(),
+  /** …and put its tasks back (only tasks of this group without an epic are linked). */
+  taskIds: z
+    .array(objectIdString('Some of those tasks could not be found.'), { error: 'taskIds must be a list of task ids.' })
+    .max(1000, 'Too many tasks to restore at once.')
+    .optional(),
+});
+
+/** PATCH /api/epics/:epicId (UpdateEpicInput). */
+export const updateEpicSchema = z.object({
+  title: epicTitle.optional(),
+  description: description.nullable().optional(),
+  color: epicColor.optional(),
+  status: epicStatus.optional(),
 });
 
 export const telegramLoginSchema = z

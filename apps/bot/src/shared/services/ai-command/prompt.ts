@@ -23,6 +23,8 @@ export interface PromptTask {
   dueDate?: string | null;
   /** Current description, so "add to the description" can keep what's there. */
   description?: string | null;
+  /** Title of the task's epic (null = none). */
+  epic?: string | null;
 }
 
 export interface AiPromptInput {
@@ -44,7 +46,12 @@ export interface AiPromptInput {
   previousNumbers?: number[];
   /** 'web' labels the replied card as the task open in the app. */
   channel?: 'telegram' | 'web';
+  /** Titles of the group's open epics (oldest first). */
+  epics?: string[];
 }
+
+/** Most epic titles listed in the planner prompt. */
+export const PROMPT_EPICS_MAX = 30;
 
 const HISTORY_TURN_MAX = 500;
 
@@ -57,7 +64,7 @@ Return ONLY a JSON object: {"actions":[ ...1 to ${MAX_AI_MUTATIONS} actions... ]
 
 Action shapes:
 - {"action":"create_tasks","useReply":boolean} — the user wants NEW tasks. The request text (and the replied message when useReply is true) is the material; another component extracts titles, assignees and due dates from it. Use one create_tasks action even for several tasks.
-- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?,"description"?}}
+- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?,"description"?,"epic"?},"newEpic"?:true}
     status: one of ${TASK_STATUS_ORDER.join(', ')}
     type: one of ${TASK_TYPE_ORDER.join(', ')}
     priority: one of ${TASK_PRIORITY_ORDER.join(', ')}
@@ -65,11 +72,15 @@ Action shapes:
     dueDate: "YYYY-MM-DD" (resolve relative dates with the calendar below) or null to clear it.
     title: only when the user explicitly renames the task. Write it as a clean work-item title (verb first, no chat filler).
     description: only when the user asks to change the description/details/notes. Return the FULL new text, same language as the task: to add something, keep the existing description and append the addition; to rewrite, keep its facts. null clears it.
+    epic: the epic (a named group of related tasks) to put the task in — its title as the user wrote it ("thêm #5 vào epic Login" → "Login"); prefer the exact title from "Open epics" when it clearly is the one meant. null takes the task out of its epic ("bỏ #5 khỏi epic").
+    newEpic: true ONLY when the user explicitly asks for a NEW epic ("epic mới", "new epic"); otherwise omit it.
     Include ONLY the fields the user asked to change.
+- {"action":"create_epic","title":"...","description"?:"..."} — the user wants a new epic ("tạo epic Login", "new epic Payments"). title: the name as written, without the word "epic". This is NOT create_tasks.
 - {"action":"delete_task","taskRef":...} — the user asked to delete/remove a task.
+- {"action":"explain_task","taskRef":...} — the user asks what ONE task is about: what it means, why it exists, what is left, a summary ("giải thích", "là gì", "làm gì", "để làm gì", "tóm tắt", "explain", "what is", "summarize"). Read-only. Another component writes the explanation from the full task — do NOT write it yourself and do NOT use "answer" for it.
 - {"action":"bulk"} — the user asked to change MANY tasks at once (e.g. "all tasks of @an", "mọi task quá hạn").
-- {"action":"query","kind":"mine"|"person"|"overdue"|"status"|"type"|"search"|"open","person"?,"status"?,"type"?,"text"?}
-    mine = tasks assigned to the requester; person = tasks assigned to "person"; overdue = past due; status/type = filter; search = "text" in titles; open = all open tasks. Filters may be combined (e.g. kind "mine" with type "bug").
+- {"action":"query","kind":"mine"|"person"|"overdue"|"status"|"type"|"search"|"open"|"epic"|"epics","person"?,"status"?,"type"?,"text"?,"epic"?}
+    mine = tasks assigned to the requester; person = tasks assigned to "person"; overdue = past due; status/type = filter; search = "text" in titles; open = all open tasks; epic = tasks of the epic named in "epic"; epics = the list of epics with their progress. Filters may be combined (e.g. kind "mine" with type "bug", or any kind with "epic").
 - {"action":"answer","text":"..."} — help or small talk, at most 2 short sentences, in the user's language.
 - {"action":"clarify","question":"..."} — when the request is unclear. One short question in the user's language.
 
@@ -81,10 +92,13 @@ ${typeLines}
 Rules:
 - taskRef: "reply" ONLY when a replied task card is given below. A number ONLY when the user wrote it (#12 or "task 12"). {"search":...} only when the user names the task by its title words. Never guess a task number.
 - taskRef "previous" ONLY when a conversation is given below, the user points back with "it"/"nó"/"task đó"/"that one", and "Task in the previous answer" names exactly one task. If the previous answer showed several tasks, return clarify.
+- explain_task uses the same taskRef rules as update_task. If the task to explain is unclear, return clarify.
 - If the target task of a change is unclear, return clarify.
 - Map words: "xong"/"done"/"hoàn thành" → done; "đang làm"/"start"/"bắt đầu" → in_progress; "review"/"chờ duyệt"/"test" → in_review; "tạm dừng"/"hold"/"chờ" → pending; "huỷ"/"cancel"/"bỏ" → cancelled; "mở lại"/"reopen" → todo; "cao"/"high" → high; "gấp"/"khẩn"/"urgent" → urgent; "thấp"/"low" → low; "trung bình" → medium; "lỗi"/"bug" → bug; "tính năng" → feature; "cải thiện" → improvement; "câu hỏi" → question; "nghiên cứu" → research.
-- "chuyển"/"giao"/"assign"/"cho @x" on an existing task = change assignee. "tạo"/"create"/"thêm task"/"new task" = create_tasks.
+- "chuyển"/"giao"/"assign"/"cho @x" on an existing task = change assignee. "tạo"/"create"/"thêm task"/"new task" = create_tasks — except "tạo epic"/"new epic" = create_epic.
 - Questions about tasks ("tôi còn task nào?", "what's overdue?", "task của @an") = query. Never answer them with "answer".
+- Questions about the meaning of one specific task ("#5 là gì?", "task này để làm gì") = explain_task, not query.
+- Epics: "epic Login còn gì?"/"task trong epic Login" = query kind "epic" with "epic":"Login"; "có những epic nào?"/"tiến độ các epic" = query kind "epics". Never invent an epic for a task the user didn't ask to put in one.
 - Do not invent people, dates or task numbers.
 
 Examples:
@@ -99,9 +113,22 @@ Request: "task của @an" → {"actions":[{"action":"query","kind":"person","per
 Request: "có gì quá hạn không" → {"actions":[{"action":"query","kind":"overdue"}]}
 Request: "bugs in review" → {"actions":[{"action":"query","kind":"status","status":"in_review","type":"bug"}]}
 Request: "xong rồi" (no card replied, no number) → {"actions":[{"action":"clarify","question":"Task nào vậy? Trả lời vào thẻ task hoặc ghi #số."}]}
+Request: "giải thích task #5" → {"actions":[{"action":"explain_task","taskRef":5}]}
+Request: "#5 là gì?" → {"actions":[{"action":"explain_task","taskRef":5}]}
+Request: "task này làm gì vậy" (replied task card #12) → {"actions":[{"action":"explain_task","taskRef":"reply"}]}
+Request: "tóm tắt task #5 rồi giao cho @an" → {"actions":[{"action":"update_task","taskRef":5,"changes":{"assignee":"@an"}},{"action":"explain_task","taskRef":5}]}
+Request: "explain #5" → {"actions":[{"action":"explain_task","taskRef":5}]}
+Request: "what is the login timeout task about?" → {"actions":[{"action":"explain_task","taskRef":{"search":"login timeout"}}]}
+Request: "thêm #5 vào epic Login" → {"actions":[{"action":"update_task","taskRef":5,"changes":{"epic":"Login"}}]}
+Request: "cho #5 vào epic mới Payments" → {"actions":[{"action":"update_task","taskRef":5,"changes":{"epic":"Payments"},"newEpic":true}]}
+Request: "bỏ task này khỏi epic" (replied task card #12) → {"actions":[{"action":"update_task","taskRef":"reply","changes":{"epic":null}}]}
+Request: "tạo epic Login" → {"actions":[{"action":"create_epic","title":"Login"}]}
+Request: "epic Login còn gì?" → {"actions":[{"action":"query","kind":"epic","epic":"Login"}]}
+Request: "bug của tôi trong epic Login" → {"actions":[{"action":"query","kind":"mine","type":"bug","epic":"Login"}]}
+Request: "tiến độ các epic" → {"actions":[{"action":"query","kind":"epics"}]}
 Request: "xoá #5" → {"actions":[{"action":"delete_task","taskRef":5}]}
 Request: "đóng hết task của @an" → {"actions":[{"action":"bulk"}]}
-Request: "bạn làm được gì?" → {"actions":[{"action":"answer","text":"Mình có thể tạo, cập nhật và tìm task. Ví dụ: /ai #12 xong rồi"}]}`;
+Request: "bạn làm được gì?" → {"actions":[{"action":"answer","text":"Mình có thể tạo, cập nhật, tìm, giải thích task và gom task vào epic. Ví dụ: /ai #12 xong rồi"}]}`;
 
 function memberLabel(m: PromptMember): string {
   const name = [m.firstName, m.lastName].filter(Boolean).join(' ');
@@ -115,6 +142,7 @@ function taskLabel(t: PromptTask): string {
   if (t.priority) parts.push(`priority ${t.priority}`);
   parts.push(`assignee ${t.assignee || 'none'}`);
   if (t.dueDate) parts.push(`due ${t.dueDate}`);
+  if (t.epic) parts.push(`epic "${t.epic.slice(0, 80)}"`);
   const label = parts.join(' · ');
   return t.description ? `${label}\n    description: ${JSON.stringify(t.description.slice(0, 800))}` : label;
 }
@@ -144,6 +172,15 @@ export function buildAiCommandPrompt(input: AiPromptInput): string {
   lines.push('Group members:');
   if (input.members.length === 0) lines.push('- (unknown)');
   for (const m of input.members.slice(0, 200)) lines.push(`- ${memberLabel(m)}`);
+  lines.push('');
+  const epics = input.epics ?? [];
+  if (epics.length) {
+    lines.push('Open epics:');
+    for (const title of epics.slice(0, PROMPT_EPICS_MAX)) lines.push(`- ${JSON.stringify(title)}`);
+    if (epics.length > PROMPT_EPICS_MAX) lines.push(`- …and ${epics.length - PROMPT_EPICS_MAX} more`);
+  } else {
+    lines.push('Open epics: none');
+  }
   lines.push('');
   if (input.history?.length) {
     lines.push('Conversation so far (oldest first):');

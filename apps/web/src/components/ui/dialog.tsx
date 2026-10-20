@@ -4,6 +4,8 @@ import { pushBackInterceptor } from '@/lib/back-button';
 
 import { Button } from './button';
 
+const openDialogs: object[] = [];
+
 interface DialogProps {
   onClose: () => void;
   title: ReactNode;
@@ -40,13 +42,19 @@ export function Dialog({
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
+    // Stacked dialogs (e.g. "New epic" over "Create task"): Esc closes only the top one.
+    const token = {};
+    openDialogs.push(token);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && openDialogs[openDialogs.length - 1] === token) onCloseRef.current();
+    };
     window.addEventListener('keydown', onKey);
     const popBack = pushBackInterceptor(() => onCloseRef.current());
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       window.removeEventListener('keydown', onKey);
+      openDialogs.splice(openDialogs.lastIndexOf(token), 1);
       popBack();
       document.body.style.overflow = prevOverflow;
       opener?.focus?.({ preventScroll: true });
@@ -60,10 +68,13 @@ export function Dialog({
       aria-modal
       aria-labelledby={titleId}
       aria-describedby={description ? descId : undefined}
+      // Clear landscape side insets, and end above the on-screen keyboard (lib/telegram.ts).
+      style={{ left: 'var(--app-safe-left)', right: 'var(--app-safe-right)', bottom: 'var(--app-kb)' }}
     >
       <div className="tbot-fade-in fixed inset-0 bg-black/40" onClick={onClose} aria-hidden />
       <div
-        className={`tbot-sheet-in pb-safe relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-2 shadow-xl sm:rounded-xl sm:pt-4 ${
+        style={{ maxHeight: 'calc(var(--app-vh) * 0.92 - var(--app-safe-top))' }}
+        className={`tbot-sheet-in pb-safe relative w-full overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-2 shadow-xl sm:rounded-xl sm:pt-4 ${
           size === 'sm' ? 'max-w-md' : 'max-w-lg'
         }`}
       >

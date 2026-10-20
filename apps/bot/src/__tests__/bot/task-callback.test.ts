@@ -9,6 +9,8 @@ import { userService } from 'src/database/services/user.service';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { dmTaskKeyboard, notificationService } from 'src/shared/services/notification.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
+import { aiCommandService, checkUserAiRateLimit } from 'src/shared/services/ai-command.service';
+import { checkGroupAiRateLimit } from 'src/shared/services/task-creation.service';
 
 jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/user.service');
@@ -25,8 +27,15 @@ jest.mock('src/shared/services/notification.service', () => ({
     notifyUnassigned: jest.fn(),
   },
   DM_TASK_CALLBACK_PREFIX: 'tdm:',
+  DM_EXPLAIN_ACTION: 'explain',
   dmTaskKeyboard: jest.fn(() => [[{ text: '👀 Review', callback_data: 'tdm:in_review:x' }]]),
 }));
+jest.mock('src/shared/services/ai-command.service', () => ({
+  AI_UNAVAILABLE_MESSAGE: '🤖 AI is unavailable right now',
+  aiCommandService: { explainTaskById: jest.fn() },
+  checkUserAiRateLimit: jest.fn(),
+}));
+jest.mock('src/shared/services/task-creation.service', () => ({ checkGroupAiRateLimit: jest.fn() }));
 jest.mock('src/shared/services/task-sync.service', () => ({ taskSyncService: { syncTaskCard: jest.fn() } }));
 jest.mock('src/shared/utils/app-links', () => ({
   ...jest.requireActual('src/shared/utils/app-links'),
@@ -304,6 +313,91 @@ describe('task callbacks', () => {
       expect(ctx.editMessageReplyMarkup).toHaveBeenCalled();
       expect(ctx.answerCbQuery).toHaveBeenCalledWith('#12 is in review now — buttons updated');
       expect(ctx.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+  describe('💡 Explain', () => {
+    const group = { _id: groupId, telegramGroupId: -100, isForum: false, knownTopics: [] };
+    const explanation = { text: '💡 #12 <b>Fix login</b>\n🎯 Sửa lỗi login', buttons: [[{ text: '📱 Open #12', url: 'https://x' }]] };
+
+    beforeEach(() => {
+      (Group.findById as jest.Mock).mockResolvedValue(group);
+      (checkUserAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 5, retryAfterSeconds: 0 });
+      (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+      (aiCommandService.explainTaskById as jest.Mock).mockResolvedValue(explanation);
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task());
+    });
+
+    it('from the card (⋯ More): restores the card buttons and replies under the card', async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'explain' });
+      const ctx = ctxFor('explain');
+
+      await handleTaskCallback(ctx);
+
+      expect(ctx.editMessageText.mock.calls[0][1].reply_markup.inline_keyboard[0].map((b: any) => b.text)).toEqual([
+        '▶ Start',
+        '👤 Assign',
+        '⋯ More',
+      ]);
+      expect(ctx.telegram.getChatMember).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith('💡 Explaining #12…');
+      expect(aiCommandService.explainTaskById).toHaveBeenCalledWith(taskId.toString(), bob, group, { onCard: true });
+      expect(ctx.telegram.sendMessage).toHaveBeenCalledTimes(1);
+      expect(ctx.telegram.sendMessage).toHaveBeenCalledWith(-100, explanation.text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_parameters: { message_id: 77, allow_sending_without_reply: true },
+        reply_markup: { inline_keyboard: explanation.buttons },
+      });
+    });
+
+    it('is rate limited like /ai', async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'explain' });
+      (checkUserAiRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 40 });
+      const ctx = ctxFor('explain');
+
+      await handleTaskCallback(ctx);
+
+      expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('Try again in 40s'), { show_alert: true });
+      expect(ctx.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+
+    function dmCtx() {
+      return {
+        chat: { id: bob.telegramUserId, type: 'private' },
+        callbackQuery: { data: `tdm:explain:${taskId}`, from: { id: bob.telegramUserId }, message: { message_id: 5 } },
+        answerCbQuery: jest.fn(),
+        editMessageText: jest.fn(),
+        editMessageReplyMarkup: jest.fn(),
+        sendChatAction: jest.fn().mockResolvedValue(true),
+        telegram: { sendMessage: jest.fn(), getChatMember: jest.fn().mockResolvedValue({ status: 'member' }) },
+      } as any;
+    }
+
+    it('from a DM: checks membership and sends a new DM (not a reply, DM buttons untouched)', async () => {
+      const ctx = dmCtx();
+
+      await handleTaskCallback(ctx);
+
+      expect(ctx.telegram.getChatMember).toHaveBeenCalledWith(-100, bob.telegramUserId);
+      expect(checkUserAiRateLimit).toHaveBeenCalledWith(bob.telegramUserId, -100);
+      expect(aiCommandService.explainTaskById).toHaveBeenCalledWith(taskId.toString(), bob, group, { onCard: false });
+      expect(ctx.editMessageReplyMarkup).not.toHaveBeenCalled();
+      expect(ctx.telegram.sendMessage).toHaveBeenCalledWith(bob.telegramUserId, explanation.text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_markup: { inline_keyboard: explanation.buttons },
+      });
+    });
+
+    it('from a DM: refuses someone who left the group', async () => {
+      const ctx = dmCtx();
+      ctx.telegram.getChatMember.mockResolvedValue({ status: 'left' });
+
+      await handleTaskCallback(ctx);
+
+      expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('not in its group'), { show_alert: true });
     });
   });
 });

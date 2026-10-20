@@ -1,5 +1,6 @@
 import type { AiChatTurn } from '@tbot/shared';
-import { isClosedStatus } from '@tbot/shared';
+import { EpicStatus, isClosedStatus } from '@tbot/shared';
+import mongoose from 'mongoose';
 import {
   buildTaskButtons,
   formatTaskCard,
@@ -8,17 +9,30 @@ import {
   refId,
   todayIn,
 } from 'src/bot/task-card.renderer';
+import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
+import { EpicTitleTakenError, epicService } from 'src/database/services/epic.service';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import {
+  EXPLAIN_TASK_SYSTEM_PROMPT,
+  buildExplainPrompt,
+  explanationSchema,
+  tidyExplanation,
+} from 'src/shared/services/ai-command/explain.prompt';
+import {
   dayOf,
+  detectLang,
+  epicDot,
+  epicLabel,
+  epicOf,
   isOverdue,
   labelWord,
+  MAX_EPIC_SUGGESTIONS,
   personName,
   priorityText,
   shortDay,
@@ -30,6 +44,8 @@ import {
   AiAction,
   AiPlan,
   aiPlanSchema,
+  CreateEpicAction,
+  MAX_AI_EXPLAINS,
   MAX_AI_MUTATIONS,
   QueryAction,
   TaskRef,
@@ -40,12 +56,17 @@ import {
   AiResult,
   AiSection,
   CardEditor,
+  EpicCreateOutcome,
+  EpicMiss,
+  EpicOverviewRow,
+  EpicRef,
+  ExplainOutcome,
   QueryOutcome,
   TargetMiss,
   UpdateOutcome,
 } from 'src/shared/services/ai-command/result';
-import { AiOutcome, renderTelegram } from 'src/shared/services/ai-command/telegram.renderer';
-import { aiService } from 'src/shared/services/ai/ai.service';
+import { AiOutcome, type AiReply, renderTelegram } from 'src/shared/services/ai-command/telegram.renderer';
+import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
 import { BufferedMention } from 'src/shared/services/message-buffer.service';
 import { notificationService } from 'src/shared/services/notification.service';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
@@ -79,6 +100,8 @@ export interface AiRequestContext {
   /** Web chat: every task number in the previous assistant answer. */
   previousNumbers?: number[];
   channel?: 'telegram' | 'web';
+  /** The group's open epics, oldest first (planner prompt + "no such epic" suggestions). */
+  openEpics?: EpicRef[];
 }
 
 export type { AiOutcome, AiReply } from 'src/shared/services/ai-command/telegram.renderer';
@@ -119,6 +142,32 @@ export function toPromptTask(task: ITask): PromptTask {
     assignee: assignee ? personName(assignee) : null,
     dueDate: task.dueDate ? dayOf(task.dueDate) : null,
     description: task.description || null,
+    epic: epicOf(task.epicId)?.title ?? null,
+  };
+}
+
+/** Plain epic ref for results (id as string). */
+export function toEpicRef(epic: { _id: unknown; title: string; color: string }): EpicRef {
+  return { _id: String(epic._id), title: epic.title, color: epic.color };
+}
+
+const normalizeTitle = (title: string) => title.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * "No epic “Logn”" + the group's open epics to pick from — the closest ones first (one title contains
+ * the other), at most MAX_EPIC_SUGGESTIONS.
+ */
+export function buildEpicMiss(title: string, openEpics: EpicRef[]): EpicMiss {
+  const wanted = normalizeTitle(title);
+  const close = (e: EpicRef) => {
+    const t = normalizeTitle(e.title);
+    return !!wanted && (t.includes(wanted) || wanted.includes(t));
+  };
+  const sorted = [...openEpics.filter(close), ...openEpics.filter((e) => !close(e))];
+  return {
+    title,
+    suggestions: sorted.slice(0, MAX_EPIC_SUGGESTIONS),
+    more: Math.max(0, sorted.length - MAX_EPIC_SUGGESTIONS),
   };
 }
 
@@ -130,6 +179,12 @@ export const AI_USER_RATE_WINDOW_SECONDS = 60;
 export const MAX_REFERENCED_TASKS = 5;
 /** The web chat sends up to 20 turns; only the last few go to the planner. */
 export const AI_HISTORY_TURNS = 8;
+
+/**
+ * "giải thích #5", "task này làm gì?", "what is #5" — wording that asks what a task is about. Used to still
+ * answer from the task's own details when the planner is down (no AI needed to know what was asked).
+ */
+export const EXPLAIN_WORDING = /giải thích|giai thich|là gì|la gi\b|làm gì|lam gi\b|tóm tắt|tom tat|explain|what is|what's/i;
 
 export function checkUserAiRateLimit(telegramUserId: number, chatId: number) {
   return rateLimitService.checkRateLimit(
@@ -167,6 +222,7 @@ export async function buildAiContext(input: AiContextInput): Promise<AiRequestCo
   if (!members.some((m) => m.telegramUserId === requester.telegramUserId)) members.push(requester);
 
   const timezone = groupTimezone(group);
+  const openEpics = (await epicService.listOpen(group._id)).map(toEpicRef);
   const context: AiRequestContext = {
     request,
     requester,
@@ -179,6 +235,7 @@ export async function buildAiContext(input: AiContextInput): Promise<AiRequestCo
     mentions: input.mentions ?? [],
     timezone,
     today: todayIn(timezone),
+    openEpics,
   };
   if (input.channel) context.channel = input.channel;
 
@@ -210,6 +267,7 @@ export class AiCommandService {
       previousTask: c.previousTask ? toPromptTask(c.previousTask) : null,
       previousNumbers: c.previousNumbers,
       channel: c.channel,
+      epics: (c.openEpics ?? []).map((e) => e.title),
     });
     return aiService.generateJson({ system: AI_COMMAND_SYSTEM_PROMPT, user, temperature: 0.1 }, aiPlanSchema, {
       retries: 1,
@@ -234,7 +292,8 @@ export class AiCommandService {
     if (actions.some((a) => a.action === 'delete_task')) return { kind: 'refused', reason: 'delete' };
 
     const updates = actions.filter((a): a is Extract<AiAction, { action: 'update_task' }> => a.action === 'update_task');
-    if (actions.some((a) => a.action === 'bulk') || updates.length > MAX_AI_MUTATIONS) {
+    const epicCreates = actions.filter((a): a is CreateEpicAction => a.action === 'create_epic');
+    if (actions.some((a) => a.action === 'bulk') || updates.length + epicCreates.length > MAX_AI_MUTATIONS) {
       return { kind: 'refused', reason: 'bulk' };
     }
 
@@ -247,22 +306,47 @@ export class AiCommandService {
     }
 
     // Resolve every target BEFORE changing anything: an unclear target aborts the whole request.
-    const resolved: { task: ITask; changes: UpdateChanges }[] = [];
+    const resolved: { task: ITask; changes: UpdateChanges; newEpic: boolean }[] = [];
     for (const update of updates) {
       const target = await this.resolveTarget(c, update.taskRef);
       if ('miss' in target) return { kind: 'which_task', miss: target.miss };
       const existing = resolved.find((r) => r.task._id.toString() === target.task._id.toString());
-      if (existing) existing.changes = { ...existing.changes, ...update.changes };
-      else resolved.push({ task: target.task, changes: update.changes });
+      if (existing) {
+        existing.changes = { ...existing.changes, ...update.changes };
+        existing.newEpic ||= !!update.newEpic;
+      } else resolved.push({ task: target.task, changes: update.changes, newEpic: !!update.newEpic });
     }
+    // Explanations are read-only (no mutation cap) but each is a second AI call: at most MAX_AI_EXPLAINS tasks.
+    // One unclear target doesn't sink the others: the found ones are explained, the rest get a short note.
+    const toExplain: ITask[] = [];
+    const explainMisses: TargetMiss[] = [];
+    for (const explain of actions.filter((a) => a.action === 'explain_task')) {
+      const target = await this.resolveTarget(c, explain.taskRef);
+      if ('miss' in target) explainMisses.push(target.miss);
+      else if (!toExplain.some((t) => t._id.toString() === target.task._id.toString())) toExplain.push(target.task);
+    }
+    const otherWork = resolved.length || epicCreates.length || actions.some((a) => a.action === 'query');
+    if (explainMisses.length && !toExplain.length && !otherWork) return { kind: 'which_task', miss: explainMisses[0] };
 
+    // Changes first, so an explanation in the same request describes the task as it is now.
+    // New epics before the updates, so "tạo epic Login rồi thêm #5 vào" finds it.
     const sections: AiSection[] = [];
-    for (const { task, changes } of resolved) {
-      sections.push({ type: 'update', update: await this.applyUpdate(c, task, changes, editor) });
+    for (const action of epicCreates) sections.push({ type: 'epic_created', epic: await this.createEpic(c, action) });
+    const current = new Map<string, ITask>();
+    for (const { task, changes, newEpic } of resolved) {
+      const update = await this.applyUpdate(c, task, changes, editor, { newEpic });
+      current.set(task._id.toString(), update.task);
+      sections.push({ type: 'update', update });
     }
+    for (const task of toExplain.slice(0, MAX_AI_EXPLAINS)) {
+      sections.push({ type: 'explain', explain: await this.explainTask(c, current.get(task._id.toString()) ?? task) });
+    }
+    const explainNotes = explainNoteLines(explainMisses, toExplain);
+    if (explainNotes.length) sections.push({ type: 'note', lines: explainNotes });
     for (const action of actions) {
       if (action.action === 'query') sections.push({ type: 'query', query: await this.runQuery(c, action) });
-      else if (action.action === 'answer') sections.push({ type: 'answer', text: action.text });
+      // The explanation IS the answer — a planner "answer" next to it would only repeat it.
+      else if (action.action === 'answer' && !toExplain.length) sections.push({ type: 'answer', text: action.text });
     }
     return { kind: 'sections', sections };
   }
@@ -303,13 +387,197 @@ export class AiCommandService {
     return { miss: { reason: 'ambiguous', candidates } };
   }
 
+  /**
+   * "giải thích #5": a second AI call that writes a short plain-text explanation from the full task —
+   * fields, the chat messages it was created from and its activity log. Read-only. When the AI is
+   * unavailable the outcome has `text: null` and the renderers fall back to the task's own details.
+   */
+  async explainTask(c: AiRequestContext, task: ITask): Promise<ExplainOutcome> {
+    const assigneeUser = populatedUser(task.assigneeId);
+    const assignee = assigneeUser ? personName(assigneeUser) : null;
+    const creatorUser = populatedUser(task.createdBy);
+    const activity = await taskActivityService.getForTask(task._id);
+
+    const sources = (task.sourceMessages?.length ? task.sourceMessages : task.sourceMessage ? [task.sourceMessage] : [])
+      .filter((m) => m?.text?.trim())
+      .map((m) => ({ from: m.fromName || 'someone', text: m.text }));
+
+    const due = task.dueDate ? dayOf(task.dueDate) : null;
+    // The replied card (web: the task open in the app) is already on screen: no state lines, no Open button.
+    const fromReply = !!c.replyTask && c.replyTask._id.toString() === task._id.toString();
+
+    // Who could answer open questions, best first: whoever wrote the source messages, the creator, the
+    // assignee — never the person asking. Names without "@" so the explanation pings nobody.
+    const requesterId = c.requester._id.toString();
+    const sourceList = task.sourceMessages?.length ? task.sourceMessages : task.sourceMessage ? [task.sourceMessage] : [];
+    const whoToAsk: string[] = [];
+    const addPerson = (name: string | null | undefined) => {
+      const plain = name?.replace(/^@/, '').trim();
+      if (plain && plain !== 'someone' && !whoToAsk.includes(plain)) whoToAsk.push(plain);
+    };
+    for (const m of sourceList) if (m?.fromUserId !== c.requester.telegramUserId) addPerson(m?.fromName);
+    if (creatorUser && creatorUser._id.toString() !== requesterId) addPerson(personName(creatorUser));
+    if (assigneeUser && assigneeUser._id.toString() !== requesterId) addPerson(personName(assigneeUser));
+
+    const user = buildExplainPrompt({
+      request: c.request,
+      lang: detectLang(c.request),
+      today: c.today,
+      timezone: c.timezone,
+      task: {
+        taskNumber: task.taskNumber,
+        title: task.title,
+        description: task.description || null,
+        type: labelWord(typeText(task.type)),
+        status: labelWord(statusText(task.status)),
+        priority: labelWord(priorityText(task.priority)),
+        assignee,
+        creator: creatorUser ? personName(creatorUser) : null,
+        createdAt: task.createdAt ? dayOf(task.createdAt) : null,
+        dueDate: due,
+        closed: isClosedStatus(task.status),
+        epic: epicOf(task.epicId)?.title ?? null,
+      },
+      askedBy: personName(c.requester).replace(/^@/, ''),
+      whoToAsk: whoToAsk.slice(0, 3),
+      sources,
+      activity: activity.map((a) => {
+        const actor = populatedUser(a.actor);
+        const change = a.from || a.to ? ` ${a.from ?? '—'} → ${a.to ?? '—'}` : '';
+        const when = a.createdAt ? `${dayOf(a.createdAt)} ` : '';
+        return `${when}${actor ? personName(actor) : 'someone'}: ${a.action.replace(/_/g, ' ')}${change}`;
+      }),
+    });
+
+    try {
+      const { text } = await aiService.generateJson(
+        { system: EXPLAIN_TASK_SYSTEM_PROMPT, user, temperature: 0.3 },
+        explanationSchema,
+        { retries: 1 },
+      );
+      return { task, text: tidyExplanation(text, task.taskNumber) || null, assignee, fromReply };
+    } catch (error) {
+      if (!(error instanceof AIUnavailableError)) throw error;
+      logger.warn(`AI explanation of #${task.taskNumber} failed (${error.reason}): ${error.message}`);
+      return { task, text: null, assignee, fromReply };
+    }
+  }
+
+  /**
+   * "💡 Explain" buttons (card ⋯ More, DM notifications): explains ONE task directly — no planner call.
+   * `onCard`: the answer is threaded under the task card, so it skips the state lines and Open button
+   * (the card is right above). Null when the task is gone or belongs to another group.
+   * The caller checks membership and the /ai rate limits first.
+   */
+  async explainTaskById(
+    taskId: string,
+    requester: IUser,
+    group: IGroup,
+    options: { onCard?: boolean } = {},
+  ): Promise<AiReply | null> {
+    const task = await taskService.getTaskById(taskId);
+    if (!task || refId(task.groupId) !== group._id.toString()) return null;
+    const timezone = groupTimezone(group);
+    const c: AiRequestContext = {
+      // Vietnamese wording: the explanation is written in the language of the request.
+      request: `Giải thích task #${task.taskNumber}`,
+      requester,
+      group,
+      members: [],
+      replyTask: options.onCard ? task : null,
+      replyMessage: null,
+      referencedTasks: [task],
+      referencedNumbers: [task.taskNumber],
+      mentions: [],
+      timezone,
+      today: todayIn(timezone),
+      channel: 'telegram',
+    };
+    const explain = await this.explainTask(c, task);
+    return replyOf(renderTelegram(c, { kind: 'sections', sections: [{ type: 'explain', explain }] }));
+  }
+
+  /**
+   * The AI is down but the request clearly asks what ONE task is about ("giải thích #5", or "task này làm
+   * gì?" on its card): answer from the task's own details (description / source message + state) instead
+   * of a bare "AI is unavailable". Null when the request isn't that.
+   */
+  explainWithoutAi(c: AiRequestContext): AiReply | null {
+    if (!EXPLAIN_WORDING.test(c.request)) return null;
+    let task: ITask | null = null;
+    if (c.referencedNumbers.length === 1) {
+      const n = c.referencedNumbers[0];
+      task = c.replyTask?.taskNumber === n ? c.replyTask : (c.referencedTasks.find((t) => t.taskNumber === n) ?? null);
+    } else if (c.referencedNumbers.length === 0) {
+      task = c.replyTask;
+    }
+    if (!task) return null;
+    const assigneeUser = populatedUser(task.assigneeId);
+    const fromReply = !!c.replyTask && c.replyTask._id.toString() === task._id.toString();
+    const explain: ExplainOutcome = { task, text: null, assignee: assigneeUser ? personName(assigneeUser) : null, fromReply };
+    return replyOf(renderTelegram(c, { kind: 'sections', sections: [{ type: 'explain', explain }] }));
+  }
+
   /** Resolves "@an", "Hùng" or "me" to a group member; null when unknown (never guesses). */
   resolvePerson(c: AiRequestContext, name: string): IUser | null {
     if (SELF_WORDS.has(name.trim().toLowerCase())) return c.requester;
     return resolveMember(name, c.members, c.mentions);
   }
 
-  async applyUpdate(c: AiRequestContext, task: ITask, changes: UpdateChanges, editor: CardEditor): Promise<UpdateOutcome> {
+  /** "/ai tạo epic Login": creates it (auto color) unless an epic with that title already exists. */
+  async createEpic(c: AiRequestContext, action: CreateEpicAction): Promise<EpicCreateOutcome> {
+    const existing = await epicService.findByTitle(c.group._id, action.title);
+    if (existing) return { epic: toEpicRef(existing), duplicate: true };
+    try {
+      const epic = toEpicRef(
+        await epicService.create({
+          groupId: c.group._id,
+          createdBy: c.requester._id as mongoose.Types.ObjectId,
+          title: action.title,
+          description: action.description ?? null,
+        }),
+      );
+      c.openEpics?.push(epic);
+      return { epic, duplicate: false };
+    } catch (error) {
+      if (!(error instanceof EpicTitleTakenError)) throw error;
+      const clash = await epicService.findByTitle(c.group._id, action.title);
+      if (!clash) throw error;
+      return { epic: toEpicRef(clash), duplicate: true };
+    }
+  }
+
+  /** The task's epic (populated ref, else loaded by id), or null. */
+  private async currentEpic(task: ITask): Promise<EpicRef | null> {
+    const populated = epicOf(task.epicId);
+    if (populated) return toEpicRef(populated as unknown as EpicRef);
+    const id = refId(task.epicId);
+    if (!id) return null;
+    const epic = await epicService.findById(id);
+    return epic ? toEpicRef(epic) : null;
+  }
+
+  /** Finds the epic by title in the group; with `create` (the user said "epic mới") a missing one is created. */
+  private async findEpic(c: AiRequestContext, title: string, create: boolean): Promise<{ epic: EpicRef; created: boolean } | null> {
+    const found = await epicService.findByTitle(c.group._id, title);
+    if (found) return { epic: toEpicRef(found), created: false };
+    if (!create) return null;
+    const outcome = await this.createEpic(c, { action: 'create_epic', title });
+    return { epic: outcome.epic, created: !outcome.duplicate };
+  }
+
+  private async openEpics(c: AiRequestContext): Promise<EpicRef[]> {
+    if (!c.openEpics) c.openEpics = (await epicService.listOpen(c.group._id)).map(toEpicRef);
+    return c.openEpics;
+  }
+
+  async applyUpdate(
+    c: AiRequestContext,
+    task: ITask,
+    changes: UpdateChanges,
+    editor: CardEditor,
+    options: { newEpic?: boolean } = {},
+  ): Promise<UpdateOutcome> {
     const changed: string[] = [];
     const notes: string[] = [];
     const fieldChanges: TaskChange[] = [];
@@ -386,6 +654,42 @@ export class AiCommandService {
       }
     }
 
+    // ── Epic: an existing epic of this group (by title), never created silently ──
+    let epicMiss: EpicMiss | undefined;
+    if (changes.epic !== undefined) {
+      const prev = await this.currentEpic(task);
+      if (changes.epic === null) {
+        if (prev) {
+          fields.epicId = null;
+          activities.push(['epic', prev.title, null]);
+          fieldChanges.push({ field: 'epic', from: prev.title, to: null, fromIcon: epicDot(prev.color), toIcon: null });
+          changed.push(`Epic removed (was ${epicLabel(prev)})`);
+        } else notes.push('ℹ️ Not in an epic.');
+      } else {
+        const next = await this.findEpic(c, changes.epic, !!options.newEpic);
+        if (!next) {
+          epicMiss = buildEpicMiss(changes.epic, await this.openEpics(c));
+        } else if (prev?._id === next.epic._id) {
+          notes.push(`ℹ️ Already in epic ${epicLabel(next.epic)}.`);
+        } else {
+          fields.epicId = new mongoose.Types.ObjectId(next.epic._id);
+          activities.push(['epic', prev?.title ?? null, next.epic.title]);
+          fieldChanges.push({
+            field: 'epic',
+            from: prev?.title ?? null,
+            to: next.epic.title,
+            fromIcon: prev ? epicDot(prev.color) : null,
+            toIcon: epicDot(next.epic.color),
+          });
+          changed.push(
+            prev
+              ? `Epic: ${epicLabel(prev)} → ${epicLabel(next.epic)}`
+              : `Epic → ${epicLabel(next.epic)}${next.created ? ' (new)' : ''}`,
+          );
+        }
+      }
+    }
+
     const statusChange = changes.status !== undefined && changes.status !== task.status ? changes.status : undefined;
     if (changes.status !== undefined && !statusChange) notes.push(`ℹ️ Already ${statusText(task.status)}.`);
 
@@ -427,7 +731,9 @@ export class AiCommandService {
       await this.refreshCard(c, current, editor);
     }
 
-    return { original: task, task: current, changes: changed, notes: failed ? [] : notes, fieldChanges, failed };
+    const outcome: UpdateOutcome = { original: task, task: current, changes: changed, notes: failed ? [] : notes, fieldChanges, failed };
+    if (epicMiss && !failed) outcome.epicMiss = epicMiss;
+    return outcome;
   }
 
   private async notify(
@@ -468,7 +774,31 @@ export class AiCommandService {
     }
   }
 
+  /** "có những epic nào?" — every epic with its progress, open ones first (oldest first within). */
+  private async epicOverview(c: AiRequestContext, only?: EpicRef): Promise<QueryOutcome> {
+    const epics = await epicService.listWithProgress(c.group._id);
+    const rows: EpicOverviewRow[] = epics
+      .map((e) => ({
+        ...toEpicRef(e as unknown as IEpic),
+        status: String(e.status ?? EpicStatus.OPEN),
+        total: e.progress.total,
+        done: e.progress.done,
+      }))
+      .filter((row) => !only || row._id === only._id);
+    const open = rows.filter((r) => r.status !== EpicStatus.DONE);
+    const closed = rows.filter((r) => r.status === EpicStatus.DONE);
+    return { kind: 'epics', epics: [...open, ...closed] };
+  }
+
   async runQuery(c: AiRequestContext, q: QueryAction): Promise<QueryOutcome> {
+    let epic: EpicRef | undefined;
+    if (q.epic) {
+      const found = await epicService.findByTitle(c.group._id, q.epic);
+      if (!found) return { kind: 'unknown_epic', miss: buildEpicMiss(q.epic, await this.openEpics(c)) };
+      epic = toEpicRef(found);
+    }
+    if (q.kind === 'epics') return this.epicOverview(c, epic);
+
     let assignee: IUser | null = null;
     if (q.kind === 'mine') assignee = c.requester;
     else if (q.person) {
@@ -483,6 +813,7 @@ export class AiCommandService {
       ...(q.type ? { type: q.type } : {}),
       ...(assignee ? { assigneeId: assignee._id } : {}),
       ...(search ? { search } : {}),
+      ...(epic ? { epicId: new mongoose.Types.ObjectId(epic._id) } : {}),
       limit: 500,
     });
 
@@ -506,6 +837,7 @@ export class AiCommandService {
       if (assignee) title += ` for ${personName(assignee)}`;
     }
     if (search) title += ` matching “${shorten(search, 30)}”`;
+    if (epic) title += ` in ${epicLabel(epic)}`;
 
     return {
       kind: 'list',
@@ -517,8 +849,33 @@ export class AiCommandService {
       showStatus: !q.status,
       showAssignee: !assignee,
       emptyText: q.kind === 'overdue' || (!search && !q.status && !q.type) ? 'Nothing here. 🎉' : 'No matches.',
+      ...(epic ? { epic } : {}),
     };
   }
+}
+
+/**
+ * Notes under the explanations of a multi-task request: "❌ No task #55." for numbers that don't exist,
+ * "🤔 …" for unclear ones, and "ℹ️ Explained 3 of 4 — ask about #4 separately." over the cap. Plain.
+ */
+export function explainNoteLines(misses: TargetMiss[], toExplain: ITask[]): string[] {
+  const lines: string[] = [];
+  for (const miss of misses) {
+    if (miss.reason === 'missing') lines.push(`❌ No task #${miss.number}.`);
+    else if (miss.reason === 'no_match') lines.push(`🤔 No task matches “${shorten(miss.search, 30)}”.`);
+    else lines.push('🤔 One task was unclear — ask again with its #number.');
+  }
+  const skipped = toExplain.slice(MAX_AI_EXPLAINS);
+  if (skipped.length) {
+    const asked = toExplain.length;
+    const refs = skipped.map((t) => `#${t.taskNumber}`).join(', ');
+    lines.push(`ℹ️ Explained ${MAX_AI_EXPLAINS} of ${asked} — ask about ${refs} separately.`);
+  }
+  return Array.from(new Set(lines));
+}
+
+function replyOf(outcome: AiOutcome): AiReply | null {
+  return outcome.kind === 'reply' ? outcome.reply : null;
 }
 
 /** "Couldn't find @x in this group — they need to send a message here first." (plain). */

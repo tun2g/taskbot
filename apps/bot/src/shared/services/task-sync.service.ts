@@ -5,6 +5,7 @@ import { IGroup } from 'src/database/models/group.model';
 import { ITask, Task } from 'src/database/models/task.model';
 import { IUser, User } from 'src/database/models/user.model';
 import { groupService } from 'src/database/services/group.service';
+import { TASK_POPULATE } from 'src/database/services/task-populate';
 import logger from 'src/shared/logger/logger';
 import { CreatedTask, createdSummaryLines } from 'src/shared/services/task-creation.service';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
@@ -38,7 +39,7 @@ export class TaskSyncService {
    */
   async syncTaskCard(task: ITask, options: { created?: boolean } = {}) {
     try {
-      const fullTask = await Task.findById(task._id).populate('createdBy assigneeId');
+      const fullTask = await Task.findById(task._id).populate(TASK_POPULATE);
       if (!fullTask) return;
 
       const creator = isUserDoc(fullTask.createdBy) ? fullTask.createdBy : null;

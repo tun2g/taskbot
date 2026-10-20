@@ -7,9 +7,11 @@ import {
   AI_UNAVAILABLE_MESSAGE,
   aiCommandService,
   AiReply,
+  AiRequestContext,
   buildAiContext,
   CardEditor,
   checkUserAiRateLimit,
+  EXPLAIN_WORDING,
   extractTaskNumbers,
 } from 'src/shared/services/ai-command.service';
 import type { AiOutcome } from 'src/shared/services/ai-command/telegram.renderer';
@@ -35,6 +37,7 @@ import {
 import { buildChangeLine, userDisplayName } from 'src/shared/services/task-event-lines';
 import { buildAppLink } from 'src/shared/utils/app-links';
 import { IGroup } from 'src/database/models/group.model';
+import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
 
@@ -44,6 +47,8 @@ export const AI_USAGE_MESSAGE =
   '<b>🤖 Ask me in plain words</b>\n' +
   '<code>/ai tôi còn task nào?</code> — your open tasks\n' +
   '<code>/ai #12 xong rồi</code> — update a task\n' +
+  '<code>/ai giải thích #5</code> — what a task is about\n' +
+  '<code>/ai thêm #5 vào epic Login</code> — group tasks in an epic\n' +
   '<code>/ai đổi #12 sang in review, priority cao</code>\n' +
   '<code>/ai tạo task fix login cho @an hạn thứ 6</code>\n' +
   'Reply to a task card: <code>/ai chuyển task này cho @an</code>';
@@ -58,7 +63,7 @@ export const UPDATE_WHICH_TASK_MESSAGE =
   '🤔 Which task? Reply to its card with /update, or write the number: <code>/update #12 …</code>';
 
 export const AI_PRIVATE_MESSAGE =
-  '🤖 /ai works inside a group. Add me to your team group, then try <code>/ai tôi còn task nào?</code> there.';
+  '🤖 /ai works in your team group. To understand a task from here, tap 💡 Explain under it.';
 
 type CommandMessage = Message.TextMessage | Message.CaptionableMessage;
 
@@ -75,8 +80,12 @@ export class AiCommand {
     return this.map;
   }
 
-  /** `mode: 'update'` (/update) only changes existing tasks and needs an explicit target. */
-  async onAi(ctx: BotContext, mode: 'ai' | 'update' = 'ai') {
+  /**
+   * `mode: 'update'` (/update) only changes existing tasks and needs an explicit target.
+   * `options.request`: the request text when it isn't a command — a question replied to a task card or
+   * an "@bot …" message (bot-message-handler); otherwise it is the text after /ai or /update.
+   */
+  async onAi(ctx: BotContext, mode: 'ai' | 'update' = 'ai', options: { request?: string } = {}) {
     let stopTyping = () => {};
     try {
       const chat = ctx.chat;
@@ -88,18 +97,13 @@ export class AiCommand {
         return;
       }
 
-      const request = messageText(message).replace(/^\/(ai|update)(@\w+)?/i, '').trim();
+      const request = (options.request ?? messageText(message).replace(/^\/(ai|update)(@\w+)?/i, '')).trim();
       if (!request) {
         await this.send(ctx, { text: mode === 'update' ? UPDATE_USAGE_MESSAGE : AI_USAGE_MESSAGE });
         return;
       }
 
       stopTyping = this.keepTyping(ctx);
-
-      if (!aiService.isConfigured()) {
-        await this.send(ctx, { text: AI_UNAVAILABLE_MESSAGE });
-        return;
-      }
 
       const user = await userService.findOrCreateUser(ctx);
       if (!user) {
@@ -109,6 +113,23 @@ export class AiCommand {
       const group = await groupService.findOrCreateGroup(chat.id, 'title' in chat ? chat.title : 'Group');
       if (!group) {
         await this.send(ctx, { text: "❌ I couldn't set up this group. Please try again in a moment." });
+        return;
+      }
+
+      // ── Context ──
+      const reply = this.getReplyTarget(message);
+      const replyTask = reply ? await taskService.getTaskByCardMessage(chat.id, reply.message_id) : null;
+      const replyText = reply && !replyTask ? messageText(reply as CommandMessage) : '';
+
+      // /update never guesses: the task is the replied card or a number the user wrote
+      if (mode === 'update' && !replyTask && extractTaskNumbers(request).length === 0) {
+        await this.send(ctx, { text: UPDATE_WHICH_TASK_MESSAGE });
+        return;
+      }
+
+      // No AI, no AI cost: checked before the rate limits.
+      if (!aiService.isConfigured()) {
+        await this.sendUnavailable(ctx, mode, { request, user, group, replyTask });
         return;
       }
 
@@ -123,17 +144,6 @@ export class AiCommand {
         await this.send(ctx, {
           text: '⏳ AI is busy in this group — try again in a few minutes. Meanwhile use the card buttons or /list, /done.',
         });
-        return;
-      }
-
-      // ── Context ──
-      const reply = this.getReplyTarget(message);
-      const replyTask = reply ? await taskService.getTaskByCardMessage(chat.id, reply.message_id) : null;
-      const replyText = reply && !replyTask ? messageText(reply as CommandMessage) : '';
-
-      // /update never guesses: the task is the replied card or a number the user wrote
-      if (mode === 'update' && !replyTask && extractTaskNumbers(request).length === 0) {
-        await this.send(ctx, { text: UPDATE_WHICH_TASK_MESSAGE });
         return;
       }
 
@@ -152,7 +162,7 @@ export class AiCommand {
       } catch (error) {
         if (!(error instanceof AIUnavailableError)) throw error;
         logger.warn(`/ai planning failed (${error.reason}): ${error.message}`);
-        await this.send(ctx, { text: AI_UNAVAILABLE_MESSAGE });
+        await this.sendUnavailable(ctx, mode, { request, user, group, replyTask }, context);
         return;
       }
 
@@ -241,6 +251,33 @@ export class AiCommand {
         })
         .catch((error) => logger.warn(`Could not post /ai event line: ${error}`));
     }
+  }
+
+  /**
+   * AI down: "giải thích #5" / "task này làm gì?" on a card still gets the task's own details (description
+   * or source message + state); anything else gets the short "AI is unavailable" reply.
+   */
+  private async sendUnavailable(
+    ctx: BotContext,
+    mode: 'ai' | 'update',
+    input: { request: string; user: IUser; group: IGroup; replyTask: ITask | null },
+    context?: AiRequestContext,
+  ) {
+    if (mode === 'ai' && EXPLAIN_WORDING.test(input.request)) {
+      try {
+        const c =
+          context ??
+          (await buildAiContext({ request: input.request, requester: input.user, group: input.group, replyTask: input.replyTask }));
+        const fallback = aiCommandService.explainWithoutAi(c);
+        if (fallback) {
+          await this.send(ctx, fallback);
+          return;
+        }
+      } catch (error) {
+        logger.warn(`/ai explain fallback failed: ${error}`);
+      }
+    }
+    await this.send(ctx, { text: AI_UNAVAILABLE_MESSAGE });
   }
 
   /** Exactly one HTML reply, threaded to the user's /ai message (plain-text retry on a formatting error). */

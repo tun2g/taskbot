@@ -59,8 +59,11 @@ function closedStateText(status: string): string {
   return status === 'done' ? '✅ Marked done' : statusLabel(status);
 }
 
+/** `tdm:explain:<taskId>` — "💡 Explain" under a DM: a short AI explanation of the task, as a new DM. */
+export const DM_EXPLAIN_ACTION = 'explain';
+
 /**
- * Assignee DM keyboard: [next status step, e.g. ▶ Start / 👀 Review / ✅ Done] [📱 Open #N].
+ * Assignee DM keyboard: [next status step, e.g. ▶ Start / 👀 Review / ✅ Done] [💡 Explain] [📱 Open #N].
  * Closed tasks get a state button instead of a step.
  */
 export function dmTaskKeyboard(task: ITask): InlineKeyboardButton[][] {
@@ -72,6 +75,7 @@ export function dmTaskKeyboard(task: ITask): InlineKeyboardButton[][] {
     const next = PRIMARY_ACTION[task.status] || PRIMARY_ACTION.todo;
     row.push({ text: next.text, callback_data: `${DM_TASK_CALLBACK_PREFIX}${next.to}:${taskId}` });
   }
+  row.push({ text: '💡 Explain', callback_data: `${DM_TASK_CALLBACK_PREFIX}${DM_EXPLAIN_ACTION}:${taskId}` });
   const open = taskButton(task);
   if (open) row.push(open);
   return [row];

@@ -1,7 +1,9 @@
 import type { ITask, IUser } from '@tbot/shared';
 import { isClosedStatus, TaskStatus } from '@tbot/shared';
 
+import { EpicChip } from '@/components/epics/epic-chip';
 import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
+import type { EpicRef } from '@/lib/epics';
 
 import { DueChip } from './due-chip';
 import { StatusMenu } from './status-menu';
@@ -9,6 +11,10 @@ import { StatusMenu } from './status-menu';
 interface TaskCardProps {
   task: ITask;
   members?: IUser[];
+  /** Resolves a bare `epicId`; the API normally populates it. */
+  epics?: EpicRef[];
+  /** Board already filtered to one epic → skip the chip. */
+  hideEpic?: boolean;
   timeZone?: string | null;
   /** Show the status lozenge (assignee board, where columns aren't statuses). */
   showStatus?: boolean;
@@ -20,7 +26,12 @@ interface TaskCardProps {
 }
 
 /** Compact Jira-style board card. */
-export function TaskCard({ task, members, timeZone, showStatus, onClick, onStatusChange, isOverlay }: TaskCardProps) {
+export function TaskCard({
+  task,
+  members,
+  epics,
+  hideEpic,
+  timeZone, showStatus, onClick, onStatusChange, isOverlay }: TaskCardProps) {
   const closed = isClosedStatus(task.status);
 
   return (
@@ -67,7 +78,8 @@ export function TaskCard({ task, members, timeZone, showStatus, onClick, onStatu
         {showStatus && <StatusLozenge status={task.status} />}
         <PriorityIcon priority={task.priority} />
         <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
-        <span className="ml-auto">
+        {!hideEpic && <EpicChip epic={task.epicId} epics={epics} />}
+        <span className="ml-auto shrink-0">
           <Avatar user={task.assigneeId} members={members} />
         </span>
       </div>

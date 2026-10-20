@@ -6,7 +6,7 @@ export interface RecordActivityInput {
   taskId: mongoose.Types.ObjectId | string;
   groupId: mongoose.Types.ObjectId | string;
   actor?: mongoose.Types.ObjectId | string | null;
-  /** created | status | assignee | priority | type | title | description | due_date | deleted */
+  /** created | status | assignee | priority | type | title | description | due_date | epic | deleted */
   action: string;
   from?: string | null;
   to?: string | null;

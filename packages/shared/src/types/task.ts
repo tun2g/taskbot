@@ -1,4 +1,5 @@
 import type { TaskPriority, TaskStatus, TaskStatusCategory, TaskType } from '../constants/task.js';
+import type { IEpic } from './epic.js';
 import type { IUser } from './user.js';
 
 export interface ISourceMessage {
@@ -29,6 +30,8 @@ export interface ITask {
   assigneeId?: UserRef | null;
   dueDate?: string | null;
   taskNumber: number;
+  /** Epic the task belongs to — populated as `{ _id, title, color, status }` by the API, a bare id otherwise. */
+  epicId?: string | Pick<IEpic, '_id' | 'title' | 'color' | 'status'> | null;
   /** All messages the task was generated from (AI extraction can use several). */
   sourceMessages?: ISourceMessage[];
   /** @deprecated kept for tasks created before multi-message extraction; read `sourceMessages` first. */
@@ -52,6 +55,7 @@ export interface CreateTaskInput {
   assigneeId?: string;
   /** Calendar date `YYYY-MM-DD` — a due *day*, interpreted in the group's timezone. */
   dueDate?: string;
+  epicId?: string;
 }
 
 export interface UpdateTaskInput {
@@ -63,6 +67,8 @@ export interface UpdateTaskInput {
   assigneeId?: string | null;
   /** Calendar date `YYYY-MM-DD`, or null to clear. */
   dueDate?: string | null;
+  /** Epic `_id`, or null to remove the task from its epic. */
+  epicId?: string | null;
 }
 
 export type TaskDueFilter = 'overdue' | 'today' | 'week' | 'none';
@@ -77,6 +83,8 @@ export interface TaskFilters {
   /** A user `_id`, `"me"` for the caller, or `"none"` for unassigned tasks. */
   assigneeId?: string;
   priority?: TaskPriority;
+  /** An epic `_id`, or `"none"` for tasks without an epic. */
+  epicId?: string;
   /**
    * Due-date window, by calendar day in the group's timezone:
    * `overdue` = before today and not closed · `today` · `week` = today … today+6 · `none` = no due date.
@@ -84,14 +92,26 @@ export interface TaskFilters {
   due?: TaskDueFilter;
   search?: string;
   page?: number;
+  /** Page size; the API defaults to 20 and caps it at 100. */
   limit?: number;
+  /** Order by a list column (empty values last); default is newest first. */
+  sort?: TaskSortKey;
+  dir?: 'asc' | 'desc';
+}
+
+export type TaskSortKey = 'type' | 'key' | 'summary' | 'status' | 'priority' | 'assignee' | 'due';
+
+/** GET /groups/:groupId/tasks/counts — tasks matching the list filters, per status and in total. */
+export interface TaskCounts {
+  byStatus: Partial<Record<TaskStatus, number>>;
+  total: number;
 }
 
 export interface ITaskActivity {
   _id: string;
   taskId: string;
   actor?: UserRef | null;
-  /** created | status | assignee | priority | type | title | description | due_date | deleted */
+  /** created | status | assignee | priority | type | title | description | due_date | epic | deleted */
   action: string;
   /** Human-readable values, already formatted for display. */
   from?: string | null;

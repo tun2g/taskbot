@@ -38,7 +38,14 @@ import { callbackDataStorageService } from 'src/shared/services/callback-data-st
 import logger from 'src/shared/logger/logger';
 import { configService } from 'src/configs/configuration';
 import { groupMessengerService, isForumChat, topicOf } from 'src/shared/services/group-messenger.service';
-import { DM_TASK_CALLBACK_PREFIX, dmTaskKeyboard, notificationService } from 'src/shared/services/notification.service';
+import {
+  DM_EXPLAIN_ACTION,
+  DM_TASK_CALLBACK_PREFIX,
+  dmTaskKeyboard,
+  notificationService,
+} from 'src/shared/services/notification.service';
+import { AI_UNAVAILABLE_MESSAGE, aiCommandService, checkUserAiRateLimit } from 'src/shared/services/ai-command.service';
+import { checkGroupAiRateLimit } from 'src/shared/services/task-creation.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 import { taskButton } from 'src/shared/utils/app-links';
 import { Telegram } from 'telegraf';
@@ -134,6 +141,11 @@ export async function handleTaskCallback(ctx: BotContext) {
         break;
       case 'delete':
         await handleDeleteRequest(ctx, task, fromUser);
+        break;
+      case 'explain':
+        // Back to the card's main buttons; the explanation arrives threaded under the card.
+        await updateTaskCardMessage(ctx, task);
+        await handleExplain(ctx, task, fromUser, { onCard: true });
         break;
       case 'delete_confirm':
         await handleDelete(ctx, task, fromUser);
@@ -355,6 +367,20 @@ async function handleDmTaskCallback(ctx: BotContext, data: string) {
       await ctx.answerCbQuery('This task is closed. Open it to reopen.');
       return;
     }
+    if (to === DM_EXPLAIN_ACTION) {
+      const task = taskId ? await taskService.getTaskById(taskId) : null;
+      if (!task) {
+        await ctx.answerCbQuery('This task no longer exists.');
+        return;
+      }
+      const user = await userService.findUserByTelegramId(callbackQuery.from.id);
+      if (!user) {
+        await ctx.answerCbQuery('Send any message in the task’s group first, then try again.', { show_alert: true });
+        return;
+      }
+      await handleExplain(ctx, task, user, { onCard: false });
+      return;
+    }
 
     const task = taskId ? await taskService.getTaskById(taskId) : null;
     if (!task) {
@@ -406,6 +432,70 @@ async function handleDmTaskCallback(ctx: BotContext, data: string) {
     } catch {
       // query may already be answered
     }
+  }
+}
+
+// ── 💡 Explain (card ⋯ More, DM notifications) ──
+
+/**
+ * A short AI explanation of ONE task, without the /ai planner. Same membership rule as DM quick actions
+ * and the same rate limits as /ai. In a DM it arrives as a new message (with the task's state and Open
+ * button); in the group it is threaded under the card — one message, nothing else posted.
+ */
+async function handleExplain(ctx: BotContext, task: ITask, user: IUser, options: { onCard: boolean }) {
+  const group = await Group.findById(task.groupId).catch(() => null);
+  const chatId = ctx.chat?.id;
+  if (!group || !chatId) {
+    await ctx.answerCbQuery("Couldn't find this task's group.", { show_alert: true });
+    return;
+  }
+  // Pressing the card in its own group proves membership; anywhere else, check it.
+  const inOwnGroup = chatId === group.telegramGroupId;
+  if (!inOwnGroup && !(await canChangeFromDm(ctx.telegram, group, task, user))) {
+    await ctx.answerCbQuery("You can't see this task — you're not in its group anymore.", { show_alert: true });
+    return;
+  }
+
+  const userLimit = await checkUserAiRateLimit(user.telegramUserId, group.telegramGroupId);
+  if (!userLimit.allowed) {
+    await ctx.answerCbQuery(`⏳ Too many AI requests. Try again in ${userLimit.retryAfterSeconds}s.`, { show_alert: true });
+    return;
+  }
+  if (!(await checkGroupAiRateLimit(group.telegramGroupId))) {
+    await ctx.answerCbQuery('⏳ AI is busy in this group — try again in a few minutes.', { show_alert: true });
+    return;
+  }
+
+  // Answer the tap right away: the explanation can take a few seconds.
+  await ctx.answerCbQuery(`💡 Explaining #${task.taskNumber}…`);
+  void Promise.resolve(ctx.sendChatAction?.('typing')).catch(() => undefined);
+
+  const card = ctx.callbackQuery && 'message' in ctx.callbackQuery ? ctx.callbackQuery.message : undefined;
+  const thread = options.onCard
+    ? topicOf(card as { is_topic_message?: boolean; message_thread_id?: number } | undefined)
+    : undefined;
+  const extra = {
+    parse_mode: 'HTML' as const,
+    link_preview_options: { is_disabled: true },
+    ...(options.onCard && card
+      ? { reply_parameters: { message_id: card.message_id, allow_sending_without_reply: true } }
+      : {}),
+    ...(thread !== undefined ? { message_thread_id: thread } : {}),
+  };
+
+  try {
+    const reply = await aiCommandService.explainTaskById(task._id.toString(), user, group, { onCard: options.onCard });
+    if (!reply) {
+      await ctx.telegram.sendMessage(chatId, '❌ This task no longer exists.', extra);
+      return;
+    }
+    await ctx.telegram.sendMessage(chatId, reply.text, {
+      ...extra,
+      ...(reply.buttons ? { reply_markup: { inline_keyboard: reply.buttons } } : {}),
+    });
+  } catch (error) {
+    logger.error(`Explain #${task.taskNumber} failed: ${error instanceof Error ? error.stack : error}`);
+    await ctx.telegram.sendMessage(chatId, AI_UNAVAILABLE_MESSAGE, extra).catch(() => undefined);
   }
 }
 

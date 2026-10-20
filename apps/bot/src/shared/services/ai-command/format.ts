@@ -1,4 +1,7 @@
 import {
+  EPIC_COLOR_EMOJI,
+  EpicColor,
+  EpicStatus,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   TASK_TYPE_LABELS,
@@ -12,6 +15,12 @@ import {
 
 export const TITLE_MAX = 60;
 export const QUERY_LIST_LIMIT = 10;
+/** Epic names in one-line labels ("🔵 Login") are cut to this for phone-width lines. */
+export const EPIC_LABEL_MAX = 30;
+/** Most open epics listed when a requested epic doesn't exist. */
+export const MAX_EPIC_SUGGESTIONS = 8;
+/** Most epics in the "có những epic nào?" overview. */
+export const MAX_EPIC_OVERVIEW = 10;
 
 /** Same escaping as /task replies (task-creation.service), null-safe and dependency-free. */
 export function escapeHtml(text: string | null | undefined): string {
@@ -81,18 +90,102 @@ function addDays(day: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** "due today" / "due tomorrow" / "⚠️ overdue (Fri, Oct 16)" / "due Fri, Oct 23" — null when no date. */
-export function dueText(dueDate: Date | string | null | undefined, status: string, today: string): string | null {
+/**
+ * When a task is due, in the one wording every surface uses (task card "Due: …", DMs, /ai lists and
+ * explanations): "today" / "tomorrow" / "⚠️ overdue since Fri, Oct 16" / "Fri, Oct 23" — null when no date.
+ * Closed tasks just show the day.
+ */
+export function dueWhen(dueDate: Date | string | null | undefined, status: string, today: string): string | null {
   if (!dueDate) return null;
   const day = dayOf(dueDate);
   if (!isClosedStatus(status)) {
-    if (day < today) return `⚠️ overdue (${shortDay(day, today)})`;
-    if (day === today) return 'due today';
-    if (day === addDays(today, 1)) return 'due tomorrow';
+    if (day < today) return `⚠️ overdue since ${shortDay(day, today)}`;
+    if (day === today) return 'today';
+    if (day === addDays(today, 1)) return 'tomorrow';
   }
-  return `due ${shortDay(day, today)}`;
+  return shortDay(day, today);
+}
+
+/** "due today" / "due tomorrow" / "⚠️ overdue since Fri, Oct 16" / "due Fri, Oct 23" — null when no date. */
+export function dueText(dueDate: Date | string | null | undefined, status: string, today: string): string | null {
+  const when = dueWhen(dueDate, status, today);
+  if (!when) return null;
+  return when.startsWith('⚠️') ? when : `due ${when}`;
 }
 
 export function isOverdue(dueDate: Date | string | null | undefined, status: string, today: string): boolean {
   return !!dueDate && !isClosedStatus(status) && dayOf(dueDate) < today;
+}
+
+export type Lang = 'vi' | 'en';
+
+const VIETNAMESE = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+
+/** 'vi' when the text has Vietnamese diacritics. */
+export function detectLang(text: string): Lang {
+  return VIETNAMESE.test(text) ? 'vi' : 'en';
+}
+
+// ── Epics ──
+
+interface EpicLike {
+  title: string;
+  color?: string | null;
+}
+
+/** The colored dot of an epic color (gray for unknown). */
+export function epicDot(color?: string | null): string {
+  return EPIC_COLOR_EMOJI[color as EpicColor] ?? EPIC_COLOR_EMOJI[EpicColor.GRAY];
+}
+
+/** "🔵 Login" — plain (not escaped), title cut for phone width. */
+export function epicLabel(epic: EpicLike, max = EPIC_LABEL_MAX): string {
+  return `${epicDot(epic.color)} ${shorten(epic.title, max)}`;
+}
+
+/** A populated epic ref (`{ title, color }`), else null (bare ids and nulls). */
+export function epicOf(ref: unknown): EpicLike | null {
+  if (ref && typeof ref === 'object' && 'title' in ref && typeof (ref as EpicLike).title === 'string') {
+    return ref as EpicLike;
+  }
+  return null;
+}
+
+/** "🔵 Login — 3/7 done", "🟢 Payments — no tasks yet", closed epics end with ✅. Plain. */
+export function epicProgressLine(row: EpicLike & { status?: string; total: number; done: number }): string {
+  const progress = row.total ? `${row.done}/${row.total} done` : 'no tasks yet';
+  const closed = row.status === EpicStatus.DONE ? ' ✅' : '';
+  return `${epicLabel(row, 28)} — ${progress}${closed}`;
+}
+
+/** The exact command that creates an epic, as the user would type it in this channel. */
+export function createEpicCommand(title: string, channel: 'telegram' | 'web' = 'telegram'): string {
+  const words = `tạo epic ${shorten(title, EPIC_LABEL_MAX)}`;
+  return channel === 'web' ? words.charAt(0).toUpperCase() + words.slice(1) : `/ai ${words}`;
+}
+
+interface StateTask {
+  type?: string | null;
+  status: string;
+  priority?: string | null;
+  dueDate?: Date | string | null;
+  /** Populated epic ref — adds an "Epic: 🔵 Login" line. */
+  epicId?: unknown;
+}
+
+/**
+ * The compact state of one task in two plain lines, same labels as the cards and /ai lists:
+ * "🐞 Bug · 🔄 In progress · ⬆️ High" (priority only when high/urgent) and
+ * "👤 @an · 📅 due tomorrow" / "👤 Unassigned · ⚠️ overdue since Fri, Oct 16" / "… · 📅 No due date",
+ * plus "Epic: 🔵 Login" (as on the card) when the task is in an epic.
+ */
+export function taskStateLines(task: StateTask, assignee: string | null, today: string): string[] {
+  const first = [typeText(task.type), statusText(task.status)];
+  if (task.priority === 'high' || task.priority === 'urgent') first.push(priorityText(task.priority));
+  const due = dueText(task.dueDate, task.status, today);
+  const when = due ? (due.startsWith('⚠️') ? due : `📅 ${due}`) : '📅 No due date';
+  const lines = [first.join(' · '), `👤 ${assignee ?? 'Unassigned'} · ${when}`];
+  const epic = epicOf(task.epicId);
+  if (epic) lines.push(`Epic: ${epicLabel(epic)}`);
+  return lines;
 }

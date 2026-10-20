@@ -1,7 +1,16 @@
-import type { CreateTaskInput, IUser } from '@tbot/shared';
-import { DEFAULT_TASK_PRIORITY, DEFAULT_TASK_TYPE, TASK_TYPE_HINTS, TaskPriority, TaskType } from '@tbot/shared';
-import { type FormEvent, useState } from 'react';
+import type { CreateTaskInput, EpicWithProgress, IEpic, IUser } from '@tbot/shared';
+import {
+  DEFAULT_TASK_PRIORITY,
+  DEFAULT_TASK_TYPE,
+  EpicStatus,
+  TASK_TYPE_HINTS,
+  TaskPriority,
+  TaskType,
+} from '@tbot/shared';
+import { type FormEvent, useEffect, useState } from 'react';
 
+import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
+import { EpicPicker } from '@/components/epics/epic-picker';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { PRIORITY_OPTIONS, TYPE_OPTIONS } from '@/components/ui/task-options';
 import { Button } from '@/components/ui/button';
@@ -13,22 +22,45 @@ import { AssigneePicker } from '../../task-detail/components/assignee-picker';
 interface CreateTaskModalProps {
   isOpen: boolean;
   members: IUser[];
+  epics: EpicWithProgress[];
+  /** Pre-selected epic (the board is filtered to it) — may be a done epic; the field then says so. */
+  defaultEpicId?: string;
+  onCreateEpic?: (values: EpicFormValues) => Promise<IEpic | string>;
+  isCreatingEpic?: boolean;
   onClose: () => void;
   /** Resolves to null on success, or an error message to show. */
   onSubmit: (input: CreateTaskInput) => Promise<string | null>;
   isLoading?: boolean;
 }
 
-export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading }: CreateTaskModalProps) {
+export function CreateTaskModal({
+  isOpen,
+  members,
+  epics,
+  defaultEpicId,
+  onCreateEpic,
+  isCreatingEpic,
+  onClose,
+  onSubmit,
+  isLoading,
+}: CreateTaskModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<TaskType>(DEFAULT_TASK_TYPE);
   const [priority, setPriority] = useState<TaskPriority>(DEFAULT_TASK_PRIORITY);
   const [assigneeId, setAssigneeId] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [epicId, setEpicId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // Each time it opens, start in the epic the board is filtered to.
+  useEffect(() => {
+    if (isOpen) setEpicId(defaultEpicId ?? '');
+  }, [isOpen, defaultEpicId]);
+
   if (!isOpen) return null;
+
+  const selectedEpicDone = !!epicId && epics.find((e) => e._id === epicId)?.status === EpicStatus.DONE;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,6 +73,7 @@ export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading 
       priority,
       assigneeId: assigneeId || undefined,
       dueDate: dueDate || undefined,
+      epicId: epicId || undefined,
     });
     if (message) {
       setError(message); // keep everything the user typed
@@ -52,6 +85,7 @@ export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading 
     setPriority(DEFAULT_TASK_PRIORITY);
     setAssigneeId('');
     setDueDate('');
+    setEpicId('');
   };
 
   return (
@@ -103,6 +137,24 @@ export function CreateTaskModal({ isOpen, members, onClose, onSubmit, isLoading 
             onSelect={(id) => setAssigneeId(id ?? '')}
           />
         </FormField>
+
+        {(epics.length > 0 || onCreateEpic) && (
+          <FormField
+            label="Epic"
+            htmlFor="new-epic"
+            hint={selectedEpicDone ? 'This epic is marked done — the task is still added to it.' : undefined}
+          >
+            <EpicPicker
+              id="new-epic"
+              appearance="input"
+              epics={epics}
+              value={epicId || null}
+              onSelect={(epic) => setEpicId(epic?._id ?? '')}
+              onCreateEpic={onCreateEpic}
+              isCreating={isCreatingEpic}
+            />
+          </FormField>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Priority" htmlFor="new-priority">

@@ -123,9 +123,19 @@ describe('Validation Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should accept limit up to 500 and reject above', () => {
-      expect(taskQuerySchema.safeParse({ limit: '500' }).success).toBe(true);
-      expect(taskQuerySchema.safeParse({ limit: '501' }).success).toBe(false);
+    it('should cap limit at 100 and reject non-positive limits', () => {
+      const capped = taskQuerySchema.safeParse({ limit: '500' });
+      expect(capped.success && capped.data.limit).toBe(100);
+      const exact = taskQuerySchema.safeParse({ limit: '100' });
+      expect(exact.success && exact.data.limit).toBe(100);
+      expect(taskQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
+      expect(taskQuerySchema.safeParse({ limit: 'abc' }).success).toBe(false);
+    });
+
+    it('should accept list sort columns and reject unknown ones', () => {
+      expect(taskQuerySchema.safeParse({ sort: 'priority', dir: 'desc' }).success).toBe(true);
+      expect(taskQuerySchema.safeParse({ sort: 'createdAt' }).success).toBe(false);
+      expect(taskQuerySchema.safeParse({ sort: 'due', dir: 'up' }).success).toBe(false);
     });
 
     it('should accept assigneeId me / none / object id and reject garbage', () => {

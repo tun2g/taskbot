@@ -16,7 +16,7 @@ import {
 import { createPortal } from 'react-dom';
 
 import { pushBackInterceptor } from '@/lib/back-button';
-import { haptic } from '@/lib/telegram';
+import { getAppSafeTop, haptic } from '@/lib/telegram';
 
 /* ------------------------------------------------------------------ types */
 
@@ -291,14 +291,16 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     const gap = 4;
     const width = Math.min(Math.max(r.width, menuWidth), 360, vw - margin * 2);
     const natural = Math.min(pop.offsetHeight - list.clientHeight + list.scrollHeight, 420);
+    // Never under Telegram's fullscreen buttons.
+    const safeTop = getAppSafeTop();
     const below = vh - r.bottom - gap - margin;
-    const above = r.top - gap - margin;
+    const above = r.top - gap - margin - safeTop;
     const down = natural <= below || below >= above;
     let left = align === 'end' ? r.right - width : r.left;
     left = Math.max(margin, Math.min(left, vw - width - margin));
     setPos(
       down
-        ? { left, width, maxHeight: Math.max(120, Math.min(below, 420)), top: r.bottom + gap }
+        ? { left, width, maxHeight: Math.max(120, Math.min(below, 420)), top: Math.max(safeTop + margin, r.bottom + gap) }
         : { left, width, maxHeight: Math.max(120, Math.min(above, 420)), bottom: vh - r.top + gap },
     );
   }, [align, menuWidth]);
@@ -581,16 +583,21 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
   let menu: ReactNode = null;
   if (open && isMobile) {
     menu = (
-      <div className="fixed inset-0 z-[55]" {...stopProps}>
+      <div
+        className="fixed inset-0 z-[55]"
+        style={{ left: 'var(--app-safe-left)', right: 'var(--app-safe-right)', bottom: 'var(--app-kb)' }}
+        {...stopProps}
+      >
         <div className="tbot-fade-in absolute inset-0 bg-black/40" onClick={() => close()} aria-hidden />
         <div
           ref={popRef}
           role="dialog"
           aria-modal
           aria-label={title}
-          className="tbot-sheet-in absolute inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-2xl bg-tg-bg px-2 shadow-2xl"
+          className="tbot-sheet-in absolute inset-x-0 bottom-0 flex flex-col rounded-t-2xl bg-tg-bg px-2 shadow-2xl"
           style={{
-            paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+            maxHeight: 'calc(var(--app-vh) * 0.8 - var(--app-safe-top))',
+            paddingBottom: 'max(0.5rem, var(--app-safe-bottom))',
             transform: dragY ? `translateY(${dragY}px)` : undefined,
             transition: dragY && dragStart.current !== null ? 'none' : undefined,
           }}

@@ -1,16 +1,19 @@
 import mongoose from 'mongoose';
 import {
   NOT_A_MEMBER_MESSAGE,
+  requireEpicMember,
   requireGroupMember,
   requireTaskMember,
 } from 'src/api/middlewares/group-access.middleware';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
+import { epicService } from 'src/database/services/epic.service';
 import { taskService } from 'src/database/services/task.service';
 
 jest.mock('src/database/services/group-member.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');
+jest.mock('src/database/services/epic.service');
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
 
 const groupId = new mongoose.Types.ObjectId();
@@ -94,6 +97,46 @@ describe('requireTaskMember', () => {
     const { req, res, next } = createMockReqRes({ params: { taskId: taskId.toString() } });
 
     await requireTaskMember()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireEpicMember', () => {
+  const epicId = new mongoose.Types.ObjectId();
+  beforeEach(() => jest.clearAllMocks());
+
+  it('checks membership of the epic group and sets req.epic', async () => {
+    const epic = { _id: epicId, groupId, title: 'Login' };
+    (epicService.findById as jest.Mock).mockResolvedValue(epic);
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
+    const { req, res, next } = createMockReqRes({ params: { epicId: epicId.toString() } });
+
+    await requireEpicMember()(req, res, next);
+
+    expect(groupMemberService.isMember).toHaveBeenCalledWith(groupId, user._id);
+    expect(req.epic).toBe(epic);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns 403 when the caller is not in the epic group', async () => {
+    (epicService.findById as jest.Mock).mockResolvedValue({ _id: epicId, groupId });
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(false);
+    (groupService.findGroupById as jest.Mock).mockResolvedValue(null);
+    const { req, res, next } = createMockReqRes({ params: { epicId: epicId.toString() } });
+
+    await requireEpicMember()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for unknown epics', async () => {
+    (epicService.findById as jest.Mock).mockResolvedValue(null);
+    const { req, res, next } = createMockReqRes({ params: { epicId: epicId.toString() } });
+
+    await requireEpicMember()(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(404);
     expect(next).not.toHaveBeenCalled();

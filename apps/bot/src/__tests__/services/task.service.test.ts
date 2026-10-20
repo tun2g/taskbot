@@ -113,7 +113,7 @@ describe('TaskService', () => {
       const result = await service.getTaskById(mockObjectId.toString());
 
       expect(Task.findById).toHaveBeenCalledWith(mockObjectId.toString());
-      expect(mockPopulate).toHaveBeenCalledWith('createdBy assigneeId completedBy');
+      expect(mockPopulate).toHaveBeenCalledWith(expect.arrayContaining([{ path: 'createdBy' }, { path: 'assigneeId' }, { path: 'completedBy' }, expect.objectContaining({ path: 'epicId' })]));
       expect(result).toEqual(mockTask);
     });
 
@@ -209,6 +209,115 @@ describe('TaskService', () => {
           $or: expect.arrayContaining([{ title: { $regex: 'a\\.b\\(', $options: 'i' } }]),
         })
       );
+    });
+  });
+
+  describe('getTasksByGroup pagination', () => {
+    const chain = (rows: unknown[]) => {
+      const c = {
+        sort: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(rows),
+      };
+      (Task.find as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnValue(c) });
+      return c;
+    };
+
+    it('orders newest first with an _id tiebreak so pages never skip or repeat', async () => {
+      const c = chain([]);
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+      await service.getTasksByGroup(mockGroupId, { page: 2, limit: 20 });
+      expect(c.sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+      expect(c.skip).toHaveBeenCalledWith(20);
+      expect(c.limit).toHaveBeenCalledWith(20);
+    });
+
+    it('hasMore is true while later pages exist', async () => {
+      chain(new Array(20).fill(mockTask));
+      (Task.countDocuments as jest.Mock).mockResolvedValue(45);
+      const result = await service.getTasksByGroup(mockGroupId, { page: 2, limit: 20 });
+      expect(result).toEqual(expect.objectContaining({ total: 45, hasMore: true }));
+    });
+
+    it('hasMore is false on the last page', async () => {
+      chain(new Array(5).fill(mockTask));
+      (Task.countDocuments as jest.Mock).mockResolvedValue(45);
+      const result = await service.getTasksByGroup(mockGroupId, { page: 3, limit: 20 });
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('hasMore is false when everything fits on one page', async () => {
+      chain([mockTask]);
+      (Task.countDocuments as jest.Mock).mockResolvedValue(1);
+      expect((await service.getTasksByGroup(mockGroupId)).hasMore).toBe(false);
+    });
+
+    it('combines a column status with the other filters in one query (list and count)', async () => {
+      chain([]);
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+      const epicId = new mongoose.Types.ObjectId();
+      await service.getTasksByGroup(mockGroupId, {
+        status: 'in_review',
+        statuses: ['in_progress', 'in_review', 'pending'],
+        epicId,
+        assigneeId: null,
+        type: 'bug',
+        priority: 'high',
+        search: 'login',
+      });
+      const expected = expect.objectContaining({
+        groupId: mockGroupId,
+        status: 'in_review',
+        epicId,
+        assigneeId: null,
+        type: 'bug',
+        priority: 'high',
+        $or: expect.any(Array),
+      });
+      expect(Task.find).toHaveBeenCalledWith(expected);
+      expect(Task.countDocuments).toHaveBeenCalledWith(expected);
+    });
+
+    it('sorts by a list column with empty values last and a stable tiebreak', async () => {
+      (Task.aggregate as jest.Mock).mockResolvedValue([{ _id: mockObjectId }]);
+      (Task.hydrate as jest.Mock).mockImplementation((row) => row);
+      (Task.populate as jest.Mock).mockImplementation(async (docs) => docs);
+      (Task.countDocuments as jest.Mock).mockResolvedValue(30);
+
+      const result = await service.getTasksByGroup(mockGroupId, { sort: 'due', dir: 'desc', page: 2, limit: 10 });
+
+      const pipeline = (Task.aggregate as jest.Mock).mock.calls[0][0];
+      expect(pipeline[0]).toEqual({ $match: expect.objectContaining({ groupId: mockGroupId }) });
+      expect(pipeline).toContainEqual({ $sort: { _sortEmpty: 1, _sortKey: -1, taskNumber: -1, _id: -1 } });
+      expect(pipeline).toContainEqual({ $skip: 10 });
+      expect(pipeline).toContainEqual({ $limit: 10 });
+      expect(Task.find).not.toHaveBeenCalled();
+      expect(result).toEqual({ tasks: [{ _id: mockObjectId }], total: 30, hasMore: true });
+    });
+
+    it('sorts priority by its display order, not alphabetically', async () => {
+      (Task.aggregate as jest.Mock).mockResolvedValue([]);
+      (Task.populate as jest.Mock).mockImplementation(async (docs) => docs);
+      (Task.countDocuments as jest.Mock).mockResolvedValue(0);
+      await service.getTasksByGroup(mockGroupId, { sort: 'priority' });
+      const pipeline = (Task.aggregate as jest.Mock).mock.calls[0][0];
+      const set = pipeline.find((stage: Record<string, unknown>) => '$set' in stage && '_sortKey' in (stage.$set as object));
+      expect(set.$set._sortKey).toEqual({ $indexOfArray: [['low', 'medium', 'high', 'urgent'], '$priority'] });
+    });
+  });
+
+  describe('countTasksByStatus', () => {
+    it('counts per status with the list filters, every status present', async () => {
+      (Task.aggregate as jest.Mock).mockResolvedValue([
+        { _id: 'todo', count: 4 },
+        { _id: 'done', count: 2 },
+      ]);
+      const result = await service.countTasksByStatus(mockGroupId, { type: 'bug' });
+      expect((Task.aggregate as jest.Mock).mock.calls[0][0][0]).toEqual({
+        $match: expect.objectContaining({ groupId: mockGroupId, type: 'bug' }),
+      });
+      expect(result.total).toBe(6);
+      expect(result.byStatus).toEqual(expect.objectContaining({ todo: 4, done: 2, in_progress: 0, backlog: 0 }));
     });
   });
 

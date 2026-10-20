@@ -1,5 +1,6 @@
-import type { IUser, TaskDueFilter } from '@tbot/shared';
+import type { EpicWithProgress, IUser, TaskDueFilter } from '@tbot/shared';
 import {
+  EpicStatus,
   TASK_STATUS_CATEGORY_LABELS,
   TASK_STATUS_HINTS,
   TASK_STATUS_LABELS,
@@ -9,11 +10,13 @@ import {
 } from '@tbot/shared';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
+import { EpicDot } from '@/components/epics/epic-chip';
 import { Avatar, splitLabel, statusText } from '@/components/ui/badges';
 import { type SelectOption, type SelectSection, SelectMenu } from '@/components/ui/select-menu';
 import { PRIORITY_OPTIONS, STATUS_CATEGORIES, statusesIn, TYPE_OPTIONS } from '@/components/ui/task-options';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
+import { formatEpicProgress } from '@/lib/epics';
 import { displayName } from '@/lib/user';
 
 import type { BoardGroupBy, BoardSearch, BoardView, StatusCategoryFilter } from '../board-search';
@@ -53,6 +56,44 @@ const STATUS_FILTER_SECTIONS: SelectSection<string>[] = [
   })),
 ];
 
+const NO_EPIC_OPTION: SelectOption<string> = {
+  value: 'none',
+  label: 'No epic',
+  icon: <span className="text-tg-hint">∅</span>,
+  hint: 'Tasks not in any epic',
+};
+
+function epicSections(epics: EpicWithProgress[], selected?: string, isLoading = false): SelectSection<string>[] {
+  const toOption = (e: EpicWithProgress): SelectOption<string> => ({
+    value: e._id,
+    label: e.title,
+    icon: <EpicDot color={e.color} className="h-2.5 w-2.5" />,
+    hint: formatEpicProgress(e).short,
+  });
+  const open = epics.filter((e) => e.status === EpicStatus.OPEN).map(toOption);
+  const done = epics.filter((e) => e.status === EpicStatus.DONE).map(toOption);
+  const sections: SelectSection<string>[] = [{ options: [NO_EPIC_OPTION] }];
+  if (open.length) sections.push({ label: 'Open epics', options: open });
+  if (done.length) sections.push({ label: 'Done', options: done });
+  // The selected epic isn't in the list: still loading → a neutral "Epic" placeholder; loaded → it was deleted
+  // (the board clears that filter itself — this only keeps the chip readable meanwhile).
+  if (selected && selected !== 'none' && !epics.some((e) => e._id === selected)) {
+    sections.push({
+      options: [
+        isLoading
+          ? {
+              value: selected,
+              label: 'Epic',
+              icon: <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-current opacity-40" />,
+              hint: 'Loading…',
+            }
+          : { value: selected, label: 'Deleted epic', icon: '∅' },
+      ],
+    });
+  }
+  return sections;
+}
+
 function encodeStatus(search: BoardSearch): string {
   if (search.category) return `cat:${search.category}`;
   if (search.status) return `s:${search.status}`;
@@ -70,6 +111,9 @@ interface TaskFiltersBarProps {
   view: BoardView;
   groupBy: BoardGroupBy;
   members: IUser[];
+  epics: EpicWithProgress[];
+  /** The epic list hasn't loaded yet — don't call a selected epic "deleted". */
+  epicsLoading?: boolean;
   onChange: (patch: Partial<BoardSearch>, options?: { replace?: boolean }) => void;
   onClear: () => void;
   hasActiveFilters: boolean;
@@ -82,6 +126,8 @@ export function TaskFiltersBar({
   view,
   groupBy,
   members,
+  epics,
+  epicsLoading = false,
   onChange,
   onClear,
   hasActiveFilters,
@@ -212,6 +258,20 @@ export function TaskFiltersBar({
                 />
               )}
             </div>
+          )}
+
+          {(epics.length > 0 || search.epic) && (
+            <SelectMenu<string>
+              variant="chip"
+              title="Epic"
+              placeholder="Epic"
+              value={search.epic}
+              onChange={(v) => onChange({ epic: v ?? undefined })}
+              clearOption={{ label: 'All epics' }}
+              sections={epicSections(epics, search.epic, epicsLoading)}
+              searchPlaceholder="Search epics"
+              menuWidth={280}
+            />
           )}
 
           <SelectMenu<TaskType>

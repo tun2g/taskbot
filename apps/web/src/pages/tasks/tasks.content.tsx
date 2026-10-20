@@ -1,11 +1,14 @@
-import type { CreateTaskInput, ITask, IUser, TaskStatus } from '@tbot/shared';
-import { TASK_BOARD_DEFAULT_STATUSES, TASK_STATUS_LABELS, TASK_STATUS_ORDER } from '@tbot/shared';
+import type { CreateTaskInput, EpicWithProgress, IEpic, ITask, IUser, TaskCounts, TaskStatus } from '@tbot/shared';
 import type { ReactNode } from 'react';
 
+import type { ApiTaskFilters } from '@/api/tasks';
 import { AiChatPanel } from '@/components/ai-chat/ai-chat-panel';
 import { AskAiButton, useAskAi } from '@/components/ai-chat/ask-ai';
+import { EpicDot } from '@/components/epics/epic-chip';
+import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
 import { Layout } from '@/components/layout/layout';
-import { Avatar, statusText } from '@/components/ui/badges';
+import { Avatar } from '@/components/ui/badges';
+import { LoadMore } from '@/components/ui/load-more';
 import { CardSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { StateMessage } from '@/components/ui/state';
 import { Button } from '@/components/ui/button';
@@ -15,6 +18,7 @@ import { displayName, getUserId, resolveUser } from '@/lib/user';
 import type { BoardGroupBy, BoardSearch, BoardView } from './board-search';
 import { CreateTaskModal } from './components/create-task-modal';
 import { type KanbanColumn, KanbanBoard } from './components/kanban-board';
+import { StatusBoard } from './components/status-board';
 import { TaskCard } from './components/task-card';
 import { TaskFiltersBar } from './components/task-filters';
 import { TaskList } from './components/task-list';
@@ -30,17 +34,32 @@ interface TasksContentProps {
   view: BoardView;
   groupBy: BoardGroupBy;
   members: IUser[];
+  epics: EpicWithProgress[];
+  /** The epic list is still loading — a filtered epic's name isn't known yet. */
+  epicsLoading?: boolean;
+  /** Loaded tasks of the list view / assignee board (the status board pages per column). */
   tasks: ITask[];
+  /** Server total for the current filters. */
   total: number;
   isLoading: boolean;
   isRefetching: boolean;
   error: string | null;
   onRetry: () => void;
+  /** Paging of `tasks` (list view / assignee board). */
+  hasMore: boolean;
+  isFetchingMore: boolean;
+  /** Last "load more" failed → stop auto-loading; the button stays. */
+  loadMoreFailed: boolean;
+  onLoadMore: () => void;
+  /** Status board: filters every column applies (each adds its status) + per-status totals. */
+  boardFilters: ApiTaskFilters;
+  statusCounts: TaskCounts | null;
   hasActiveFilters: boolean;
   overdueCount?: number;
   onSearchChange: (patch: Partial<BoardSearch>, options?: { replace?: boolean }) => void;
   onClearFilters: () => void;
   onBack: () => void;
+  onOpenEpics: () => void;
   onTaskClick: (task: ITask) => void;
   onStatusChange: (task: ITask, status: TaskStatus) => void;
   onAssigneeChange: (task: ITask, assigneeId: string | null) => void;
@@ -48,6 +67,8 @@ interface TasksContentProps {
   onShowCreateModal: (show: boolean) => void;
   onCreateTask: (input: CreateTaskInput) => Promise<string | null>;
   isCreating?: boolean;
+  onCreateEpic: (values: EpicFormValues) => Promise<IEpic | string>;
+  isCreatingEpic?: boolean;
 }
 
 export function TasksContent(props: TasksContentProps) {
@@ -60,24 +81,37 @@ export function TasksContent(props: TasksContentProps) {
     view,
     groupBy,
     members,
+    epics,
     tasks,
     total,
     isLoading,
     error,
     onRetry,
     isRefetching,
+    hasMore,
+    isFetchingMore,
+    loadMoreFailed,
+    onLoadMore,
     hasActiveFilters,
     overdueCount,
     onSearchChange,
     onClearFilters,
     onBack,
+    onOpenEpics,
     onTaskClick,
     onStatusChange,
     showCreateModal,
     onShowCreateModal,
     onCreateTask,
     isCreating,
+    onCreateEpic,
+    isCreatingEpic,
   } = props;
+  // Filtered to one epic → every card is in it, so the chip would be noise.
+  const filteredEpic = search.epic && search.epic !== 'none' ? epics.find((e) => e._id === search.epic) : undefined;
+  const hideEpic = !!search.epic && search.epic !== 'none';
+  // Filtered to an epic whose name isn't loaded yet → placeholders, never "Deleted epic".
+  const epicPending = hideEpic && !filteredEpic && !!props.epicsLoading;
   const ai = useAskAi();
 
   if (accessError) {
@@ -101,6 +135,8 @@ export function TasksContent(props: TasksContentProps) {
     <TaskCard
       task={task}
       members={members}
+      epics={epics}
+      hideEpic={hideEpic}
       timeZone={timeZone}
       showStatus={groupBy === 'assignee'}
       onClick={isOverlay ? undefined : onTaskClick}
@@ -109,8 +145,21 @@ export function TasksContent(props: TasksContentProps) {
     />
   );
 
+  const isStatusBoard = view === 'board' && groupBy === 'status';
+  // Status board columns load (with their own skeletons) alongside the counts call.
+  const isEmpty = !isLoading && total === 0;
+  const loadMore = hasMore ? (
+    <LoadMore
+      onLoadMore={onLoadMore}
+      isLoading={isFetchingMore}
+      remaining={total - tasks.length}
+      auto={!loadMoreFailed}
+      paused={isRefetching}
+    />
+  ) : null;
+
   let body: ReactNode;
-  if (isLoading) {
+  if (isLoading && !isStatusBoard) {
     body = <BoardSkeleton view={view} />;
   } else if (error) {
     body = (
@@ -119,13 +168,40 @@ export function TasksContent(props: TasksContentProps) {
         title="Couldn't load tasks"
         body={error}
         action={
-          <Button variant="primary" onClick={onRetry} disabled={isRefetching}>
-            {isRefetching ? 'Retrying…' : 'Retry'}
-          </Button>
+          <>
+            {hasActiveFilters && (
+              <Button variant="secondary" onClick={onClearFilters}>
+                Clear filters
+              </Button>
+            )}
+            <Button variant="primary" onClick={onRetry} disabled={isRefetching}>
+              {isRefetching ? 'Retrying…' : 'Retry'}
+            </Button>
+          </>
         }
       />
     );
-  } else if (tasks.length === 0 && hasActiveFilters) {
+  } else if (isEmpty && filteredEpic) {
+    body = (
+      <StateMessage
+        icon="⚡"
+        title={`No tasks in “${filteredEpic.title}”${hasOtherFilters(search) ? ' match these filters' : ' yet'}`}
+        body="Create one here, or open any task and set its Epic field."
+        action={
+          <>
+            <Button variant="secondary" onClick={onClearFilters}>
+              Show all tasks
+            </Button>
+            <Button variant="primary" onClick={() => onShowCreateModal(true)} icon="+">
+              Create task
+            </Button>
+          </>
+        }
+      />
+    );
+  } else if (isEmpty && epicPending) {
+    body = <BoardSkeleton view={view} />;
+  } else if (isEmpty && hasActiveFilters) {
     body = (
       <StateMessage
         icon="🔍"
@@ -138,7 +214,7 @@ export function TasksContent(props: TasksContentProps) {
         }
       />
     );
-  } else if (tasks.length === 0) {
+  } else if (isEmpty) {
     body = (
       <StateMessage
         icon="📝"
@@ -160,27 +236,85 @@ export function TasksContent(props: TasksContentProps) {
       <TaskList
         tasks={tasks}
         members={members}
+        epics={epics}
+        hideEpic={hideEpic}
         timeZone={timeZone}
         sort={search.sort}
         dir={search.dir}
         onSortChange={(sort, dir) => onSearchChange({ sort, dir }, { replace: true })}
         onTaskClick={onTaskClick}
         onStatusChange={onStatusChange}
+        footer={loadMore}
       />
     );
-  } else if (groupBy === 'status') {
-    body = <StatusBoard {...props} renderCard={renderCard} />;
+  } else if (isStatusBoard) {
+    body = (
+      <StatusBoard
+        groupId={groupId}
+        filters={props.boardFilters}
+        counts={props.statusCounts}
+        showAll={!!search.allStatuses}
+        onShowAllChange={(v) => onSearchChange({ allStatuses: v || undefined }, { replace: true })}
+        onStatusChange={onStatusChange}
+        renderCard={renderCard}
+      />
+    );
   } else {
-    body = <AssigneeBoard {...props} renderCard={renderCard} />;
+    body = (
+      <AssigneeBoard
+        {...props}
+        renderCard={renderCard}
+        footer={
+          hasMore ? (
+            <div className="mx-4 mb-4 rounded-lg bg-tg-secondary px-1.5">
+              <p className="px-2 pt-2 text-center text-xs text-tg-hint">
+                Showing {tasks.length} of {total} tasks
+              </p>
+              {loadMore}
+            </div>
+          ) : null
+        }
+      />
+    );
   }
 
   return (
     <Layout
       width="wide"
       title={groupName ?? <Skeleton className="h-5 w-40" />}
-      subtitle="Task board"
+      subtitle={
+        filteredEpic ? (
+          <span className="inline-flex max-w-full items-center gap-1.5">
+            <EpicDot color={filteredEpic.color} />
+            <span className="truncate">Epic · {filteredEpic.title}</span>
+          </span>
+        ) : epicPending ? (
+          <span className="inline-flex items-center gap-1.5">
+            Epic · <Skeleton className="h-3 w-20" />
+          </span>
+        ) : search.epic === 'none' ? (
+          'Tasks without an epic'
+        ) : (
+          'Task board'
+        )
+      }
       onBack={ai.backHandler(onBack)}
-      actions={<AskAiButton onClick={ai.open ? ai.close : ai.openChat} active={ai.open} />}
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={onOpenEpics}
+            title="Epics — groups of related tasks"
+            className="focus-ring inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-tg-separator px-2.5 text-sm font-medium text-tg-link transition-colors hover:bg-tg-secondary active:bg-tg-secondary min-[420px]:px-3"
+          >
+            <span aria-hidden className="hidden min-[420px]:inline">
+              ⚡
+            </span>
+            <span>Epics</span>
+          </button>
+          <AskAiButton onClick={ai.open ? ai.close : ai.openChat} active={ai.open} />
+        </>
+      }
       fab={
         <Button
           variant="primary"
@@ -198,23 +332,23 @@ export function TasksContent(props: TasksContentProps) {
         view={view}
         groupBy={groupBy}
         members={members}
+        epics={epics}
+        epicsLoading={props.epicsLoading}
         onChange={onSearchChange}
         onClear={onClearFilters}
         hasActiveFilters={hasActiveFilters}
         overdueCount={overdueCount}
       />
 
-      {!isLoading && !error && total > tasks.length && (
-        <p className="px-4 pt-3 text-xs text-tg-hint">
-          Showing {tasks.length} of {total} tasks. Narrow the filters to see the rest.
-        </p>
-      )}
-
       <div className={isRefetching ? 'opacity-90 transition-opacity' : ''}>{body}</div>
 
       <CreateTaskModal
         isOpen={showCreateModal}
         members={members}
+        epics={epics}
+        defaultEpicId={filteredEpic?._id}
+        onCreateEpic={onCreateEpic}
+        isCreatingEpic={isCreatingEpic}
         onClose={() => onShowCreateModal(false)}
         onSubmit={onCreateTask}
         isLoading={isCreating}
@@ -225,49 +359,25 @@ export function TasksContent(props: TasksContentProps) {
   );
 }
 
-type BoardProps = TasksContentProps & { renderCard: (task: ITask, isOverlay?: boolean) => ReactNode };
-
-function StatusBoard({ tasks, search, onSearchChange, onStatusChange, renderCard }: BoardProps) {
-  const showAll = !!search.allStatuses;
-  const visible = showAll ? TASK_STATUS_ORDER : TASK_BOARD_DEFAULT_STATUSES;
-  const hiddenCount = showAll ? 0 : tasks.filter((t) => !visible.includes(t.status)).length;
-
-  const columns: KanbanColumn[] = visible.map((status) => {
-    const columnTasks = tasks.filter((t) => t.status === status);
-    return {
-      id: status,
-      title: statusText(status),
-      label: TASK_STATUS_LABELS[status],
-      count: columnTasks.length,
-      tasks: columnTasks,
-    };
-  });
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-2">
-        <p className="text-xs text-tg-hint">
-          {hiddenCount > 0
-            ? `${hiddenCount} task${hiddenCount === 1 ? '' : 's'} in Backlog, Pending or Cancelled are hidden.`
-            : 'Drag cards between columns, or use ⋯ on a card.'}
-        </p>
-        <Checkbox
-          checked={showAll}
-          onChange={(v) => onSearchChange({ allStatuses: v || undefined }, { replace: true })}
-        >
-          Show all statuses
-        </Checkbox>
-      </div>
-      <KanbanBoard
-        columns={columns}
-        renderCard={(task, { isOverlay }) => renderCard(task, isOverlay)}
-        onMove={(task, _from, to) => onStatusChange(task, to as TaskStatus)}
-      />
-    </>
+function hasOtherFilters(search: BoardSearch): boolean {
+  return !!(
+    search.type ||
+    search.assignee ||
+    search.priority ||
+    search.due ||
+    search.status ||
+    search.category ||
+    search.q
   );
 }
 
-function AssigneeBoard({ tasks, members, search, onSearchChange, onAssigneeChange, renderCard }: BoardProps) {
+type BoardProps = TasksContentProps & {
+  renderCard: (task: ITask, isOverlay?: boolean) => ReactNode;
+  footer?: ReactNode;
+};
+
+/** Assignee board: one paged list (all statuses) grouped client-side; "Load more" sits under the board. */
+function AssigneeBoard({ tasks, members, search, onSearchChange, onAssigneeChange, renderCard, footer }: BoardProps) {
   const byAssignee = new Map<string, ITask[]>();
   const users = new Map<string, IUser | null>();
   for (const task of tasks) {
@@ -340,6 +450,7 @@ function AssigneeBoard({ tasks, members, search, onSearchChange, onAssigneeChang
         columns={columns}
         renderCard={(task, { isOverlay }) => renderCard(task, isOverlay)}
         onMove={(task, _from, to) => onAssigneeChange(task, to === UNASSIGNED ? null : to)}
+        footer={footer}
       />
     </>
   );

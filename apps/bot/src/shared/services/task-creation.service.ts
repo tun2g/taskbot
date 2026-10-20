@@ -1,16 +1,21 @@
 import { randomBytes } from 'crypto';
-import { TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
+import mongoose from 'mongoose';
+import { EpicStatus, TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
 import { BotContext } from 'src/bot/interface/context';
 import { buildTaskButtons, formatTaskCard } from 'src/bot/task-card.renderer';
 import { configService } from 'src/configs/configuration';
 import { IGroup } from 'src/database/models/group.model';
 import { ISourceMessage, ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
+import { IEpic } from 'src/database/models/epic.model';
+import { epicService, normalizeEpicTitle } from 'src/database/services/epic.service';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
+import { TASK_POPULATE } from 'src/database/services/task-populate';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import { aiService } from 'src/shared/services/ai/ai.service';
+import { epicLabel, epicOf } from 'src/shared/services/ai-command/format';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { buildMessageLink, groupMessengerService, isForumChat } from 'src/shared/services/group-messenger.service';
 import { BufferedMessage } from 'src/shared/services/message-buffer.service';
@@ -212,6 +217,20 @@ export type CreateTasksResult =
   | { status: 'save_failed' };
 
 /**
+ * The AI's epic pick, only when it is exactly (case-insensitively) one of the group's OPEN epics.
+ * Anything else — a closed epic, a made-up title — means no epic. Epics are never created here.
+ */
+export function matchEpic(title: string, openEpics: IEpic[]): IEpic | null {
+  const wanted = normalizeEpicTitle(title).toLowerCase();
+  if (!wanted) return null;
+  return (
+    openEpics.find(
+      (e) => (e.status ?? EpicStatus.OPEN) === EpicStatus.OPEN && normalizeEpicTitle(e.title).toLowerCase() === wanted,
+    ) ?? null
+  );
+}
+
+/**
  * The channel-agnostic /task core: AI extraction (with fallback), server-side assignee resolution,
  * task creation (shared batchId), activity log and assignee DMs. Posts nothing to the group.
  */
@@ -222,11 +241,13 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
 
   const members = await groupMemberService.getMembers(group._id);
   if (!members.some((m) => m.telegramUserId === requester.telegramUserId)) members.push(requester);
+  const openEpics = await epicService.listOpen(group._id);
   const extractionInput: ExtractionInput = {
     messages,
     note,
     members,
     timezone: group.timezone || configService.timezone || 'UTC',
+    ...(openEpics.length ? { epics: openEpics.map((e) => ({ title: e.title, description: e.description })) } : {}),
   };
 
   let result: ExtractionResult;
@@ -270,6 +291,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
       if (!unknownNames.includes(name)) unknownNames.push(name);
     }
 
+    const epic = extracted.epic ? matchEpic(extracted.epic, openEpics) : null;
     // The web chat has no Telegram message to link back to.
     const sourceMessages = origin === 'app' ? [] : toSourceMessages(extracted, byId, chatId);
     try {
@@ -282,11 +304,14 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
         createdBy: requester._id,
         assigneeId: assignee?._id,
         dueDate: extracted.dueDate ? new Date(`${extracted.dueDate}T00:00:00Z`) : undefined,
+        ...(epic ? { epicId: epic._id as mongoose.Types.ObjectId } : {}),
         sourceMessage: sourceMessages[0],
         sourceMessages,
         batchId,
         taskCardChatId: chatId,
       });
+      // The card shows "Epic: 🔵 Login" from the populated ref.
+      if (epic && typeof task.populate === 'function') await task.populate(TASK_POPULATE);
       created.push({ task, assignee });
       await taskActivityService.record({
         taskId: task._id,
@@ -296,6 +321,18 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
         to: task.title,
         via,
       });
+      // The AI's epic pick is logged as its own change, so it shows up (and is easy to spot) in the history.
+      if (epic) {
+        await taskActivityService.record({
+          taskId: task._id,
+          groupId: group._id,
+          actor: requester._id,
+          action: 'epic',
+          from: null,
+          to: epic.title,
+          via: 'ai',
+        });
+      }
     } catch (error) {
       failedTitles.push(extracted.title);
       logger.error(`Failed to create extracted task "${extracted.title}": ${error}`);
@@ -374,11 +411,16 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
   }
 }
 
-/** Summary lines "#12 🐞 Fix login → @an" (HTML-escaped; #12 opens the task when an app link exists). */
+/**
+ * Summary lines "#12 🐞 Fix login → @an · 🔵 Login" (HTML-escaped; #12 opens the task when an app link
+ * exists; the epic only when the AI put the task in one, so a wrong pick is easy to spot).
+ */
 export function createdSummaryLines(created: CreatedTask[], groupId: IGroup['_id'] | string): string[] {
   return created.map(({ task, assignee }) => {
     const who = assignee ? ` → ${escapeHtml(userName(assignee))}` : '';
-    return `${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${who}`;
+    const epic = epicOf(task.epicId);
+    const inEpic = epic ? ` · ${escapeHtml(epicLabel(epic, 16))}` : '';
+    return `${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${who}${inEpic}`;
   });
 }
 

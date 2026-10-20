@@ -11,9 +11,19 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import type { ITask } from '@tbot/shared';
-import { type PointerEvent as ReactPointerEvent, type ReactNode, useState } from 'react';
+import {
+  createContext,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
-import { haptic } from '@/lib/telegram';
+import { LoadMore } from '@/components/ui/load-more';
+import { CardSkeleton } from '@/components/ui/skeleton';
+import { haptic, lockVerticalSwipes, unlockVerticalSwipes } from '@/lib/telegram';
 
 /**
  * Mouse/pen drags via PointerSensor; touch is left to TouchSensor (press-and-hold) so a
@@ -34,19 +44,44 @@ export interface KanbanColumn {
   title: ReactNode;
   /** Plain-text name for screen readers. */
   label: string;
-  count: number;
+  /** Total in the column (server count); `null` while unknown. */
+  count: number | null;
   tasks: ITask[];
   emptyText?: string;
+  /** First page still loading → card skeletons. */
+  isLoading?: boolean;
+  /** Couldn't load the column. */
+  error?: string | null;
+  onRetry?: () => void;
+  /** More pages on the server → "Load more (N left)" at the bottom. */
+  hasMore?: boolean;
+  isFetchingMore?: boolean;
+  onLoadMore?: () => void;
+  /** Auto-load when the column's end scrolls into view (off after a failed load). */
+  autoLoad?: boolean;
+  /** Column is refetching → hold auto-load until it settles. */
+  isRefetching?: boolean;
 }
 
+type RenderCard = (task: ITask, options: { isOverlay: boolean }) => ReactNode;
+
+interface BoardContextValue {
+  active: { task: ITask; columnId: string } | null;
+  renderCard: RenderCard;
+}
+
+const BoardContext = createContext<BoardContextValue | null>(null);
+
 interface KanbanBoardProps {
-  columns: KanbanColumn[];
-  renderCard: (task: ITask, options: { isOverlay: boolean }) => ReactNode;
+  /** Columns with their data; or render `KanbanColumnView`s (e.g. ones that load their own pages) as children. */
+  columns?: KanbanColumn[];
+  children?: ReactNode;
+  renderCard: RenderCard;
   onMove: (task: ITask, fromColumnId: string, toColumnId: string) => void;
   footer?: ReactNode;
 }
 
-export function KanbanBoard({ columns, renderCard, onMove, footer }: KanbanBoardProps) {
+export function KanbanBoard({ columns, children, renderCard, onMove, footer }: KanbanBoardProps) {
   const [active, setActive] = useState<{ task: ITask; columnId: string } | null>(null);
 
   const sensors = useSensors(
@@ -59,11 +94,14 @@ export function KanbanBoard({ columns, renderCard, onMove, footer }: KanbanBoard
     if (data) {
       setActive(data);
       haptic('light');
+      // A vertical drag would otherwise swipe the Mini App closed.
+      lockVerticalSwipes();
     }
   };
 
   const handleDragEnd = ({ active: a, over }: DragEndEvent) => {
     setActive(null);
+    unlockVerticalSwipes();
     const data = a.data.current as { task: ITask; columnId: string } | undefined;
     if (!data || !over) return;
     const to = String(over.id);
@@ -73,45 +111,45 @@ export function KanbanBoard({ columns, renderCard, onMove, footer }: KanbanBoard
     }
   };
 
+  useEffect(() => () => unlockVerticalSwipes(), []);
+
+  const context = useMemo(() => ({ active, renderCard }), [active, renderCard]);
+
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setActive(null)}
-    >
-      <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-px-4 px-4 pb-4 pt-2 md:snap-none">
-        {columns.map((column) => (
-          <Column key={column.id} column={column} isDragging={!!active} isSource={active?.columnId === column.id}>
-            {column.tasks.map((task) => (
-              <DraggableCard key={task._id} task={task} columnId={column.id}>
-                {renderCard(task, { isOverlay: false })}
-              </DraggableCard>
-            ))}
-          </Column>
-        ))}
-      </div>
-      {footer}
-      <DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>
-        {active ? (
-          <div className="w-[min(78vw,300px)] cursor-grabbing">{renderCard(active.task, { isOverlay: true })}</div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <BoardContext.Provider value={context}>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => {
+          setActive(null);
+          unlockVerticalSwipes();
+        }}
+      >
+        <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-px-4 px-4 pb-4 pt-2 md:snap-none">
+          {columns?.map((column) => (
+            <KanbanColumnView key={column.id} column={column} />
+          ))}
+          {children}
+        </div>
+        {footer}
+        <DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>
+          {active ? (
+            <div className="w-[min(78vw,300px)] cursor-grabbing">{renderCard(active.task, { isOverlay: true })}</div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </BoardContext.Provider>
   );
 }
 
-function Column({
-  column,
-  isDragging,
-  isSource,
-  children,
-}: {
-  column: KanbanColumn;
-  isDragging: boolean;
-  isSource: boolean;
-  children: ReactNode;
-}) {
+/** One droppable column; must be rendered inside a KanbanBoard. */
+export function KanbanColumnView({ column }: { column: KanbanColumn }) {
+  const board = useContext(BoardContext);
+  if (!board) throw new Error('KanbanColumnView must be rendered inside KanbanBoard');
+  const { active, renderCard } = board;
+  const isDragging = !!active;
+  const isSource = active?.columnId === column.id;
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const highlight = isOver && !isSource;
   const dropTarget = isDragging && !isSource;
@@ -130,13 +168,31 @@ function Column({
         </h2>
         <span
           className="min-w-5 rounded-full bg-tg-bg px-1.5 text-center text-[11px] font-semibold leading-5 text-tg-hint"
-          aria-label={`${column.count} task${column.count === 1 ? '' : 's'}`}
+          aria-label={column.count === null ? 'Counting tasks' : `${column.count} task${column.count === 1 ? '' : 's'}`}
         >
-          {column.count}
+          {column.count ?? '…'}
         </span>
       </header>
       <div className="flex min-h-24 flex-1 flex-col gap-1.5 px-1.5 pb-1.5">
-        {column.tasks.length === 0 ? (
+        {column.isLoading ? (
+          <>
+            <CardSkeleton />
+            <CardSkeleton />
+          </>
+        ) : column.error && column.tasks.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-tg-separator px-2 py-4 text-center text-xs text-tg-hint">
+            <span>Couldn't load this column.</span>
+            {column.onRetry && (
+              <button
+                type="button"
+                onClick={column.onRetry}
+                className="focus-ring min-h-11 rounded-md px-3 text-sm font-medium text-tg-link"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        ) : column.tasks.length === 0 && !column.hasMore ? (
           <p
             className={`flex flex-1 items-center justify-center rounded-md border border-dashed px-2 py-6 text-center text-xs text-tg-hint transition-colors ${
               dropTarget ? 'border-tg-link/60 text-tg-link' : 'border-tg-separator'
@@ -145,7 +201,22 @@ function Column({
             {dropTarget ? 'Drop here' : (column.emptyText ?? 'No tasks')}
           </p>
         ) : (
-          children
+          <>
+            {column.tasks.map((task) => (
+              <DraggableCard key={task._id} task={task} columnId={column.id}>
+                {renderCard(task, { isOverlay: false })}
+              </DraggableCard>
+            ))}
+            {column.hasMore && column.onLoadMore && (
+              <LoadMore
+                onLoadMore={column.onLoadMore}
+                isLoading={!!column.isFetchingMore}
+                auto={column.autoLoad ?? true}
+                paused={column.isRefetching}
+                remaining={column.count !== null ? column.count - column.tasks.length : undefined}
+              />
+            )}
+          </>
         )}
       </div>
     </section>

@@ -87,6 +87,8 @@ function aiPage(): HelpPage {
     '`/ai #12 xong rồi`',
     '`/ai move #12 to review, priority high`',
     '`/ai tôi còn task nào?`',
+    '`/ai giải thích #5` — what a task is about',
+    '`/ai thêm #5 vào epic Login` — group tasks in an epic',
     '`/ai tạo task fix login cho @an hạn thứ 6`',
     '',
     'Vietnamese or English both work.',
