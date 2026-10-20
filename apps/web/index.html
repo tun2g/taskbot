@@ -4,11 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>TBot</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- defer: still runs before the module entry (document order), but no longer blocks first paint -->
+    <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/config.js"></script>
+    <script>
+      // The SDK is deferred, so paint the splash in Telegram's colors ourselves (from the launch hash).
+      try {
+        var p = new URLSearchParams(location.hash.slice(1)).get('tgWebAppThemeParams');
+        var t = p && JSON.parse(p);
+        if (t) {
+          var r = document.documentElement.style;
+          if (t.secondary_bg_color) r.setProperty('--tg-theme-secondary-bg-color', t.secondary_bg_color);
+          if (t.hint_color) r.setProperty('--tg-theme-hint-color', t.hint_color);
+        }
+      } catch (e) {}
+    </script>
+    <style>
+      /* Shown until React mounts. */
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: var(--tg-theme-secondary-bg-color, #f1f1f4); }
+      #boot i { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--tg-theme-hint-color, #999); border-top-color: transparent; opacity: .6; animation: boot-spin .8s linear infinite; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot"><i></i></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

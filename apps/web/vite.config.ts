@@ -6,7 +6,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [
-    TanStackRouterVite({ quoteStyle: 'single' }),
+    TanStackRouterVite({ quoteStyle: 'single', autoCodeSplitting: true }),
     react(),
     tailwindcss(),
   ],
