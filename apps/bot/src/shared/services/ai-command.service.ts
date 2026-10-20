@@ -105,6 +105,8 @@ export interface AiRequestContext {
   openEpics?: EpicRef[];
   /** Activity-log channel for changes (default 'ai'; the MCP server passes 'mcp'). */
   activityVia?: TaskActivityVia;
+  /** Epics this request created (filled by `createEpic`) — the caller announces them in the group. */
+  createdEpics?: IEpic[];
 }
 
 export type { AiOutcome, AiReply } from 'src/shared/services/ai-command/telegram.renderer';
@@ -535,15 +537,15 @@ export class AiCommandService {
     const existing = await epicService.findByTitle(c.group._id, action.title);
     if (existing) return { epic: toEpicRef(existing), duplicate: true };
     try {
-      const epic = toEpicRef(
-        await epicService.create({
-          groupId: c.group._id,
-          createdBy: c.requester._id as mongoose.Types.ObjectId,
-          title: action.title,
-          description: action.description ?? null,
-        }),
-      );
+      const doc = await epicService.create({
+        groupId: c.group._id,
+        createdBy: c.requester._id as mongoose.Types.ObjectId,
+        title: action.title,
+        description: action.description ?? null,
+      });
+      const epic = toEpicRef(doc);
       c.openEpics?.push(epic);
+      (c.createdEpics ??= []).push(doc);
       return { epic, duplicate: false };
     } catch (error) {
       if (!(error instanceof EpicTitleTakenError)) throw error;

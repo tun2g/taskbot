@@ -36,8 +36,9 @@ export class TaskSyncService {
    * - Card exists → edit it in place.
    * - No card → post one ONLY when `created` is set (task just created from the app).
    *   AI batch tasks have no card on purpose, so an update must never spawn one.
+   * `via` ("app", "Claude Code"…) adds "(via …)" under a newly posted card, like the cards of app/MCP batches.
    */
-  async syncTaskCard(task: ITask, options: { created?: boolean } = {}) {
+  async syncTaskCard(task: ITask, options: { created?: boolean; via?: string } = {}) {
     try {
       const fullTask = await Task.findById(task._id).populate(TASK_POPULATE);
       if (!fullTask) return;
@@ -64,7 +65,8 @@ export class TaskSyncService {
       }
 
       if (options.created && fullTask.taskCardChatId) {
-        const newMsg = await this.postEvent(fullTask.groupId, fullTask.taskCardChatId, text, {
+        const body = options.via ? `${text}\n\n_(via ${escapeLegacyMarkdown(options.via)})_` : text;
+        const newMsg = await this.postEvent(fullTask.groupId, fullTask.taskCardChatId, body, {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: buttons },
         });

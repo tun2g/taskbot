@@ -140,6 +140,16 @@ describe('TaskSyncService', () => {
     expect(Task.findByIdAndUpdate).toHaveBeenCalledWith('t1', { $set: { taskCardMessageId: 99 } });
   });
 
+  it('a card created from the app / MCP says where it came from', async () => {
+    mockFind({ _id: 't1', taskCardChatId: -1, taskCardMessageId: null });
+    await service.syncTaskCard({ _id: 't1' } as any, { created: true, via: 'app' });
+    expect(bot.telegram.sendMessage).toHaveBeenCalledWith(-1, 'CARD\n\n_(via app)_', expect.anything());
+
+    mockFind({ _id: 't2', taskCardChatId: -1, taskCardMessageId: null });
+    await service.syncTaskCard({ _id: 't2' } as any, { created: true, via: 'Claude Code' });
+    expect(bot.telegram.sendMessage).toHaveBeenLastCalledWith(-1, 'CARD\n\n_(via Claude Code)_', expect.anything());
+  });
+
   it('never spawns a card when updating an AI batch task without one', async () => {
     mockFind({ _id: 't1', batchId: 'b1', taskCardChatId: -1, taskCardMessageId: null });
     await service.syncTaskCard({ _id: 't1' } as any);

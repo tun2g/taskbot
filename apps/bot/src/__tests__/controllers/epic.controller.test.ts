@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { EpicController } from 'src/api/controllers/epic.controller';
 import { EpicTitleTakenError, epicService } from 'src/database/services/epic.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 
 jest.mock('src/database/services/epic.service', () => {
@@ -22,6 +23,13 @@ jest.mock('src/database/services/epic.service', () => {
 });
 jest.mock('src/shared/services/task-sync.service', () => ({
   taskSyncService: { syncTaskCard: jest.fn().mockResolvedValue(undefined) },
+}));
+jest.mock('src/shared/services/epic-events.service', () => ({
+  epicEventsService: {
+    created: jest.fn().mockResolvedValue(undefined),
+    statusChanged: jest.fn().mockResolvedValue(undefined),
+    deleted: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 jest.mock('src/database/services/task-activity.service', () => ({
   taskActivityService: { record: jest.fn().mockResolvedValue(undefined) },
@@ -73,6 +81,28 @@ describe('EpicController', () => {
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({ data: expect.objectContaining({ title: 'Login', progress: expect.anything() }) });
+    });
+
+    it('announces a new epic in the group "(via app)"', async () => {
+      (epicService.create as jest.Mock).mockResolvedValue(login);
+      await create({ title: 'Login' });
+      expect(epicEventsService.created).toHaveBeenCalledWith(login, me, 'app');
+    });
+
+    it('a restore (undo of a delete) stays quiet — even with no tasks to put back', async () => {
+      (epicService.create as jest.Mock).mockResolvedValue(login);
+      (epicService.linkTasks as jest.Mock).mockResolvedValue([]);
+      await create({ title: 'Login', taskIds: [String(new mongoose.Types.ObjectId())] });
+      await create({ title: 'Login', taskIds: [] });
+      expect(epicService.create).toHaveBeenCalledTimes(2);
+      expect(epicEventsService.created).not.toHaveBeenCalled();
+    });
+
+    it('a failed announcement never fails the request', async () => {
+      (epicService.create as jest.Mock).mockResolvedValue(login);
+      (epicEventsService.created as jest.Mock).mockReturnValueOnce(new Promise(() => {}));
+      const res = await create({ title: 'Login' });
+      expect(res.status).toHaveBeenCalledWith(201);
     });
 
     it('400 for a missing title, a too-long title or an unknown color', async () => {
@@ -144,6 +174,18 @@ describe('EpicController', () => {
       expect(epicService.taskIds).not.toHaveBeenCalled();
     });
 
+    it('announces done / reopened with the status before the change', async () => {
+      await update({ status: 'done' }, { ...login, status: 'done' });
+      expect(epicEventsService.statusChanged).toHaveBeenCalledWith('open', expect.objectContaining({ status: 'done' }), me, 'app');
+    });
+
+    it('rename / recolor / description edits are not announced', async () => {
+      (epicService.taskIds as jest.Mock).mockResolvedValue([]);
+      await update({ title: 'Sign-in', color: 'green', description: 'x' }, { ...login, title: 'Sign-in', color: 'green', description: 'x' });
+      expect(epicEventsService.statusChanged).not.toHaveBeenCalled();
+      expect(epicEventsService.created).not.toHaveBeenCalled();
+    });
+
     it('400 for an invalid status, 409 for a taken title', async () => {
       let res = await update({ status: 'archived' }, login);
       expect(res.status).toHaveBeenCalledWith(400);
@@ -172,6 +214,7 @@ describe('EpicController', () => {
       expect(taskActivityService.record).toHaveBeenCalledWith(
         expect.objectContaining({ taskId: taskIds[0], groupId, action: 'epic', from: 'Login', to: null, via: 'app' }),
       );
+      expect(epicEventsService.deleted).toHaveBeenCalledWith(login, me, 2, 'app');
     });
 
     it('404 when the epic is gone', async () => {

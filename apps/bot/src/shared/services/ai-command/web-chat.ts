@@ -29,6 +29,7 @@ import {
   WEB_SAVE_FAILED_TEXT,
 } from 'src/shared/services/ai-command/web.renderer';
 import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { redisService } from 'src/shared/services/redis.service';
 import { BATCH_UNDO_WINDOW_MS, checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
@@ -132,6 +133,11 @@ export async function handleWebChat(input: WebChatInput): Promise<WebChatOutcome
   }
 
   const result = await aiCommandService.run(context, plan, editor);
+
+  // New epics ("tạo epic Login", or "put #5 in a new epic Login"): one group post each, "(via app)" / "(via Claude Code)".
+  for (const epic of context.createdEpics ?? []) {
+    void epicEventsService.created(epic, requester, input.channel?.label ?? 'app', { group });
+  }
 
   if (result.kind === 'create') return { status: 'ok', data: await createFromChat(context, input.channel) };
 

@@ -1,3 +1,4 @@
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { checkGroupAccess } from 'src/api/middlewares/group-access.middleware';
 import { refreshTaskCards } from 'src/api/controllers/epic.controller';
 import { isTelegramGroupAdmin } from 'src/api/telegram-admin';
@@ -70,6 +71,13 @@ jest.mock('src/shared/services/task-sync.service', () => ({
 jest.mock('src/shared/services/ai-command/web-chat', () => ({
   rememberAppBatchPost: jest.fn().mockResolvedValue(undefined),
   undoAppBatch: jest.fn(),
+}));
+jest.mock('src/shared/services/epic-events.service', () => ({
+  epicEventsService: {
+    created: jest.fn().mockResolvedValue(undefined),
+    statusChanged: jest.fn().mockResolvedValue(undefined),
+    deleted: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
 
@@ -312,6 +320,12 @@ describe('epics', () => {
       expect.objectContaining({ groupId: alpha._id, createdBy: me._id, title: 'Login', color: 'blue' }),
     );
     expect(out.data.epic).toMatchObject({ id: String(login._id), title: 'Login', status: 'open' });
+    expect(epicEventsService.created).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Login' }),
+      me,
+      'Claude Code',
+      { group: alpha },
+    );
   });
 
   it('create_epic: a taken title is an actionable error', async () => {
@@ -320,13 +334,26 @@ describe('epics', () => {
   });
 
   it('update_epic renames by title and refreshes cards', async () => {
-    (epicService.update as jest.Mock).mockResolvedValue({ ...login, title: 'Auth' });
+    (epicService.update as jest.Mock).mockResolvedValue({ ...login, title: 'Auth', status: 'done' });
     (epicService.taskIds as jest.Mock).mockResolvedValue([oid()]);
     const out = await call(updateEpicTool, { group: G, epic: 'login', title: 'Auth', status: 'done' });
     expect(epicService.update).toHaveBeenCalledWith(login, { title: 'Auth', status: 'done' });
     await new Promise((r) => setImmediate(r));
     expect(refreshTaskCards).toHaveBeenCalled();
     expect(out.text).toContain('Updated epic Auth');
+    expect(epicEventsService.statusChanged).toHaveBeenCalledWith(
+      'open',
+      expect.objectContaining({ title: 'Auth', status: 'done' }),
+      me,
+      'Claude Code',
+      { group: alpha },
+    );
+  });
+
+  it('update_epic: a rename alone is not announced', async () => {
+    (epicService.update as jest.Mock).mockResolvedValue({ ...login, title: 'Auth' });
+    await call(updateEpicTool, { group: G, epic: 'login', title: 'Auth' });
+    expect(epicEventsService.statusChanged).not.toHaveBeenCalled();
   });
 
   it('update_epic: unknown epic lists the open ones', async () => {

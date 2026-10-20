@@ -4,6 +4,7 @@ import { refreshTaskCards } from 'src/api/controllers/epic.controller';
 import { IEpic } from 'src/database/models/epic.model';
 import { EpicProgress, EpicTitleTakenError, epicService } from 'src/database/services/epic.service';
 import { McpToolError } from 'src/mcp/context';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { requireGroup } from 'src/mcp/resolve/group';
 import { resolveEpic } from 'src/mcp/resolve/epic';
 import { epicArg, epicColorEnum } from 'src/mcp/tools/schemas';
@@ -101,6 +102,7 @@ export const createEpicTool = defineTool({
     } catch (error) {
       titleTaken(error);
     }
+    void epicEventsService.created(epic, ctx.user, ctx.clientLabel, { group });
     const summary = epicSummary(epic, { total: 0, done: 0, inProgress: 0, cancelled: 0 });
     return { text: `Created epic ${epicLine(summary)}.`, data: { epic: summary } };
   },
@@ -127,7 +129,7 @@ export const updateEpicTool = defineTool({
     if (title === undefined && description === undefined && color === undefined && status === undefined) {
       throw new McpToolError('Pass at least one field to change: title, description, color or status.');
     }
-    const previous = { title: before.title, color: before.color };
+    const previous = { title: before.title, color: before.color, status: before.status };
 
     let epic: IEpic | null = null;
     try {
@@ -149,6 +151,9 @@ export const updateEpicTool = defineTool({
         .taskIds(epic)
         .then(refreshTaskCards)
         .catch(() => {});
+    }
+    if (epic.status !== previous.status) {
+      void epicEventsService.statusChanged(previous.status, epic, ctx.user, ctx.clientLabel, { group });
     }
     const progress = (await epicService.getProgress(epic.groupId, [epic._id as mongoose.Types.ObjectId])).get(
       String(epic._id),

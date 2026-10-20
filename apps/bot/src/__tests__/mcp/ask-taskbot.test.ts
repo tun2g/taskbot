@@ -10,6 +10,9 @@ import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { redisService } from 'src/shared/services/redis.service';
 import { checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
+import { epicService } from 'src/database/services/epic.service';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
+import { handleWebChat } from 'src/shared/services/ai-command/web-chat';
 import { alpha, an, beta, call, expectToolError, makeTask, me } from './mcp-test-helpers';
 
 jest.mock('src/bot', () => ({ bot: { telegram: { editMessageText: jest.fn().mockResolvedValue(true) } } }));
@@ -20,7 +23,11 @@ jest.mock('src/database/services/epic.service', () => ({
     listOpen: jest.fn(async () => []),
     listWithProgress: jest.fn(async () => []),
     findByTitle: jest.fn(async () => null),
+    create: jest.fn(),
   },
+}));
+jest.mock('src/shared/services/epic-events.service', () => ({
+  epicEventsService: { created: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock('src/shared/services/redis.service', () => {
   const store = new Map<string, string>();
@@ -171,6 +178,31 @@ describe('ask_taskbot', () => {
     expect(taskSyncService.postCreatedFromApp).toHaveBeenCalledWith(alpha, me, created, 'Claude Code');
     expect(out.data).toMatchObject({ kind: 'created', undoToken: 'abcdef0123456789' });
     expect(out.text).toContain('undo_last');
+  });
+
+  it('create_epic: the new epic is announced in the group "(via Claude Code)"', async () => {
+    const epic = { _id: 'e1', groupId: alpha._id, title: 'Login', color: 'blue', status: 'open', description: null };
+    (epicService.create as jest.Mock).mockResolvedValue(epic);
+    (aiCommandService.plan as jest.Mock).mockResolvedValue(plan({ action: 'create_epic', title: 'Login' }));
+    await call(askTaskbotTool, { group: G, message: 'tạo epic Login' });
+    expect(epicEventsService.created).toHaveBeenCalledTimes(1);
+    expect(epicEventsService.created).toHaveBeenCalledWith(epic, me, 'Claude Code', { group: alpha });
+  });
+
+  it('create_epic: an existing epic with that title is not announced again', async () => {
+    (epicService.findByTitle as jest.Mock).mockResolvedValueOnce({ _id: 'e1', title: 'Login', color: 'blue' });
+    (aiCommandService.plan as jest.Mock).mockResolvedValue(plan({ action: 'create_epic', title: 'Login' }));
+    await call(askTaskbotTool, { group: G, message: 'tạo epic Login' });
+    expect(epicService.create).not.toHaveBeenCalled();
+    expect(epicEventsService.created).not.toHaveBeenCalled();
+  });
+
+  it('web AI chat: a new epic is announced "(via app)"', async () => {
+    const epic = { _id: 'e2', groupId: alpha._id, title: 'Billing', color: 'green', status: 'open', description: null };
+    (epicService.create as jest.Mock).mockResolvedValue(epic);
+    (aiCommandService.plan as jest.Mock).mockResolvedValue(plan({ action: 'create_epic', title: 'Billing' }));
+    await handleWebChat({ group: alpha, requester: me, message: 'new epic Billing', editor: {} as any });
+    expect(epicEventsService.created).toHaveBeenCalledWith(epic, me, 'app', { group: alpha });
   });
 
   it('AI unavailable → isError pointing at the structured tools', async () => {

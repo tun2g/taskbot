@@ -205,7 +205,8 @@ describe('update_task changes.epic', () => {
       expect.objectContaining({ groupId: group._id, createdBy: me._id, title: 'Onboarding' }),
     );
     expect(taskService.updateTask).toHaveBeenCalledWith(t._id, { epicId: created._id });
-    expect(outcome.reply.text).toContain(e('Epic → 🟠 Onboarding (new)'));
+    expect(outcome.reply.text).toContain(e('Epic → 🟠 Onboarding (new)'));    // The caller announces it in the group.
+    expect(c.createdEpics).toEqual([created]);
   });
 
   it('moves between epics and removes from an epic', async () => {
@@ -255,8 +256,10 @@ describe('create_epic', () => {
   });
 
   it('a duplicate title is a friendly note, not an error', async () => {
-    const outcome = await telegram(context(), plan({ action: 'create_epic', title: 'login' }));
+    const c = context();
+    const outcome = await telegram(c, plan({ action: 'create_epic', title: 'login' }));
     expect(epicService.create).not.toHaveBeenCalled();
+    expect(c.createdEpics ?? []).toEqual([]);
     expect(outcome.reply.text).toContain(e('ℹ️ Epic <b>🔵 Login</b> already exists.'));
   });
 

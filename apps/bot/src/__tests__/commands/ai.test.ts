@@ -364,4 +364,56 @@ describe('AiCommand', () => {
       expect(c.telegram.sendMessage).not.toHaveBeenCalled();
     });
   });
+  describe('a new epic from /ai is an event too (same no-double-post rule)', () => {
+    const epic = { _id: 'e1', groupId: 'g1', title: 'Login', color: 'blue', status: 'open', description: 'Sign in & SSO' };
+    const outcome = { kind: 'reply', reply: { text: '🗂 Created epic 🟦 Login' } };
+    const forumGroup = { ...group, telegramGroupId: -100123, isForum: true, eventsTopicId: 500, knownTopics: [] };
+    const forumCtx = (threadId: number) => {
+      const c = ctx('/ai tạo epic Login', { message_thread_id: threadId, is_topic_message: true });
+      c.chat.is_forum = true;
+      c.telegram = {
+        editMessageText: jest.fn(),
+        sendMessage: jest.fn().mockResolvedValue({ message_id: 90 }),
+        setMessageReaction: jest.fn(),
+      };
+      return c;
+    };
+
+    beforeEach(() => {
+      (aiCommandService.plan as jest.Mock).mockResolvedValue({ actions: [] });
+      (aiCommandService.execute as jest.Mock).mockImplementation(async (c: any) => {
+        c.createdEpics = [epic];
+        return outcome;
+      });
+    });
+
+    it('normal group: the reply is the announcement — nothing else is posted', async () => {
+      const c = ctx('/ai tạo epic Login');
+      c.telegram.sendMessage = jest.fn();
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('forum, typed in another topic: one "(via /ai)" line in Task events', async () => {
+      (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({ ...forumGroup });
+      const c = forumCtx(7);
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).toHaveBeenCalledWith(
+        -100123,
+        '🗂 @me created epic 🟦 <b>Login</b> (via /ai)\n<i>Sign in &amp; SSO</i>',
+        expect.objectContaining({ parse_mode: 'HTML', message_thread_id: 500, reply_parameters: { message_id: 77 } }),
+      );
+    });
+
+    it('forum, typed in the events topic: no second message', async () => {
+      (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({ ...forumGroup });
+      const c = forumCtx(500);
+      await command.onAi(c);
+      expect(c.reply).toHaveBeenCalledTimes(1);
+      expect(c.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -285,7 +285,7 @@ describe('TaskController', () => {
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({ data: created });
-      expect(taskSyncService.syncTaskCard).toHaveBeenCalledWith(created, { created: true });
+      expect(taskSyncService.syncTaskCard).toHaveBeenCalledWith(created, { created: true, via: 'app' });
       expect(taskActivityService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'created', via: 'app', to: 'New' }),
       );

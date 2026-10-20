@@ -74,7 +74,7 @@ describe('TaskMutationService', () => {
     await service.createTask(group, me, { title: 'Fix', assigneeId: String(an._id) });
     expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'created', via: 'app' }));
     expect(notificationService.notifyAssignment).toHaveBeenCalledWith(created, an, me);
-    expect(taskSyncService.syncTaskCard).toHaveBeenCalledWith(created, { created: true });
+    expect(taskSyncService.syncTaskCard).toHaveBeenCalledWith(created, { created: true, via: 'app' });
   });
 
   it('createTask (mcp, announce none): records via mcp, keeps the batch id, posts nothing itself', async () => {

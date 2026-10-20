@@ -36,7 +36,9 @@ import {
 } from 'src/shared/services/task-creation.service';
 import { buildChangeLine, userDisplayName } from 'src/shared/services/task-event-lines';
 import { buildAppLink } from 'src/shared/utils/app-links';
+import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
@@ -188,7 +190,7 @@ export class AiCommand {
         return;
       }
 
-      await this.replyWithEvent(ctx, group, user, message, outcome);
+      await this.replyWithEvent(ctx, group, user, message, outcome, context.createdEpics ?? []);
     } catch (error) {
       logger.error(`Error in /ai command: ${error instanceof Error ? error.stack : error}`);
       try {
@@ -214,17 +216,20 @@ export class AiCommand {
     user: IUser,
     message: CommandMessage,
     outcome: Extract<AiOutcome, { kind: 'reply' }>,
+    createdEpics: IEpic[] = [],
   ) {
     let reply = outcome.reply;
     let eventText: string | null = null;
+    let announceEpics = false;
     const commandThread = topicOf(message as { is_topic_message?: boolean; message_thread_id?: number });
 
-    if (outcome.updates?.length && (isForumChat(ctx) || group.isForum)) {
+    if ((outcome.updates?.length || createdEpics.length) && (isForumChat(ctx) || group.isForum)) {
       const eventsThread = await groupMessengerService.eventsTopicFor(ctx, group);
       if (eventsThread === undefined) {
         if (await groupMessengerService.claimSetupHint(group)) reply = { ...reply, text: `${reply.text}\n\n${TOPIC_SETUP_HINT}` };
       } else if (eventsThread !== commandThread) {
-        const lines = outcome.updates
+        announceEpics = createdEpics.length > 0;
+        const lines = (outcome.updates ?? [])
           .map((u) =>
             buildChangeLine(
               userDisplayName(user),
@@ -250,6 +255,17 @@ export class AiCommand {
           fallbackThreadId: commandThread,
         })
         .catch((error) => logger.warn(`Could not post /ai event line: ${error}`));
+    }
+    if (announceEpics) {
+      // The reply already says "🗂 Created epic …" here; the events topic gets its own line, like task changes.
+      for (const epic of createdEpics) {
+        await epicEventsService.created(epic, user, '/ai', {
+          group,
+          telegram: ctx.telegram,
+          source: { messageId: message.message_id, threadId: commandThread },
+          fallbackThreadId: commandThread,
+        });
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import { createEpicSchema, updateEpicSchema } from 'src/api/validation';
 import { IEpic } from 'src/database/models/epic.model';
 import { EpicTitleTakenError, epicService } from 'src/database/services/epic.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
+import { epicEventsService } from 'src/shared/services/epic-events.service';
 import logger from 'src/shared/logger/logger';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 
@@ -59,6 +60,7 @@ export class EpicController {
   /**
    * POST /api/groups/:groupId/epics (CreateEpicInput) → 201 EpicWithProgress. Any member may create.
    * With `taskIds` (undo of a delete) those tasks go back into it — only ones of this group that have no epic now.
+   * A new epic is announced in the group; a restore (`taskIds` present, even empty) stays quiet.
    */
   async createEpic(req: Request, res: Response) {
     const authReq = req as AuthenticatedRequest;
@@ -89,6 +91,7 @@ export class EpicController {
         await recordEpicActivity(epic, linked, user._id as mongoose.Types.ObjectId, { from: null, to: epic.title });
         refreshTaskCards(linked).catch(() => {});
       }
+      if (data.taskIds === undefined) void epicEventsService.created(epic, user, 'app');
       res.status(201).json({ data: await epicService.withProgressFor(epic) });
     } catch (error) {
       if (!sendTitleTaken(res, error)) throw error;
@@ -114,7 +117,7 @@ export class EpicController {
       sendError(res, 404, EPIC_NOT_FOUND_MESSAGE);
       return;
     }
-    const previous = { title: before.title, color: before.color };
+    const previous = { title: before.title, color: before.color, status: before.status };
 
     let epic: IEpic | null;
     try {
@@ -134,6 +137,10 @@ export class EpicController {
         .taskIds(epic)
         .then(refreshTaskCards)
         .catch(() => {});
+    }
+    // Done / reopened are announced in the group; rename / recolor / description edits are not.
+    if (epic.status !== previous.status) {
+      void epicEventsService.statusChanged(previous.status, epic, authReq.user, 'app');
     }
 
     res.json({ data: await epicService.withProgressFor(epic) });
@@ -162,6 +169,7 @@ export class EpicController {
       to: null,
     });
     refreshTaskCards(taskIds).catch(() => {});
+    void epicEventsService.deleted(epic, authReq.user, taskIds.length, 'app');
 
     res.json({ data: { deleted: true, tasksUnlinked: taskIds.length, taskIds: taskIds.map(String) } });
   }

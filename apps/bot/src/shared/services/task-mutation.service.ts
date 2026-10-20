@@ -207,7 +207,7 @@ export class TaskMutationService {
       notificationService.notifyAssignment(task, assignee, actor).catch(() => {});
     }
     if ((options.announce ?? 'card') === 'card') {
-      taskSyncService.syncTaskCard(task, { created: true }).catch(() => {});
+      taskSyncService.syncTaskCard(task, { created: true, via: channel.label ?? 'app' }).catch(() => {});
     }
     return { task, assignee };
   }

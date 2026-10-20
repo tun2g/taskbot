@@ -113,7 +113,8 @@ export function EpicsContainer() {
         description: epic.description || undefined,
         color: epic.color,
         status: epic.status,
-        taskIds: taskIds.length ? taskIds : undefined,
+        // Always sent (even empty): it marks this as a restore, which the server doesn't announce in the group.
+        taskIds,
       });
       const back = restored.progress ? restored.progress.total + (restored.progress.cancelled ?? 0) : taskIds.length;
       toast.success(
