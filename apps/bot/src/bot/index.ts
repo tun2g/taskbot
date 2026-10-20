@@ -2,6 +2,8 @@ import { botMessageHandler } from 'src/bot/bot-message-handler';
 import { aiCommand } from 'src/bot/commands/ai';
 import { doneCommand } from 'src/bot/commands/done';
 import { helpCommand } from 'src/bot/commands/help';
+import { handleMcpCallback, MCP_CALLBACK_PREFIX } from 'src/bot/commands/mcp/mcp-callback.handler';
+import { mcpCommand } from 'src/bot/commands/mcp/mcp.command';
 import { handleMembersCallback, MEMBERS_CALLBACK_PREFIX, membersCommand } from 'src/bot/commands/members';
 import { setTopicCommand } from 'src/bot/commands/settopic';
 import { startCommand } from 'src/bot/commands/start';
@@ -32,6 +34,8 @@ bot.use(messageBufferMiddleware);
 bot.use(mentionCheckMiddleware);
 
 bot.start(async (ctx) => {
+  // Deep links from /help and group /mcp ("/start mcp", "/start mcp_<groupId>") issue MCP tokens.
+  if (await mcpCommand.handleStartPayload(ctx)) return;
   await startCommand.onStart(ctx);
 });
 
@@ -44,6 +48,7 @@ const publicCommands: Map<string, (ctx: BotContext) => void> = new Map<string, (
   ...aiCommand.register(),
   ...setTopicCommand.register(),
   ...membersCommand.register(),
+  ...mcpCommand.register(),
 ]);
 
 Array.from(publicCommands).forEach(([command, callback]) => {
@@ -59,6 +64,10 @@ bot.on('callback_query', async (ctx: BotContext) => {
   }
   if (data?.startsWith(CREATE_FROM_REPLY_PREFIX)) {
     await handleCreateFromReplyCallback(ctx);
+    return;
+  }
+  if (data?.startsWith(MCP_CALLBACK_PREFIX)) {
+    await handleMcpCallback(ctx);
     return;
   }
   if (data?.startsWith(MEMBERS_CALLBACK_PREFIX)) {

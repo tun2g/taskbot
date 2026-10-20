@@ -13,7 +13,7 @@ export async function undoBatch(params: {
   batchId: string;
   groupId: string;
   actor: mongoose.Types.ObjectId | null;
-  via: 'bot' | 'app';
+  via: 'bot' | 'app' | 'mcp';
   /** Tasks already loaded by the caller (avoids a second query). */
   tasks?: ITask[];
 }): Promise<{ removed: number; tasks: ITask[] }> {
@@ -45,9 +45,12 @@ export function buildUndoneText(params: {
   removed: number;
   tasks: UndoneTask[];
   viaApp?: boolean;
+  /** Channel shown as "(via …)" — overrides `viaApp` (e.g. "Claude Code"). */
+  viaLabel?: string;
 }): string {
   const { actorName, removed, tasks } = params;
-  const by = `${escapeHtml(actorName)}${params.viaApp ? ' (via app)' : ''}`;
+  const channel = params.viaLabel ?? (params.viaApp ? 'app' : null);
+  const by = `${escapeHtml(actorName)}${channel ? ` (via ${escapeHtml(channel)})` : ''}`;
   if (removed === 0) {
     return `↩️ <b>Undo by ${by}</b> · nothing to remove — these tasks were already deleted.`;
   }

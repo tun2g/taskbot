@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type TaskActivityVia = 'bot' | 'app' | 'ai';
+/** 'mcp' = an external agent (Claude Code, Cursor, …) through the MCP server. */
+export type TaskActivityVia = 'bot' | 'app' | 'ai' | 'mcp';
 
 export interface ITaskActivity extends Document {
   taskId: mongoose.Types.ObjectId;
@@ -22,7 +23,7 @@ const TaskActivitySchema: Schema = new Schema(
     action: { type: String, required: true },
     from: { type: String, default: null },
     to: { type: String, default: null },
-    via: { type: String, enum: ['bot', 'app', 'ai'], required: true },
+    via: { type: String, enum: ['bot', 'app', 'ai', 'mcp'], required: true },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },

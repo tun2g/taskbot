@@ -30,6 +30,17 @@ class ConfigService {
   };
   timezone = process.env.TIMEZONE || 'UTC';
   devMode = process.env.NODE_ENV === 'development';
+  /** Public base URL of this server (Telegram webhook mode). */
+  webhookUrl = process.env.WEBHOOK_URL || '';
+  /** Full public URL of the MCP endpoint; overrides `<WEBHOOK_URL>/mcp`. */
+  mcpPublicUrlOverride = process.env.MCP_PUBLIC_URL || '';
+
+  /** Public MCP endpoint (MCP_PUBLIC_URL, else <WEBHOOK_URL>/mcp), or null when neither is set. */
+  mcpPublicUrl(): string | null {
+    if (this.mcpPublicUrlOverride) return this.mcpPublicUrlOverride.replace(/\/+$/, '');
+    if (this.webhookUrl) return `${this.webhookUrl.replace(/\/+$/, '')}/mcp`;
+    return null;
+  }
 }
 
 export const configService = new ConfigService();

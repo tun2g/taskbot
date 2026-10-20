@@ -16,3 +16,4 @@ export type { IGroup, IGroupSummary } from './group.js';
 export type { ApiResponse, PaginatedResponse, ApiError, TelegramLoginPayload, AuthLoginResponse } from './api.js';
 export type { AiChatTurn, AiChatRequest, AiChatResultKind, AiTaskChange, AiChatResponse, AiUndoResponse } from './ai.js';
 export type { IEpic, EpicWithProgress, CreateEpicInput, UpdateEpicInput, DeleteEpicResult } from './epic.js';
+export type { IApiToken, ApiTokenGroup, CreateApiTokenInput, CreateApiTokenResponse, RevokeApiTokenResponse, McpInfoResponse } from './api-token.js';

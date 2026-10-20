@@ -112,10 +112,11 @@ export function buildChangeLine(
     }
   });
 
-  if (single) return `📝 ${who} ${parts[0]} (via ${via})`;
-  return `📝 ${who} updated ${ref}: ${parts.join(', ')} (via ${via})`;
+  const channel = escapeHtml(via);
+  if (single) return `📝 ${who} ${parts[0]} (via ${channel})`;
+  return `📝 ${who} updated ${ref}: ${parts.join(', ')} (via ${channel})`;
 }
 
-export function buildDeleteLine(actorName: string, taskNumber: number, title: string): string {
-  return `🗑 ${escapeHtml(actorName)} deleted ${taskRef(taskNumber, title)} (via app)`;
+export function buildDeleteLine(actorName: string, taskNumber: number, title: string, via = 'app'): string {
+  return `🗑 ${escapeHtml(actorName)} deleted ${taskRef(taskNumber, title)} (via ${escapeHtml(via)})`;
 }

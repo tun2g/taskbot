@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@tbot/shared": "workspace:*",
     "@telegram-apps/init-data-node": "^2.0.10",
     "axios": "^1.7.2",

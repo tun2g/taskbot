@@ -8,7 +8,7 @@ export interface RateLimitResult {
 }
 
 export class RateLimitService {
-  async checkRateLimit(userId: number, action: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
+  async checkRateLimit(userId: number | string, action: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
     const key = `ratelimit:${action}:${userId}`;
 
     try {

@@ -18,7 +18,7 @@ describe('help', () => {
     configService.botHasMainWebApp = true;
   });
 
-  it('/help sends one home message with a 2-column topic keyboard', async () => {
+  it('/help sends one home message with a 2-column topic keyboard (+ a full-width AI tools row)', async () => {
     const ctx = { chat: { id: 1, type: 'private' }, reply: jest.fn() } as any;
     await new HelpCommand().onHelp(ctx);
 
@@ -27,7 +27,8 @@ describe('help', () => {
     expect(text.split('\n')[0]).toBe('🤖 *TBot — tasks from your chat*');
     expect(opts.parse_mode).toBe('Markdown');
     const kb = opts.reply_markup.inline_keyboard;
-    expect(kb.every((row: unknown[]) => row.length === 2)).toBe(true);
+    expect(kb.slice(0, -1).every((row: unknown[]) => row.length === 2)).toBe(true);
+    expect(kb[kb.length - 1]).toEqual([{ text: '🤖 AI tools (MCP)', callback_data: 'help:mcp' }]);
     expect(callbacks(kb)).toEqual([
       'help:create',
       'help:ai',
@@ -35,10 +36,11 @@ describe('help', () => {
       'help:board',
       'help:reminders',
       'help:setup',
+      'help:mcp',
     ]);
   });
 
-  it.each(['create', 'ai', 'manage', 'board', 'reminders', 'setup'])('topic %s is short and has « Back', (topic) => {
+  it.each(['create', 'ai', 'manage', 'board', 'reminders', 'setup', 'mcp'])('topic %s is short and has « Back', (topic) => {
     const page = renderHelpPage(topic, { chatType: 'supergroup', groupId: 'g1' });
     expect(page.text.split('\n').length).toBeLessThanOrEqual(16);
     expect(callbacks(page.keyboard)).toContain('help:home');

@@ -67,6 +67,7 @@ import {
 } from 'src/shared/services/ai-command/result';
 import { AiOutcome, type AiReply, renderTelegram } from 'src/shared/services/ai-command/telegram.renderer';
 import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
+import { TaskActivityVia } from 'src/database/models/task-activity.model';
 import { BufferedMention } from 'src/shared/services/message-buffer.service';
 import { notificationService } from 'src/shared/services/notification.service';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
@@ -102,6 +103,8 @@ export interface AiRequestContext {
   channel?: 'telegram' | 'web';
   /** The group's open epics, oldest first (planner prompt + "no such epic" suggestions). */
   openEpics?: EpicRef[];
+  /** Activity-log channel for changes (default 'ai'; the MCP server passes 'mcp'). */
+  activityVia?: TaskActivityVia;
 }
 
 export type { AiOutcome, AiReply } from 'src/shared/services/ai-command/telegram.renderer';
@@ -205,6 +208,8 @@ export interface AiContextInput {
   /** Web chat only. */
   history?: AiChatTurn[];
   channel?: 'telegram' | 'web';
+  /** Activity-log channel for changes (default 'ai'). */
+  activityVia?: TaskActivityVia;
 }
 
 /**
@@ -238,6 +243,7 @@ export async function buildAiContext(input: AiContextInput): Promise<AiRequestCo
     openEpics,
   };
   if (input.channel) context.channel = input.channel;
+  if (input.activityVia) context.activityVia = input.activityVia;
 
   if (input.history) {
     const history = input.history.slice(-AI_HISTORY_TURNS);
@@ -581,7 +587,7 @@ export class AiCommandService {
     const changed: string[] = [];
     const notes: string[] = [];
     const fieldChanges: TaskChange[] = [];
-    const via = 'ai' as const;
+    const via: TaskActivityVia = c.activityVia ?? 'ai';
     const actor = c.requester._id;
     const record = (action: string, from: string | null, to: string | null) =>
       taskActivityService.record({ taskId: task._id, groupId: task.groupId, actor, action, from, to, via });

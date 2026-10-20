@@ -8,6 +8,7 @@ import { IGroup } from 'src/database/models/group.model';
 import { ISourceMessage, ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { IEpic } from 'src/database/models/epic.model';
+import { TaskActivityVia } from 'src/database/models/task-activity.model';
 import { epicService, normalizeEpicTitle } from 'src/database/services/epic.service';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
@@ -192,6 +193,8 @@ export interface CreateTasksCoreInput extends CreateTasksInput {
   origin: CreationOrigin;
   /** Telegram chat of the group (defaults to group.telegramGroupId). */
   chatId?: number;
+  /** Activity-log channel for every row written here (default: 'ai' / 'app' / 'bot' by origin and source). */
+  activityVia?: TaskActivityVia;
 }
 
 export interface CreatedTask {
@@ -276,7 +279,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
   }
 
   const batchId = randomBytes(8).toString('hex');
-  const via = result.source === 'ai' ? 'ai' : origin === 'app' ? 'app' : 'bot';
+  const via: TaskActivityVia = input.activityVia ?? (result.source === 'ai' ? 'ai' : origin === 'app' ? 'app' : 'bot');
   const mentions = messages.flatMap((m) => m.mentions ?? []);
   const byId = new Map(messages.map((m) => [m.messageId, m]));
 
@@ -330,7 +333,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
           action: 'epic',
           from: null,
           to: epic.title,
-          via: 'ai',
+          via: input.activityVia ?? 'ai',
         });
       }
     } catch (error) {

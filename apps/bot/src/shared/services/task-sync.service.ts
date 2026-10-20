@@ -7,7 +7,7 @@ import { IUser, User } from 'src/database/models/user.model';
 import { groupService } from 'src/database/services/group.service';
 import { TASK_POPULATE } from 'src/database/services/task-populate';
 import logger from 'src/shared/logger/logger';
-import { CreatedTask, createdSummaryLines } from 'src/shared/services/task-creation.service';
+import { CreatedTask, createdSummaryLines, escapeLegacyMarkdown } from 'src/shared/services/task-creation.service';
 import { groupMessengerService } from 'src/shared/services/group-messenger.service';
 import { buildUndoneText, UndoneTask } from 'src/shared/services/batch-undo.service';
 import { boardButton, taskButton } from 'src/shared/utils/app-links';
@@ -75,11 +75,19 @@ export class TaskSyncService {
     }
   }
 
-  /** Post one combined line about an app PATCH (only for status / assignee / title changes). */
-  async postChangeSummary(task: ITask, actorUserId: mongoose.Types.ObjectId | string, changes: TaskChange[]) {
+  /**
+   * Post one combined line about an app PATCH (only for status / assignee / title changes).
+   * `via` is the channel in "(via …)" — "app" by default, or the MCP client ("Claude Code").
+   */
+  async postChangeSummary(
+    task: ITask,
+    actorUserId: mongoose.Types.ObjectId | string,
+    changes: TaskChange[],
+    via = 'app',
+  ) {
     try {
       const actor = await User.findById(actorUserId);
-      const line = buildChangeLine(userDisplayName(actor), task.taskNumber, task.title, changes);
+      const line = buildChangeLine(userDisplayName(actor), task.taskNumber, task.title, changes, via);
       if (!line) return;
 
       // One tap from the group line to the task itself (no hunting on the board).
@@ -94,14 +102,14 @@ export class TaskSyncService {
   }
 
   /** After a delete from the app: remove the card (best effort) and tell the group. */
-  async onTaskDeleted(task: ITask, actorUserId: mongoose.Types.ObjectId | string) {
+  async onTaskDeleted(task: ITask, actorUserId: mongoose.Types.ObjectId | string, via = 'app') {
     try {
       if (task.taskCardChatId && task.taskCardMessageId) {
         await bot.telegram.deleteMessage(task.taskCardChatId, task.taskCardMessageId).catch(() => {});
       }
 
       const actor = await User.findById(actorUserId);
-      await this.postEvent(task.groupId, task.taskCardChatId, buildDeleteLine(userDisplayName(actor), task.taskNumber, task.title), {
+      await this.postEvent(task.groupId, task.taskCardChatId, buildDeleteLine(userDisplayName(actor), task.taskNumber, task.title, via), {
         parse_mode: 'HTML',
       });
     } catch (error) {
@@ -113,18 +121,20 @@ export class TaskSyncService {
    * Tasks created from the web chat: ONE group message, marked "(via app)" and without ↩️ Undo
    * (undo lives in the web chat). 1 task → its card (taskCardMessageId stored so later edits
    * refresh it); 2+ → a summary. Returns the posted message, or null when posting failed.
+   * `via` replaces "app" in "(via app)" (e.g. "Claude Code" for tasks created through MCP).
    */
   async postCreatedFromApp(
     group: IGroup,
     requester: IUser,
     created: CreatedTask[],
+    via = 'app',
   ): Promise<{ chatId: number; messageId: number } | null> {
     const chatId = group.telegramGroupId;
     if (!chatId || created.length === 0) return null;
     try {
       if (created.length === 1) {
         const { task, assignee } = created[0];
-        const text = `${formatTaskCard(task, requester, assignee, groupTimezone(group))}\n\n_(via app)_`;
+        const text = `${formatTaskCard(task, requester, assignee, groupTimezone(group))}\n\n_(via ${escapeLegacyMarkdown(via)})_`;
         const buttons = await buildTaskButtons(task);
         const sent = await groupMessengerService.sendEvent(bot.telegram, group, text, {
           extra: {
@@ -140,7 +150,7 @@ export class TaskSyncService {
       }
 
       const lines = [
-        `<b>🤖 ${escapeHtml(userDisplayName(requester))} created ${created.length} tasks (via app)</b>`,
+        `<b>🤖 ${escapeHtml(userDisplayName(requester))} created ${created.length} tasks (via ${escapeHtml(via)})</b>`,
         '',
         ...createdSummaryLines(created, group._id),
       ];
@@ -170,8 +180,9 @@ export class TaskSyncService {
     removed: number,
     tasks: UndoneTask[] = [],
     groupId?: IGroup['_id'] | string,
+    via = 'app',
   ) {
-    const text = buildUndoneText({ actorName, removed, tasks, viaApp: true });
+    const text = buildUndoneText({ actorName, removed, tasks, viaLabel: via });
     try {
       const gid = groupId ?? (await groupService.findGroupByTelegramId(post.chatId))?._id;
       const board = gid ? boardButton(gid) : null;

@@ -7,6 +7,7 @@ import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
+import { isApiTokenSecret } from 'src/database/services/api-token.service';
 import logger from 'src/shared/logger/logger';
 
 export interface AuthenticatedRequest extends Request {
@@ -48,6 +49,7 @@ export async function upsertTelegramUser(profile: TelegramUserProfile) {
 const asOptionalString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
 
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.';
+export const PAT_NOT_ALLOWED_MESSAGE = 'Personal access tokens (tbot_…) only work with the MCP server at /mcp.';
 
 /**
  * Accepts `Authorization: tma <initData>` (inside Telegram, 24h) or
@@ -57,7 +59,13 @@ export const apiAuthMiddleware = async (req: AuthenticatedRequest, res: Response
   const authHeader = req.headers.authorization || '';
 
   if (authHeader.startsWith('Bearer ')) {
-    const telegramUserId = verifyWebToken(authHeader.slice(7).trim());
+    const bearer = authHeader.slice(7).trim();
+    // Personal access tokens (tbot_…) are for the MCP server only — they can't manage the account.
+    if (isApiTokenSecret(bearer)) {
+      sendError(res, 401, PAT_NOT_ALLOWED_MESSAGE);
+      return;
+    }
+    const telegramUserId = verifyWebToken(bearer);
     if (telegramUserId === null) {
       sendError(res, 401, SESSION_EXPIRED);
       return;

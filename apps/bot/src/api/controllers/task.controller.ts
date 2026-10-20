@@ -1,54 +1,50 @@
 import {
-  EPIC_COLOR_EMOJI,
-  EpicColor,
   getStatusCategory,
   isClosedStatus,
   statusesInCategory,
-  TASK_PRIORITY_LABELS,
-  TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
-  TASK_TYPE_LABELS,
-  TaskPriority,
-  TaskStatus,
   TaskStatusCategory,
-  TaskType,
 } from '@tbot/shared';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { sendError, validationMessage } from 'src/api/http-error';
 import { AuthenticatedRequest } from 'src/api/middlewares/auth.middleware';
 import { TASK_NOT_FOUND_MESSAGE, GROUP_NOT_FOUND_MESSAGE } from 'src/api/middlewares/group-access.middleware';
-import { isTelegramGroupAdmin } from 'src/api/telegram-admin';
 import { overdueCutoff, resolveGroupTimezone } from 'src/api/timezone';
-import {
-  createTaskSchema,
-  formatDueDate,
-  parseDueDate,
-  TaskDueFilter,
-  taskQuerySchema,
-  updateTaskSchema,
-} from 'src/api/validation';
-import { Epic, IEpic } from 'src/database/models/epic.model';
+import { createTaskSchema, TaskDueFilter, taskQuerySchema, updateTaskSchema } from 'src/api/validation';
 import { IGroup } from 'src/database/models/group.model';
-import { ITask, Task } from 'src/database/models/task.model';
-import { IUser, User } from 'src/database/models/user.model';
-import { groupMemberService } from 'src/database/services/group-member.service';
+import { Task } from 'src/database/models/task.model';
 import { groupService } from 'src/database/services/group.service';
-import { epicService } from 'src/database/services/epic.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { TASK_POPULATE_FULL } from 'src/database/services/task-populate';
 import { taskService, TaskFilters } from 'src/database/services/task.service';
-import { notificationService } from 'src/shared/services/notification.service';
-import { TaskChange, taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
+import {
+  ASSIGNEE_NOT_MEMBER_MESSAGE,
+  DELETE_FORBIDDEN_MESSAGE,
+  EPIC_NOT_IN_GROUP_MESSAGE,
+  refId,
+  TaskMutationError,
+  TaskMutationErrorCode,
+  taskMutationService,
+} from 'src/shared/services/task-mutation.service';
 
-export const DELETE_FORBIDDEN_MESSAGE = 'Only the task creator or a group admin can delete this task.';
-export const ASSIGNEE_NOT_MEMBER_MESSAGE =
-  'That person is not a member of this group. Pick someone from the member list.';
-export const EPIC_NOT_IN_GROUP_MESSAGE = 'That epic is not part of this group. Pick an epic from the list.';
+export { ASSIGNEE_NOT_MEMBER_MESSAGE, DELETE_FORBIDDEN_MESSAGE, EPIC_NOT_IN_GROUP_MESSAGE, refId };
 const SIGN_IN_MESSAGE = 'Please sign in to continue.';
-const ACTIVITY_TEXT_MAX = 300;
 
-type UserLike = IUser;
+const MUTATION_ERROR_STATUS: Record<TaskMutationErrorCode, number> = {
+  assignee_not_member: 400,
+  epic_not_in_group: 400,
+  forbidden: 403,
+  not_found: 404,
+};
+
+/** Sends the HTTP error for a TaskMutationError (true), or leaves other errors to the caller (false). */
+function sendMutationError(res: Response, error: unknown): boolean {
+  if (!(error instanceof TaskMutationError)) return false;
+  const status = MUTATION_ERROR_STATUS[error.code];
+  sendError(res, status, error.code === 'not_found' ? TASK_NOT_FOUND_MESSAGE : error.message, status === 400 ? 'Validation error' : undefined);
+  return true;
+}
 
 /** Populate user + epic refs for API responses (no-op for plain objects). */
 async function populateTask<T>(task: T): Promise<T> {
@@ -57,47 +53,6 @@ async function populateTask<T>(task: T): Promise<T> {
     await doc.populate(TASK_POPULATE_FULL);
   }
   return task;
-}
-
-type EpicLike = Pick<IEpic, 'title' | 'color'> & { _id: unknown };
-
-function isEpicDoc(value: unknown): value is EpicLike {
-  return !!value && typeof value === 'object' && 'title' in (value as object) && 'color' in (value as object);
-}
-
-/** A task's epic as a doc with title/color (populated ref, or loaded by id), or null. */
-async function resolveEpic(ref: unknown): Promise<EpicLike | null> {
-  if (!ref) return null;
-  if (isEpicDoc(ref)) return ref;
-  return Epic.findById(refId(ref));
-}
-
-const epicIcon = (epic: EpicLike | null) => (epic ? (EPIC_COLOR_EMOJI[epic.color as EpicColor] ?? null) : null);
-
-/** Id of a ref that may be populated (user doc) or a bare ObjectId/string. */
-export function refId(ref: unknown): string | null {
-  if (!ref) return null;
-  if (typeof ref === 'object' && ref !== null && '_id' in ref) return String((ref as { _id: unknown })._id);
-  return String(ref);
-}
-
-function isUserDoc(value: unknown): value is UserLike {
-  return !!value && typeof value === 'object' && 'telegramUserId' in (value as object);
-}
-
-async function resolveUser(ref: unknown): Promise<UserLike | null> {
-  if (!ref) return null;
-  if (isUserDoc(ref)) return ref;
-  return User.findById(refId(ref));
-}
-
-const statusLabel = (s: string) => TASK_STATUS_LABELS[s as TaskStatus] ?? s;
-const priorityLabel = (p: string) => TASK_PRIORITY_LABELS[p as TaskPriority] ?? p;
-const typeLabel = (t: string) => TASK_TYPE_LABELS[t as TaskType] ?? t;
-
-function clip(text: string | null | undefined): string | null {
-  if (!text) return null;
-  return text.length > ACTIVITY_TEXT_MAX ? `${text.slice(0, ACTIVITY_TEXT_MAX - 1)}…` : text;
 }
 
 /**
@@ -136,16 +91,6 @@ export function resolveDueFilter(
   if (due === 'overdue') return { dueTo: today };
   if (due === 'today') return { dueFrom: today, dueTo: new Date(today.getTime() + DAY_MS) };
   return { dueFrom: today, dueTo: new Date(today.getTime() + 7 * DAY_MS) };
-}
-
-function notifyUnassigned(task: ITask, previous: UserLike, changedBy: UserLike) {
-  // Provided by the notification service when available.
-  const svc = notificationService as typeof notificationService & {
-    notifyUnassigned?: (task: ITask, previous: UserLike, changedBy: UserLike) => Promise<void>;
-  };
-  if (typeof svc.notifyUnassigned === 'function') {
-    svc.notifyUnassigned(task, previous, changedBy).catch(() => {});
-  }
 }
 
 export class TaskController {
@@ -245,7 +190,6 @@ export class TaskController {
       sendError(res, 400, validationMessage(bodyResult.error), 'Validation error');
       return;
     }
-    const data = bodyResult.data;
 
     const objectGroupId = new mongoose.Types.ObjectId(groupId);
     const group: IGroup | null = authReq.group ?? (await groupService.findGroupById(objectGroupId));
@@ -254,54 +198,12 @@ export class TaskController {
       return;
     }
 
-    let assignee: UserLike | null = null;
-    if (data.assigneeId) {
-      const isMember = await groupMemberService.isMember(objectGroupId, data.assigneeId);
-      assignee = isMember ? await User.findById(data.assigneeId) : null;
-      if (!assignee) {
-        sendError(res, 400, ASSIGNEE_NOT_MEMBER_MESSAGE, 'Validation error');
-        return;
-      }
+    try {
+      const { task } = await taskMutationService.createTask(group, user, bodyResult.data);
+      res.status(201).json({ data: await populateTask(task) });
+    } catch (error) {
+      if (!sendMutationError(res, error)) throw error;
     }
-
-    let epic: IEpic | null = null;
-    if (data.epicId) {
-      epic = await epicService.findInGroup(objectGroupId, data.epicId);
-      if (!epic) {
-        sendError(res, 400, EPIC_NOT_IN_GROUP_MESSAGE, 'Validation error');
-        return;
-      }
-    }
-
-    const task = await taskService.createTask({
-      groupId: objectGroupId,
-      createdBy: user._id as mongoose.Types.ObjectId,
-      title: data.title,
-      description: data.description,
-      type: data.type,
-      priority: data.priority,
-      assigneeId: data.assigneeId ? new mongoose.Types.ObjectId(data.assigneeId) : undefined,
-      dueDate: data.dueDate ? (parseDueDate(data.dueDate) ?? undefined) : undefined,
-      epicId: epic ? (epic._id as mongoose.Types.ObjectId) : undefined,
-      // So the card is posted to the group
-      taskCardChatId: group.telegramGroupId,
-    });
-
-    await taskActivityService.record({
-      taskId: task._id as mongoose.Types.ObjectId,
-      groupId: objectGroupId,
-      actor: user._id as mongoose.Types.ObjectId,
-      action: 'created',
-      to: clip(task.title),
-      via: 'app',
-    });
-
-    if (assignee) {
-      notificationService.notifyAssignment(task, assignee, user).catch(() => {});
-    }
-    taskSyncService.syncTaskCard(task, { created: true }).catch(() => {});
-
-    res.status(201).json({ data: await populateTask(task) });
   }
 
   /** GET /api/tasks/:taskId (requireTaskMember sets req.task) */
@@ -339,7 +241,6 @@ export class TaskController {
       sendError(res, 400, validationMessage(bodyResult.error), 'Validation error');
       return;
     }
-    const data = bodyResult.data;
 
     const before = authReq.task ?? (await taskService.getTaskById(taskId));
     if (!before) {
@@ -347,147 +248,12 @@ export class TaskController {
       return;
     }
 
-    // Work out what actually changed — only those fields are written, logged and announced.
-    const changes: TaskChange[] = [];
-    const updates: Record<string, unknown> = {};
-    let newStatus: string | undefined;
-
-    if (data.status !== undefined && data.status !== before.status) {
-      newStatus = data.status;
-      changes.push({ field: 'status', from: statusLabel(before.status), to: statusLabel(data.status) });
+    try {
+      const { task } = await taskMutationService.updateTask(before, user, bodyResult.data);
+      res.json({ data: await populateTask(task) });
+    } catch (error) {
+      if (!sendMutationError(res, error)) throw error;
     }
-
-    const previousAssignee = await resolveUser(before.assigneeId);
-    let newAssignee: UserLike | null = null;
-    let assigneeChanged = false;
-    if (data.assigneeId !== undefined) {
-      const nextId = data.assigneeId || null;
-      if (nextId !== refId(before.assigneeId)) {
-        if (nextId) {
-          const isMember = await groupMemberService.isMember(before.groupId, nextId);
-          newAssignee = isMember ? await User.findById(nextId) : null;
-          if (!newAssignee) {
-            sendError(res, 400, ASSIGNEE_NOT_MEMBER_MESSAGE, 'Validation error');
-            return;
-          }
-        }
-        assigneeChanged = true;
-        updates.assigneeId = nextId ? new mongoose.Types.ObjectId(nextId) : null;
-        changes.push({
-          field: 'assignee',
-          from: previousAssignee ? userDisplayName(previousAssignee) : null,
-          to: newAssignee ? userDisplayName(newAssignee) : null,
-        });
-      }
-    }
-
-    if (data.title !== undefined && data.title !== before.title) {
-      updates.title = data.title;
-      changes.push({ field: 'title', from: clip(before.title), to: clip(data.title) });
-    }
-
-    if (data.priority !== undefined && data.priority !== before.priority) {
-      updates.priority = data.priority;
-      changes.push({ field: 'priority', from: priorityLabel(before.priority), to: priorityLabel(data.priority) });
-    }
-
-    const beforeType = before.type || 'task';
-    if (data.type !== undefined && data.type !== beforeType) {
-      updates.type = data.type;
-      changes.push({ field: 'type', from: typeLabel(beforeType), to: typeLabel(data.type) });
-    }
-
-    if (data.description !== undefined) {
-      const next = data.description || null;
-      const prev = before.description || null;
-      if (next !== prev) {
-        updates.description = next;
-        changes.push({ field: 'description', from: clip(prev), to: clip(next) });
-      }
-    }
-
-    if (data.dueDate !== undefined) {
-      const next = data.dueDate ? parseDueDate(data.dueDate) : null;
-      const nextDay = formatDueDate(next);
-      const prevDay = formatDueDate(before.dueDate);
-      if (nextDay !== prevDay) {
-        updates.dueDate = next;
-        updates.reminderSent = false;
-        changes.push({ field: 'due_date', from: prevDay, to: nextDay });
-      }
-    }
-
-    if (data.epicId !== undefined) {
-      const nextId = data.epicId || null;
-      if (nextId !== refId(before.epicId)) {
-        let nextEpic: IEpic | null = null;
-        if (nextId) {
-          nextEpic = await epicService.findInGroup(before.groupId, nextId);
-          if (!nextEpic) {
-            sendError(res, 400, EPIC_NOT_IN_GROUP_MESSAGE, 'Validation error');
-            return;
-          }
-        }
-        const prevEpic = await resolveEpic(before.epicId);
-        updates.epicId = nextEpic ? nextEpic._id : null;
-        changes.push({
-          field: 'epic',
-          from: prevEpic ? clip(prevEpic.title) : null,
-          to: nextEpic ? clip(nextEpic.title) : null,
-          fromIcon: epicIcon(prevEpic),
-          toIcon: epicIcon(nextEpic),
-        });
-      }
-    }
-
-    if (changes.length === 0) {
-      res.json({ data: await populateTask(before) });
-      return;
-    }
-
-    let task: ITask | null = before;
-    if (newStatus) {
-      task = await taskService.updateTaskStatus(taskId, newStatus, user._id as mongoose.Types.ObjectId);
-    }
-    if (task && Object.keys(updates).length > 0) {
-      task = await taskService.updateTask(taskId, updates);
-    }
-    if (!task) {
-      sendError(res, 404, TASK_NOT_FOUND_MESSAGE);
-      return;
-    }
-
-    await Promise.all(
-      changes.map((change) =>
-        taskActivityService.record({
-          taskId: before._id as mongoose.Types.ObjectId,
-          groupId: before.groupId,
-          actor: user._id as mongoose.Types.ObjectId,
-          action: change.field,
-          from: change.from,
-          to: change.to,
-          via: 'app',
-        }),
-      ),
-    );
-
-    // DMs — same behaviour as changes made in the bot
-    const updatedTask = task;
-    if (assigneeChanged) {
-      if (newAssignee) notificationService.notifyAssignment(updatedTask, newAssignee, user).catch(() => {});
-      if (previousAssignee) notifyUnassigned(updatedTask, previousAssignee, user);
-    }
-    if (newStatus) {
-      const currentAssignee = assigneeChanged ? newAssignee : previousAssignee;
-      if (currentAssignee && String(currentAssignee._id) !== String(user._id)) {
-        notificationService.notifyStatusChange(updatedTask, user, currentAssignee).catch(() => {});
-      }
-    }
-
-    taskSyncService.syncTaskCard(updatedTask).catch(() => {});
-    taskSyncService.postChangeSummary(updatedTask, user._id as mongoose.Types.ObjectId, changes).catch(() => {});
-
-    res.json({ data: await populateTask(updatedTask) });
   }
 
   /** DELETE /api/tasks/:taskId — creator or Telegram group admin only. */
@@ -507,33 +273,12 @@ export class TaskController {
       return;
     }
 
-    const isCreator = refId(task.createdBy) === String(user._id);
-    if (!isCreator) {
-      const group = authReq.group ?? (await groupService.findGroupById(task.groupId));
-      const isAdmin = group ? await isTelegramGroupAdmin(group.telegramGroupId, user.telegramUserId) : false;
-      if (!isAdmin) {
-        sendError(res, 403, DELETE_FORBIDDEN_MESSAGE);
-        return;
-      }
+    try {
+      await taskMutationService.deleteTask(task, user, { group: authReq.group });
+      res.json({ data: { deleted: true } });
+    } catch (error) {
+      if (!sendMutationError(res, error)) throw error;
     }
-
-    const deleted = await taskService.deleteTask(taskId);
-    if (!deleted) {
-      sendError(res, 404, TASK_NOT_FOUND_MESSAGE);
-      return;
-    }
-
-    await taskActivityService.record({
-      taskId: task._id as mongoose.Types.ObjectId,
-      groupId: task.groupId,
-      actor: user._id as mongoose.Types.ObjectId,
-      action: 'deleted',
-      from: clip(`#${task.taskNumber} ${task.title}`),
-      via: 'app',
-    });
-    taskSyncService.onTaskDeleted(task, user._id as mongoose.Types.ObjectId).catch(() => {});
-
-    res.json({ data: { deleted: true } });
   }
 
   /** GET /api/groups/:groupId/stats → per-status counts + overdue + byCategory */

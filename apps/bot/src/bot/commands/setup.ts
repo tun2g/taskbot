@@ -43,6 +43,10 @@ export class SetUpBotCommand {
         description: 'Who I can assign tasks to — tap ✋ to join',
       },
       {
+        command: 'mcp',
+        description: 'Connect Claude Code / Cursor to your tasks',
+      },
+      {
         command: 'settopic',
         description: 'Admins: post task events in this topic',
       },

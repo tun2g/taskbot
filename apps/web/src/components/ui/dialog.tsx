@@ -18,6 +18,11 @@ interface DialogProps {
   hideClose?: boolean;
   /** Buttons row, stacked full-width on phones and right-aligned from 640px. */
   footer?: ReactNode;
+  /**
+   * False: Esc, backdrop tap and Telegram's BackButton don't close it (only the footer's own
+   * buttons do) — for sheets holding something the user must not lose, e.g. a one-time secret.
+   */
+  dismissible?: boolean;
   children?: ReactNode;
 }
 
@@ -33,23 +38,30 @@ export function Dialog({
   size = 'md',
   hideClose,
   footer,
+  dismissible = true,
   children,
 }: DialogProps) {
   const titleId = useId();
   const descId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const dismissibleRef = useRef(dismissible);
+  dismissibleRef.current = dismissible;
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     // Stacked dialogs (e.g. "New epic" over "Create task"): Esc closes only the top one.
     const token = {};
     openDialogs.push(token);
+    const dismiss = () => {
+      if (dismissibleRef.current) onCloseRef.current();
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && openDialogs[openDialogs.length - 1] === token) onCloseRef.current();
+      if (e.key === 'Escape' && openDialogs[openDialogs.length - 1] === token) dismiss();
     };
     window.addEventListener('keydown', onKey);
-    const popBack = pushBackInterceptor(() => onCloseRef.current());
+    // Still intercepts when not dismissible, so BackButton can't navigate away underneath it.
+    const popBack = pushBackInterceptor(dismiss);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
@@ -71,7 +83,7 @@ export function Dialog({
       // Clear landscape side insets, and end above the on-screen keyboard (lib/telegram.ts).
       style={{ left: 'var(--app-safe-left)', right: 'var(--app-safe-right)', bottom: 'var(--app-kb)' }}
     >
-      <div className="tbot-fade-in fixed inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div className="tbot-fade-in fixed inset-0 bg-black/40" onClick={dismissible ? onClose : undefined} aria-hidden />
       <div
         style={{ maxHeight: 'calc(var(--app-vh) * 0.92 - var(--app-safe-top))' }}
         className={`tbot-sheet-in pb-safe relative w-full overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-2 shadow-xl sm:rounded-xl sm:pt-4 ${
@@ -90,7 +102,7 @@ export function Dialog({
               </div>
             )}
           </div>
-          {!hideClose && (
+          {!hideClose && dismissible && (
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" className="-mr-2 text-tg-hint">
               ✕
             </Button>

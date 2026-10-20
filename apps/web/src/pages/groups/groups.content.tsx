@@ -15,6 +15,8 @@ interface GroupsContentProps {
   onRetry: () => void;
   isRetrying: boolean;
   onOpenGroup: (groupId: string, search?: BoardSearch) => void;
+  /** Settings → AI tools (MCP access tokens). */
+  onOpenAiTools: () => void;
   onSignOut?: () => void;
 }
 
@@ -25,17 +27,29 @@ export function GroupsContent({
   onRetry,
   isRetrying,
   onOpenGroup,
+  onOpenAiTools,
   onSignOut,
 }: GroupsContentProps) {
   return (
     <Layout
       title="Your groups"
       actions={
-        onSignOut && (
-          <Button variant="link" onClick={onSignOut}>
-            Sign out
-          </Button>
-        )
+        <>
+          <button
+            type="button"
+            onClick={onOpenAiTools}
+            title="Connect Claude Code, Cursor and other AI tools"
+            className="focus-ring inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-tg-separator px-2.5 text-sm font-medium text-tg-link transition-colors hover:bg-tg-secondary active:bg-tg-secondary min-[420px]:px-3"
+          >
+            <span aria-hidden>🤖</span>
+            <span>AI tools</span>
+          </button>
+          {onSignOut && (
+            <Button variant="link" onClick={onSignOut}>
+              Sign out
+            </Button>
+          )}
+        </>
       }
     >
       {isLoading ? (

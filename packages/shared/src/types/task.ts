@@ -116,7 +116,8 @@ export interface ITaskActivity {
   /** Human-readable values, already formatted for display. */
   from?: string | null;
   to?: string | null;
-  via: 'bot' | 'app' | 'ai';
+  /** 'mcp' = an external agent (Claude Code, Cursor, …) via the MCP server. */
+  via: 'bot' | 'app' | 'ai' | 'mcp';
   createdAt: string;
 }
 

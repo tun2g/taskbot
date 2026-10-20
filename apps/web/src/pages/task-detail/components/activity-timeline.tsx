@@ -22,6 +22,7 @@ const VIA: Record<ITaskActivity['via'], { label: string; className: string }> = 
   app: { label: '📱 app', className: 'tint-neutral' },
   bot: { label: '🤖 bot', className: 'tint-neutral' },
   ai: { label: '✨ AI', className: 'tint-neutral' },
+  mcp: { label: '🔌 AI tool', className: 'tint-neutral' },
 };
 
 /** `from` / `to` of an "epic" activity are plain epic titles. */

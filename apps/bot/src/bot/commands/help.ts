@@ -4,10 +4,11 @@ import { escapeMarkdown } from 'src/bot/task-card.renderer';
 import { configService } from 'src/configs/configuration';
 import { groupService } from 'src/database/services/group.service';
 import logger from 'src/shared/logger/logger';
+import { renderMcpHelpPage } from 'src/bot/commands/mcp/mcp-help-page';
 import { boardButton } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
-export const HELP_TOPICS = ['create', 'ai', 'manage', 'board', 'reminders', 'setup'] as const;
+export const HELP_TOPICS = ['create', 'ai', 'manage', 'board', 'reminders', 'setup', 'mcp'] as const;
 export type HelpTopic = (typeof HELP_TOPICS)[number];
 
 export interface HelpPage {
@@ -44,6 +45,7 @@ function homePage(): HelpPage {
     '🗂 Manage tasks right on their card',
     '📊 Kanban board in the app',
     '🔔 Reminders & daily digest',
+    '🤖 Claude Code & Cursor can manage tasks too',
     '',
     'Pick a topic:',
   ].join('\n');
@@ -61,6 +63,7 @@ function homePage(): HelpPage {
       { text: '🔔 Reminders', callback_data: 'help:reminders' },
       { text: '⚙️ Setup', callback_data: 'help:setup' },
     ],
+    [{ text: '🤖 AI tools (MCP)', callback_data: 'help:mcp' }],
   ];
   return { text, keyboard };
 }
@@ -160,6 +163,8 @@ function setupPage(): HelpPage {
 
 export function renderHelpPage(topic: string, ctx: HelpPageContext = {}): HelpPage {
   switch (topic) {
+    case 'mcp':
+      return renderMcpHelpPage(ctx.chatType === 'private', BACK);
     case 'create':
       return createPage();
     case 'ai':

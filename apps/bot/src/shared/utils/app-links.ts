@@ -91,3 +91,30 @@ export function taskNumberMarkdown(taskNumber: number, groupId?: IdLike | null, 
   const url = groupId && taskId ? buildAppLink(groupId, taskId) : null;
   return url ? `[#${taskNumber}](${url})` : `*#${taskNumber}*`;
 }
+
+// ── AI tools (MCP) tokens page ──
+
+export const TOKENS_PAGE_PATH = '/settings/tokens';
+export const MANAGE_TOKENS_LABEL = '🔑 Manage tokens';
+
+/** The Mini App page where people list / create / revoke MCP tokens, or null without an https WEBAPP_URL. */
+export function tokensPageUrl(): string | null {
+  const base = webappBaseUrl();
+  return base ? `${base}${TOKENS_PAGE_PATH}` : null;
+}
+
+/**
+ * "🔑 Manage tokens": a web_app button in private chats (opens the Mini App signed in), a url button elsewhere
+ * (web_app buttons aren't allowed in groups). Null when no app URL is configured.
+ */
+export function manageTokensButton(privateChat: boolean): InlineKeyboardButton | null {
+  const url = tokensPageUrl();
+  if (!url) return null;
+  return privateChat ? { text: MANAGE_TOKENS_LABEL, web_app: { url } } : { text: MANAGE_TOKENS_LABEL, url };
+}
+
+/** Deep link that opens a private chat with the bot and sends `/start <payload>`. */
+export function botStartLink(payload?: string): string | null {
+  if (!configService.botUsername) return null;
+  return `https://t.me/${configService.botUsername}${payload ? `?start=${payload}` : ''}`;
+}

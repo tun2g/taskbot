@@ -69,6 +69,7 @@ Key bot variables:
 | `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default) or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite`. Powers `/new` extraction and `/ai`. Without a key, `/new` still creates a basic task and `/ai` explains AI is unavailable |
 | `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
+| `MCP_PUBLIC_URL` | optional public URL of the MCP endpoint; defaults to `<WEBHOOK_URL>/mcp` |
 
 Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example)): `VITE_API_URL`, and `VITE_BOT_USERNAME` (bot username without `@`, for the browser Telegram login). In Docker the web image also reads **`API_URL` / `BOT_USERNAME` from the container env at startup** (written to `/config.js`), which override the build-time values — so one image works for any bot or domain without rebuilding.
 
@@ -88,8 +89,23 @@ Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example
 - `/update #12 <plain words>` or reply `/update …` to a card — change one task with AI (incl. description)
 - `/ai <plain words>` — e.g. reply to a card with `/ai chuyển task này cho @ttt`, `/ai #12 xong rồi`, `/ai tôi còn task nào?`
 - `/list [open|review|bug|@user…]`, `/mytasks`, `/done #12`, `/members`, `/settopic`, `/help` (interactive guide)
+- `/mcp` — connect Claude Code / Cursor (see below)
 - `/task` and `/tasks` still work as hidden aliases of `/new` and `/list`
 - Statuses: Backlog · To do · In progress · In review · Pending · Done · Cancelled. Types: Bug · Feature · Improvement · Task · Chore · Research · Question
+
+## Connect Claude Code / Cursor (MCP)
+
+The bot serves a remote MCP server at `/mcp` (same process, port 3000). Agents can talk to TaskBot's AI in plain
+words (`ask_taskbot`) or use structured tools (list/create/update tasks and epics); every change shows up in the group
+as `(via Claude Code)` / `(via Cursor)`.
+
+1. Send **`/mcp`** to the bot in a private chat → pick a group (or all) → copy the token (shown once).
+2. Claude Code: `claude mcp add --transport http taskbot <url> --header "Authorization: Bearer <token>"` — then `/mcp`
+   in Claude Code to check. Cursor: add the JSON snippet from the reply to `~/.cursor/mcp.json`.
+3. Ask: “tạo task fix login cho @an hạn thứ 6”.
+
+Manage/revoke tokens in the Mini App (`/settings/tokens`). Full guide, tool reference, scopes, proxy config and
+troubleshooting: [`docs/mcp.md`](docs/mcp.md).
 
 ## Running the Mini App inside Telegram
 

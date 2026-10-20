@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsTokensRouteImport } from './routes/settings/tokens'
 import { Route as GroupIdTasksIndexRouteImport } from './routes/$groupId/tasks/index'
 import { Route as GroupIdEpicsIndexRouteImport } from './routes/$groupId/epics/index'
 import { Route as GroupIdTasksTaskIdRouteImport } from './routes/$groupId/tasks/$taskId'
@@ -23,6 +24,11 @@ const LoginRoute = LoginRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsTokensRoute = SettingsTokensRouteImport.update({
+  id: '/settings/tokens',
+  path: '/settings/tokens',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GroupIdTasksIndexRoute = GroupIdTasksIndexRouteImport.update({
@@ -44,6 +50,7 @@ const GroupIdTasksTaskIdRoute = GroupIdTasksTaskIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/epics/': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/epics': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks': typeof GroupIdTasksIndexRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/settings/tokens': typeof SettingsTokensRoute
   '/$groupId/tasks/$taskId': typeof GroupIdTasksTaskIdRoute
   '/$groupId/epics/': typeof GroupIdEpicsIndexRoute
   '/$groupId/tasks/': typeof GroupIdTasksIndexRoute
@@ -68,6 +77,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/settings/tokens'
     | '/$groupId/tasks/$taskId'
     | '/$groupId/epics/'
     | '/$groupId/tasks/'
@@ -75,6 +85,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/settings/tokens'
     | '/$groupId/tasks/$taskId'
     | '/$groupId/epics'
     | '/$groupId/tasks'
@@ -82,6 +93,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/settings/tokens'
     | '/$groupId/tasks/$taskId'
     | '/$groupId/epics/'
     | '/$groupId/tasks/'
@@ -90,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  SettingsTokensRoute: typeof SettingsTokensRoute
   GroupIdTasksTaskIdRoute: typeof GroupIdTasksTaskIdRoute
   GroupIdEpicsIndexRoute: typeof GroupIdEpicsIndexRoute
   GroupIdTasksIndexRoute: typeof GroupIdTasksIndexRoute
@@ -109,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/tokens': {
+      id: '/settings/tokens'
+      path: '/settings/tokens'
+      fullPath: '/settings/tokens'
+      preLoaderRoute: typeof SettingsTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$groupId/tasks/': {
@@ -138,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  SettingsTokensRoute: SettingsTokensRoute,
   GroupIdTasksTaskIdRoute: GroupIdTasksTaskIdRoute,
   GroupIdEpicsIndexRoute: GroupIdEpicsIndexRoute,
   GroupIdTasksIndexRoute: GroupIdTasksIndexRoute,

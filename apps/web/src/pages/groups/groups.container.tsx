@@ -27,6 +27,7 @@ export function GroupsContainer() {
       onRetry={() => groups.refetch()}
       isRetrying={groups.isFetching}
       onOpenGroup={(groupId, search) => navigate({ to: '/$groupId/tasks', params: { groupId }, search: search ?? {} })}
+      onOpenAiTools={() => navigate({ to: '/settings/tokens' })}
       onSignOut={isInTelegram() ? undefined : handleSignOut}
     />
   );
