@@ -1,6 +1,6 @@
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
+import { AIProvider, ChatMessage, chatCompletionsUrl, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
 
 interface FuseAPIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -40,7 +40,7 @@ export class FuseProvider implements AIProvider {
   private model = 'claude-opus-4.6';
 
   constructor() {
-    this.apiUrl = configService.ai.fuseApiUrl;
+    this.apiUrl = chatCompletionsUrl(configService.ai.apiUrl || 'https://api.fuseapi.app/v1');
     this.apiKey = configService.ai.apiKey;
     if (!this.apiKey) {
       throw new Error('Fuse API key is required. Set AI_API_KEY in your environment variables.');

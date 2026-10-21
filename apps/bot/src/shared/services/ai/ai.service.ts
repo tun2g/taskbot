@@ -4,6 +4,7 @@ import logger from 'src/shared/logger/logger';
 import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
 import { FuseProvider } from 'src/shared/services/ai/fuse.provider';
 import { GeminiProvider } from 'src/shared/services/ai/gemini.provider';
+import { OpenAIProvider } from 'src/shared/services/ai/openai.provider';
 
 export type AIUnavailableReason = 'unconfigured' | 'failed' | 'invalid';
 
@@ -52,7 +53,9 @@ class AIService {
   private getProvider(): AIProvider {
     if (this.provider) return this.provider;
     const providerType = configService.ai.provider.toLowerCase();
-    this.provider = providerType === 'fuse' ? new FuseProvider() : new GeminiProvider();
+    if (providerType === 'fuse') this.provider = new FuseProvider();
+    else if (providerType === 'openai') this.provider = new OpenAIProvider();
+    else this.provider = new GeminiProvider();
     return this.provider;
   }
 

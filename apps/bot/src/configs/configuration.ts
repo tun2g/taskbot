@@ -24,9 +24,11 @@ class ConfigService {
   ai = {
     provider: process.env.AI_PROVIDER || 'gemini',
     apiKey: process.env.AI_API_KEY || '',
-    // Gemini model id; the lite tier is cheapest and fast enough for task extraction and /ai
-    model: process.env.AI_MODEL || 'gemini-3.5-flash-lite',
-    fuseApiUrl: process.env.FUSE_API_URL || 'https://api.fuseapi.app/v1/chat/completions',
+    // Per-provider default when AI_MODEL is unset; cheap tiers are fast enough for task extraction and /ai
+    model: process.env.AI_MODEL || ((process.env.AI_PROVIDER || '').toLowerCase() === 'openai' ? 'gpt-5-mini' : 'gemini-3.5-flash-lite'),
+    // Base URL for the HTTP providers (openai, fuse) — any OpenAI-compatible endpoint works.
+    // FUSE_API_URL is the legacy name; empty means the provider's own default.
+    apiUrl: process.env.AI_API_URL || process.env.FUSE_API_URL || '',
   };
   timezone = process.env.TIMEZONE || 'UTC';
   devMode = process.env.NODE_ENV === 'development';

@@ -66,7 +66,7 @@ Key bot variables:
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` (local) — `redis` in compose |
 | `WEBAPP_URL` | Mini App URL — **must be HTTPS** for the menu button / deep links |
 | `WEBHOOK_URL` | if set, the bot uses webhook mode instead of polling |
-| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default) or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite`. Powers `/new` extraction and `/ai`. Without a key, `/new` still creates a basic task and `/ai` explains AI is unavailable |
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default), `openai` or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite` (gemini) / `gpt-5-mini` (openai). `AI_API_URL` points `openai`/`fuse` at any OpenAI-compatible base URL. Powers `/new` extraction and `/ai`. Without a key, `/new` still creates a basic task and `/ai` explains AI is unavailable |
 | `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
 | `MCP_PUBLIC_URL` | optional public URL of the MCP endpoint; defaults to `<WEBHOOK_URL>/mcp` |
