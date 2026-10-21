@@ -1,6 +1,4 @@
 import {
-  EPIC_COLOR_EMOJI,
-  EpicColor,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   TASK_TYPE_LABELS,
@@ -11,9 +9,8 @@ import {
 import mongoose from 'mongoose';
 import { isTelegramGroupAdmin } from 'src/api/telegram-admin';
 import { formatDueDate, parseDueDate } from 'src/api/validation';
-import { Epic, IEpic } from 'src/database/models/epic.model';
+import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
-import { TaskActivityVia } from 'src/database/models/task-activity.model';
 import { ITask } from 'src/database/models/task.model';
 import { IUser, User } from 'src/database/models/user.model';
 import { epicService } from 'src/database/services/epic.service';
@@ -22,40 +19,44 @@ import { groupService } from 'src/database/services/group.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import { notificationService } from 'src/shared/services/notification.service';
+import {
+  APP_CHANNEL,
+  ASSIGNEE_NOT_MEMBER_MESSAGE,
+  clip,
+  DELETE_FORBIDDEN_MESSAGE,
+  EPIC_NOT_IN_GROUP_MESSAGE,
+  epicChange,
+  MutationChannel,
+  refId,
+  resolveEpic,
+  resolveUser,
+  TASK_GONE_MESSAGE,
+  TaskMutationError,
+  viaArg,
+} from 'src/shared/services/task-mutation/common';
+import {
+  afterSubtaskCreated,
+  afterTaskDeleted,
+  afterTaskUpdated,
+  parentOrThrow,
+  planParentChange,
+} from 'src/shared/services/task-mutation/subtasks';
 import { TaskChange, taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
 
 // The one place where a task is created / changed / deleted on behalf of a person from outside the chat
 // (the REST API for the Mini App, the MCP server). Every caller gets the same validation, activity log,
-// DMs to assignees and group card / change line.
+// DMs to assignees and group card / change line. Subtask rules live in ./task-mutation/subtasks.
 
-export const ASSIGNEE_NOT_MEMBER_MESSAGE =
-  'That person is not a member of this group. Pick someone from the member list.';
-export const EPIC_NOT_IN_GROUP_MESSAGE = 'That epic is not part of this group. Pick an epic from the list.';
-export const DELETE_FORBIDDEN_MESSAGE = 'Only the task creator or a group admin can delete this task.';
-export const TASK_GONE_MESSAGE = 'This task could not be found. It may have been deleted.';
-const ACTIVITY_TEXT_MAX = 300;
-
-export type TaskMutationErrorCode = 'assignee_not_member' | 'epic_not_in_group' | 'forbidden' | 'not_found';
-
-/** A rule the change broke; `message` is a plain sentence safe to show to people (and LLMs). */
-export class TaskMutationError extends Error {
-  constructor(
-    public readonly code: TaskMutationErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'TaskMutationError';
-  }
-}
-
-/** Which channel made the change: `activity` is stored in the log, `label` shows as "(via …)" in the group. */
-export interface MutationChannel {
-  activity: TaskActivityVia;
-  /** Omitted = "app" (the default wording of every group line). */
-  label?: string;
-}
-
-export const APP_CHANNEL: MutationChannel = { activity: 'app' };
+export {
+  APP_CHANNEL,
+  ASSIGNEE_NOT_MEMBER_MESSAGE,
+  DELETE_FORBIDDEN_MESSAGE,
+  EPIC_NOT_IN_GROUP_MESSAGE,
+  refId,
+  TASK_GONE_MESSAGE,
+  TaskMutationError,
+};
+export type { MutationChannel, TaskMutationErrorCode } from 'src/shared/services/task-mutation/common';
 
 export interface CreateTaskFields {
   title: string;
@@ -66,8 +67,10 @@ export interface CreateTaskFields {
   assigneeId?: string;
   /** YYYY-MM-DD (legacy ISO datetimes are cut to their day). */
   dueDate?: string;
-  /** Epic id in this group. */
+  /** Epic id in this group. Ignored for a subtask — it takes its parent's epic. */
   epicId?: string;
+  /** Create it as a subtask of this task (same group, not a subtask itself). */
+  parentTaskId?: string;
 }
 
 export interface UpdateTaskFields {
@@ -80,52 +83,15 @@ export interface UpdateTaskFields {
   assigneeId?: string | null;
   /** YYYY-MM-DD, or null / '' to clear. */
   dueDate?: string | null;
-  /** Epic id, or null / '' to take the task out of its epic. */
+  /** Epic id, or null / '' to take the task out of its epic. Refused on a subtask unless it matches the parent's. */
   epicId?: string | null;
+  /** Parent task id (make it / move it as a subtask), or null / '' to turn it back into a regular task. */
+  parentTaskId?: string | null;
 }
 
-type EpicLike = Pick<IEpic, 'title' | 'color'> & { _id: unknown };
-
-/** Id of a ref that may be populated (user doc) or a bare ObjectId/string. */
-export function refId(ref: unknown): string | null {
-  if (!ref) return null;
-  if (typeof ref === 'object' && ref !== null && '_id' in ref) return String((ref as { _id: unknown })._id);
-  return String(ref);
-}
-
-function isUserDoc(value: unknown): value is IUser {
-  return !!value && typeof value === 'object' && 'telegramUserId' in (value as object);
-}
-
-function isEpicDoc(value: unknown): value is EpicLike {
-  return !!value && typeof value === 'object' && 'title' in (value as object) && 'color' in (value as object);
-}
-
-async function resolveUser(ref: unknown): Promise<IUser | null> {
-  if (!ref) return null;
-  if (isUserDoc(ref)) return ref;
-  return User.findById(refId(ref));
-}
-
-/** A task's epic as a doc with title/color (populated ref, or loaded by id), or null. */
-async function resolveEpic(ref: unknown): Promise<EpicLike | null> {
-  if (!ref) return null;
-  if (isEpicDoc(ref)) return ref;
-  return Epic.findById(refId(ref));
-}
-
-const epicIcon = (epic: EpicLike | null) => (epic ? (EPIC_COLOR_EMOJI[epic.color as EpicColor] ?? null) : null);
 const statusLabel = (s: string) => TASK_STATUS_LABELS[s as TaskStatus] ?? s;
 const priorityLabel = (p: string) => TASK_PRIORITY_LABELS[p as TaskPriority] ?? p;
 const typeLabel = (t: string) => TASK_TYPE_LABELS[t as TaskType] ?? t;
-
-function clip(text: string | null | undefined): string | null {
-  if (!text) return null;
-  return text.length > ACTIVITY_TEXT_MAX ? `${text.slice(0, ACTIVITY_TEXT_MAX - 1)}…` : text;
-}
-
-/** Extra "(via …)" argument for the group-line helpers — only when it isn't the default "app". */
-const viaArg = (channel: MutationChannel): [] | [string] => (channel.label ? [channel.label] : []);
 
 function notifyUnassigned(task: ITask, previous: IUser, changedBy: IUser) {
   // Provided by the notification service when available.
@@ -177,7 +143,15 @@ export class TaskMutationService {
     const groupId = group._id as mongoose.Types.ObjectId;
 
     const assignee = data.assigneeId ? await this.memberOrThrow(groupId, data.assigneeId) : null;
-    const epic = data.epicId ? await this.epicOrThrow(groupId, data.epicId) : null;
+    const parent = data.parentTaskId ? await parentOrThrow(groupId, data.parentTaskId) : null;
+    // A subtask always lives in its parent's epic.
+    const epic = !parent && data.epicId ? await this.epicOrThrow(groupId, data.epicId) : null;
+    const parentEpicId = parent ? refId(parent.epicId) : null;
+    const epicId = parentEpicId
+      ? new mongoose.Types.ObjectId(parentEpicId)
+      : epic
+        ? (epic._id as mongoose.Types.ObjectId)
+        : undefined;
 
     const task = await taskService.createTask({
       groupId,
@@ -188,7 +162,8 @@ export class TaskMutationService {
       priority: data.priority,
       assigneeId: data.assigneeId ? new mongoose.Types.ObjectId(data.assigneeId) : undefined,
       dueDate: data.dueDate ? (parseDueDate(data.dueDate) ?? undefined) : undefined,
-      epicId: epic ? (epic._id as mongoose.Types.ObjectId) : undefined,
+      epicId,
+      ...(parent ? { parentTaskId: parent._id as mongoose.Types.ObjectId } : {}),
       ...(options.batchId ? { batchId: options.batchId } : {}),
       // So the card is posted to the group
       taskCardChatId: group.telegramGroupId,
@@ -202,6 +177,7 @@ export class TaskMutationService {
       to: clip(task.title),
       via: channel.activity,
     });
+    if (parent) await afterSubtaskCreated(parent, task, actor, channel);
 
     if (assignee) {
       notificationService.notifyAssignment(task, assignee, actor).catch(() => {});
@@ -286,19 +262,17 @@ export class TaskMutationService {
       }
     }
 
-    if (data.epicId !== undefined) {
+    const parentPlan = await planParentChange(before, data, updates, changes);
+
+    // A plain epic change — only for a regular task (a subtask's epic follows its parent, see planParentChange).
+    let epicChanged = false;
+    if (data.epicId !== undefined && !parentPlan.afterId) {
       const nextId = data.epicId || null;
       if (nextId !== refId(before.epicId)) {
         const nextEpic = nextId ? await this.epicOrThrow(before.groupId, nextId) : null;
-        const prevEpic = await resolveEpic(before.epicId);
+        epicChanged = true;
         updates.epicId = nextEpic ? nextEpic._id : null;
-        changes.push({
-          field: 'epic',
-          from: prevEpic ? clip(prevEpic.title) : null,
-          to: nextEpic ? clip(nextEpic.title) : null,
-          fromIcon: epicIcon(prevEpic),
-          toIcon: epicIcon(nextEpic),
-        });
+        changes.push(epicChange(await resolveEpic(before.epicId), nextEpic));
       }
     }
 
@@ -327,6 +301,12 @@ export class TaskMutationService {
       ),
     );
 
+    await afterTaskUpdated(before, task, actor, channel, parentPlan, {
+      epicChanged,
+      newEpicId: (updates.epicId as mongoose.Types.ObjectId | null | undefined) ?? null,
+      newStatus,
+    });
+
     // DMs — same behaviour as changes made in the bot
     const updatedTask = task;
     if (assigneeChanged) {
@@ -350,13 +330,14 @@ export class TaskMutationService {
 
   /**
    * Deletes a task — its creator or a Telegram admin of the group only. Logs "deleted", removes the card and
-   * tells the group. `group` is loaded when not given.
+   * tells the group. `group` is loaded when not given. A deleted parent's subtasks are kept as regular tasks
+   * (`detached` lists them); a deleted subtask is logged on its parent.
    */
   async deleteTask(
     task: ITask,
     actor: IUser,
     options: { group?: IGroup | null; channel?: MutationChannel } = {},
-  ): Promise<void> {
+  ): Promise<{ detached: ITask[] }> {
     const channel = options.channel ?? APP_CHANNEL;
     const isCreator = refId(task.createdBy) === String(actor._id);
     if (!isCreator) {
@@ -377,6 +358,9 @@ export class TaskMutationService {
       via: channel.activity,
     });
     taskSyncService.onTaskDeleted(task, actor._id as mongoose.Types.ObjectId, ...viaArg(channel)).catch(() => {});
+
+    const detached = await afterTaskDeleted(task, actor, channel);
+    return { detached };
   }
 }
 

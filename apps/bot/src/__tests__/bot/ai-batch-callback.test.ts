@@ -4,6 +4,9 @@ import { taskService } from 'src/database/services/task.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { redisService } from 'src/shared/services/redis.service';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: { detachAll: jest.fn().mockResolvedValue([]), list: jest.fn().mockResolvedValue([]) },
+}));
 jest.mock('src/shared/services/task-creation.service', () => ({
   BATCH_CALLBACK_PREFIX: 'batch_cb',
   BATCH_UNDO_WINDOW_MS: 10 * 60 * 1000,

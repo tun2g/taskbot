@@ -46,7 +46,7 @@ export function Layout({ title, subtitle, children, onBack, actions, fab, width 
               type="button"
               onClick={onBack}
               aria-label="Back"
-              className="app-header-lead flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-tg-link active:bg-tg-secondary"
+              className="app-header-lead flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-tg-link transition-colors hover:bg-tg-secondary active:bg-tg-secondary"
             >
               ←
             </button>

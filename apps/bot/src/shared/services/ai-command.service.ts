@@ -9,12 +9,14 @@ import {
   refId,
   todayIn,
 } from 'src/bot/task-card.renderer';
+import { refreshParentAfterStatus } from 'src/bot/subtasks/parent-sync';
 import { IEpic } from 'src/database/models/epic.model';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { EpicTitleTakenError, epicService } from 'src/database/services/epic.service';
 import { groupMemberService } from 'src/database/services/group-member.service';
+import { subtaskService } from 'src/database/services/subtask.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
@@ -45,6 +47,7 @@ import {
   AiPlan,
   aiPlanSchema,
   CreateEpicAction,
+  CreateSubtasksAction,
   MAX_AI_EXPLAINS,
   MAX_AI_MUTATIONS,
   QueryAction,
@@ -52,6 +55,13 @@ import {
   UpdateChanges,
 } from 'src/shared/services/ai-command/plan.schema';
 import { AI_COMMAND_SYSTEM_PROMPT, buildAiCommandPrompt, PromptTask } from 'src/shared/services/ai-command/prompt';
+import {
+  addSubtasks,
+  applyParentChange,
+  moveSubtasksToEpic,
+  subtaskEpicNote,
+} from 'src/shared/services/ai-command/subtasks';
+import { queryBoardFilters } from 'src/shared/services/ai-command/query-filters';
 import {
   AiResult,
   AiSection,
@@ -148,7 +158,13 @@ export function toPromptTask(task: ITask): PromptTask {
     dueDate: task.dueDate ? dayOf(task.dueDate) : null,
     description: task.description || null,
     epic: epicOf(task.epicId)?.title ?? null,
+    parent: parentTaskNumber(task.parentTaskId),
   };
+}
+
+/** The parent's number of a subtask (populated `parentTaskId`), else null. */
+export function parentTaskNumber(ref: unknown): number | null {
+  return ref && typeof ref === 'object' && 'taskNumber' in (ref as object) ? (ref as { taskNumber: number }).taskNumber : null;
 }
 
 /** Plain epic ref for results (id as string). */
@@ -313,6 +329,21 @@ export class AiCommandService {
       return { kind: 'create', useReply: creates.some((a) => a.action === 'create_tasks' && !!a.useReply) };
     }
 
+    // "chia #42 thành subtask …": one parent per request, on its own (like create_tasks).
+    const subtaskAsk = actions.find((a): a is CreateSubtasksAction => a.action === 'create_subtasks');
+    if (subtaskAsk) {
+      if (actions.some((a) => a.action !== 'create_subtasks' && a.action !== 'answer')) {
+        return { kind: 'refused', reason: 'mixed_create' };
+      }
+      const target = await this.resolveTarget(c, subtaskAsk.taskRef);
+      if ('miss' in target) return { kind: 'which_task', miss: target.miss };
+      const subtasks = await addSubtasks(c, target.task, subtaskAsk, {
+        resolvePerson: (name) => this.resolvePerson(c, name),
+        unknownPersonText: (name) => unknownPersonText(name, c.channel),
+      });
+      return { kind: 'sections', sections: [{ type: 'subtasks', subtasks }] };
+    }
+
     // Resolve every target BEFORE changing anything: an unclear target aborts the whole request.
     const resolved: { task: ITask; changes: UpdateChanges; newEpic: boolean }[] = [];
     for (const update of updates) {
@@ -404,7 +435,19 @@ export class AiCommandService {
     const assigneeUser = populatedUser(task.assigneeId);
     const assignee = assigneeUser ? personName(assigneeUser) : null;
     const creatorUser = populatedUser(task.createdBy);
-    const activity = await taskActivityService.getForTask(task._id);
+    const [activity, children] = await Promise.all([
+      taskActivityService.getForTask(task._id),
+      task.parentTaskId ? Promise.resolve([] as ITask[]) : subtaskService.list(task._id),
+    ]);
+    const subtaskRows = children.map((t) => ({
+      title: t.title,
+      state: t.status === 'done' ? ('done' as const) : t.status === 'cancelled' ? ('cancelled' as const) : ('open' as const),
+    }));
+    const cancelled = children.filter((t) => t.status === 'cancelled').length;
+    const subtasks = children.length
+      ? { total: children.length - cancelled, done: children.filter((t) => t.status === 'done').length, cancelled }
+      : null;
+    const parentRef = task.parentTaskId as unknown as { taskNumber?: number; title?: string } | null;
 
     const sources = (task.sourceMessages?.length ? task.sourceMessages : task.sourceMessage ? [task.sourceMessage] : [])
       .filter((m) => m?.text?.trim())
@@ -445,7 +488,9 @@ export class AiCommandService {
         dueDate: due,
         closed: isClosedStatus(task.status),
         epic: epicOf(task.epicId)?.title ?? null,
+        parent: parentRef?.taskNumber ? `#${parentRef.taskNumber} ${parentRef.title ?? ''}`.trim() : null,
       },
+      subtasks: subtaskRows,
       askedBy: personName(c.requester).replace(/^@/, ''),
       whoToAsk: whoToAsk.slice(0, 3),
       sources,
@@ -463,11 +508,11 @@ export class AiCommandService {
         explanationSchema,
         { retries: 1 },
       );
-      return { task, text: tidyExplanation(text, task.taskNumber) || null, assignee, fromReply };
+      return { task, text: tidyExplanation(text, task.taskNumber) || null, assignee, fromReply, subtasks };
     } catch (error) {
       if (!(error instanceof AIUnavailableError)) throw error;
       logger.warn(`AI explanation of #${task.taskNumber} failed (${error.reason}): ${error.message}`);
-      return { task, text: null, assignee, fromReply };
+      return { task, text: null, assignee, fromReply, subtasks };
     }
   }
 
@@ -581,7 +626,7 @@ export class AiCommandService {
 
   async applyUpdate(
     c: AiRequestContext,
-    task: ITask,
+    original: ITask,
     changes: UpdateChanges,
     editor: CardEditor,
     options: { newEpic?: boolean } = {},
@@ -589,6 +634,16 @@ export class AiCommandService {
     const changed: string[] = [];
     const notes: string[] = [];
     const fieldChanges: TaskChange[] = [];
+
+    // ── Parent (subtask): through the mutation service so the subtask rules and parent cards apply ──
+    let task = original;
+    if (changes.parent !== undefined) {
+      const moved = await applyParentChange(c, task, changes.parent, (ref) => this.resolveTarget(c, ref));
+      task = moved.task;
+      changed.push(...moved.changes);
+      notes.push(...moved.notes);
+      fieldChanges.push(...moved.fieldChanges);
+    }
     const via: TaskActivityVia = c.activityVia ?? 'ai';
     const actor = c.requester._id;
     const record = (action: string, from: string | null, to: string | null) =>
@@ -664,7 +719,9 @@ export class AiCommandService {
 
     // ── Epic: an existing epic of this group (by title), never created silently ──
     let epicMiss: EpicMiss | undefined;
-    if (changes.epic !== undefined) {
+    if (changes.epic !== undefined && task.parentTaskId) {
+      notes.push(subtaskEpicNote(task));
+    } else if (changes.epic !== undefined) {
       const prev = await this.currentEpic(task);
       if (changes.epic === null) {
         if (prev) {
@@ -709,6 +766,7 @@ export class AiCommandService {
       if (updated) {
         current = updated;
         for (const [action, from, to] of activities) await record(action, from, to);
+        if (fields.epicId !== undefined) await moveSubtasksToEpic(task, fields.epicId);
       } else failed = true;
     }
 
@@ -728,6 +786,8 @@ export class AiCommandService {
       const updated = await taskService.updateTaskStatus(task._id, statusChange, actor);
       if (updated) {
         current = updated;
+        // A subtask's parent card shows "2/5 done".
+        void refreshParentAfterStatus(task, task.status, statusChange);
         await record('status', statusText(task.status), statusText(statusChange));
         fieldChanges.push({ field: 'status', from: statusText(task.status), to: statusText(statusChange) });
         changed.push(statusText(statusChange));
@@ -739,7 +799,7 @@ export class AiCommandService {
       await this.refreshCard(c, current, editor);
     }
 
-    const outcome: UpdateOutcome = { original: task, task: current, changes: changed, notes: failed ? [] : notes, fieldChanges, failed };
+    const outcome: UpdateOutcome = { original, task: current, changes: changed, notes: failed ? [] : notes, fieldChanges, failed };
     if (epicMiss && !failed) outcome.epicMiss = epicMiss;
     return outcome;
   }
@@ -858,6 +918,7 @@ export class AiCommandService {
       showAssignee: !assignee,
       emptyText: q.kind === 'overdue' || (!search && !q.status && !q.type) ? 'Nothing here. 🎉' : 'No matches.',
       ...(epic ? { epic } : {}),
+      boardFilters: queryBoardFilters(q, assignee, epic),
     };
   }
 }

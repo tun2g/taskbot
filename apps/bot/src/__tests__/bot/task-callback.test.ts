@@ -11,7 +11,11 @@ import { dmTaskKeyboard, notificationService } from 'src/shared/services/notific
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 import { aiCommandService, checkUserAiRateLimit } from 'src/shared/services/ai-command.service';
 import { checkGroupAiRateLimit } from 'src/shared/services/task-creation.service';
+import { subtaskService } from 'src/database/services/subtask.service';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: { progress: jest.fn().mockResolvedValue(new Map()), list: jest.fn().mockResolvedValue([]) },
+}));
 jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group-member.service', () => ({
@@ -28,6 +32,7 @@ jest.mock('src/shared/services/notification.service', () => ({
   },
   DM_TASK_CALLBACK_PREFIX: 'tdm:',
   DM_EXPLAIN_ACTION: 'explain',
+  DM_CLOSE_ACTION: 'close',
   dmTaskKeyboard: jest.fn(() => [[{ text: '👀 Review', callback_data: 'tdm:in_review:x' }]]),
 }));
 jest.mock('src/shared/services/ai-command.service', () => ({
@@ -398,6 +403,97 @@ describe('task callbacks', () => {
 
       expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
       expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('not in its group'), { show_alert: true });
+    });
+  });
+
+  describe('subtasks', () => {
+    const progressOf = (p: { total: number; done: number; cancelled: number }) => new Map([[String(taskId), p]]);
+    afterEach(() => (subtaskService.progress as jest.Mock).mockResolvedValue(new Map()));
+
+    it('closing a parent with open subtasks asks first, without changing anything', async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'set_status', value: 'done' });
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ status: 'in_review' }));
+      (subtaskService.progress as jest.Mock).mockResolvedValue(progressOf({ total: 3, done: 1, cancelled: 0 }));
+      const ctx = ctxFor('set_status');
+
+      await handleTaskCallback(ctx);
+
+      expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
+      const [text, opts] = ctx.editMessageText.mock.calls[0];
+      expect(text).toContain('⚠️ *#12 still has 2 open subtasks.* Close it anyway?');
+      expect(opts.reply_markup.inline_keyboard[0].map((b: any) => b.text)).toEqual(['✅ Yes, close #12', '« Back']);
+      expect(callbackDataStorageService.setCallbackData).toHaveBeenCalledWith(
+        expect.any(String),
+        'task_cb',
+        expect.objectContaining({ action: 'set_status', value: 'done', force: true }),
+      );
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith('2 subtasks are still open');
+    });
+
+    it('"Yes, close" (force) closes it', async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({
+        taskId,
+        action: 'set_status',
+        value: 'done',
+        force: true,
+      });
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ status: 'in_review' }));
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue(task({ status: 'done' }));
+      (subtaskService.progress as jest.Mock).mockResolvedValue(progressOf({ total: 3, done: 1, cancelled: 0 }));
+
+      await handleTaskCallback(ctxFor('set_status'));
+
+      expect(taskService.updateTaskStatus).toHaveBeenCalledWith(taskId, 'done', bob._id);
+    });
+
+    it("a subtask's status line names its parent", async () => {
+      const parent = { _id: new mongoose.Types.ObjectId(), taskNumber: 10, title: 'Login', status: 'todo' };
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'set_status', value: 'done' });
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ status: 'in_review', parentTaskId: parent }));
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue(task({ status: 'done', parentTaskId: parent }));
+      const ctx = ctxFor('set_status');
+
+      await handleTaskCallback(ctx);
+
+      expect(ctx.telegram.sendMessage.mock.calls[0][1]).toBe('✅ @bob finished *#12* · Fix login (↳ #10)');
+    });
+
+    it('⋯ More → 🧩 Subtasks lists them under the card with « Back', async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'subtasks' });
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task());
+      (subtaskService.list as jest.Mock).mockResolvedValue([
+        { taskNumber: 13, title: 'Write tests', status: 'in_progress', assigneeId: an },
+      ]);
+      (subtaskService.progress as jest.Mock).mockResolvedValue(progressOf({ total: 1, done: 0, cancelled: 0 }));
+      const ctx = ctxFor('subtasks');
+
+      await handleTaskCallback(ctx);
+
+      const [text, opts] = ctx.editMessageText.mock.calls[0];
+      expect(text).toContain('🧩 *Subtasks* · 0/1 done\n🔄 #13 Write tests — @an\\_dev');
+      expect(opts.reply_markup.inline_keyboard).toEqual([[expect.objectContaining({ text: '« Back' })]]);
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith('1 subtask');
+    });
+
+    it('DM "✅ Done #N" (close) closes from any status', async () => {
+      const group = { _id: groupId, telegramGroupId: -100, isForum: false, knownTopics: [] };
+      (Group.findById as jest.Mock).mockResolvedValue(group);
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ status: 'in_progress', assigneeId: bob }));
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue(task({ status: 'done', assigneeId: bob }));
+      const ctx = {
+        chat: { id: bob.telegramUserId, type: 'private' },
+        callbackQuery: { data: `tdm:close:${taskId}`, from: { id: bob.telegramUserId }, message: { message_id: 5 } },
+        answerCbQuery: jest.fn(),
+        editMessageText: jest.fn(),
+        editMessageReplyMarkup: jest.fn(),
+        telegram: { sendMessage: jest.fn(), getChatMember: jest.fn().mockResolvedValue({ status: 'member' }) },
+      } as any;
+
+      await handleTaskCallback(ctx);
+
+      expect(taskService.updateTaskStatus).toHaveBeenCalledWith(taskId, 'done', bob._id);
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith('#12: Done');
+      (Group.findById as jest.Mock).mockResolvedValue(null);
     });
   });
 });

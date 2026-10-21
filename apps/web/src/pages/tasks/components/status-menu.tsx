@@ -19,6 +19,7 @@ export function StatusMenu({ task, onChange }: { task: ITask; onChange: (task: I
     >
       <SelectMenu<TaskStatus>
         variant="custom"
+        menuRole="menu"
         title={`Move #${task.taskNumber} to`}
         triggerLabel={`Move #${task.taskNumber} to another status`}
         value={task.status}

@@ -18,6 +18,22 @@ const VERBS: Record<string, string> = {
   deleted: 'deleted the task',
 };
 
+/** Actions whose from/to are a task ("#12 Title"), worded as one sentence instead of "a → b". */
+function describeTaskLink(action: string, from?: string | null, to?: string | null): string | null {
+  switch (action) {
+    case 'parent':
+      if (to && from) return `moved it from ${from} to ${to}`;
+      if (to) return `made it a subtask of ${to}`;
+      return from ? `made it a regular task (was a subtask of ${from})` : 'changed the parent';
+    case 'subtask_added':
+      return to ? `added subtask ${to}` : 'added a subtask';
+    case 'subtask_removed':
+      return from ? `removed subtask ${from}` : 'removed a subtask';
+    default:
+      return null;
+  }
+}
+
 const VIA: Record<ITaskActivity['via'], { label: string; className: string }> = {
   app: { label: '📱 app', className: 'tint-neutral' },
   bot: { label: '🤖 bot', className: 'tint-neutral' },
@@ -67,7 +83,10 @@ export function ActivityTimeline({ items, members, isLoading, error, onRetry }: 
               : item.via === 'ai'
                 ? 'AI'
                 : 'Someone';
-            const epicVerb = item.action === 'epic' ? describeEpicChange(item.from, item.to) : null;
+            const epicVerb =
+              item.action === 'epic'
+                ? describeEpicChange(item.from, item.to)
+                : describeTaskLink(item.action, item.from, item.to);
             const verb = epicVerb ?? VERBS[item.action] ?? 'updated the task';
             const showChange =
               !epicVerb && item.action !== 'description' && item.action !== 'created' && (item.from || item.to);

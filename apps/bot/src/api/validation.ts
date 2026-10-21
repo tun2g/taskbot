@@ -78,6 +78,7 @@ const category = z.enum(Object.values(TaskStatusCategory) as [string, ...string[
 });
 const assigneeId = objectIdString('The selected assignee could not be found. Please pick someone from the list.');
 const epicId = objectIdString('The selected epic could not be found. Please pick one from the list.');
+const parentTaskId = objectIdString('The parent task could not be found. Please pick a task from the list.');
 
 export const createTaskSchema = z.object({
   title,
@@ -87,6 +88,8 @@ export const createTaskSchema = z.object({
   assigneeId: assigneeId.optional(),
   dueDate: dueDateString.optional(),
   epicId: epicId.optional(),
+  /** Create it as a subtask of this task. */
+  parentTaskId: parentTaskId.optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -99,6 +102,8 @@ export const updateTaskSchema = z.object({
   dueDate: dueDateString.nullable().optional(),
   /** null removes the task from its epic. */
   epicId: epicId.nullable().optional(),
+  /** null turns a subtask back into a regular task. */
+  parentTaskId: parentTaskId.nullable().optional(),
 });
 
 /** Largest page GET /groups/:id/tasks returns; bigger `limit`s are capped to it. */
@@ -134,6 +139,11 @@ export const taskQuerySchema = z.object({
   epicId: z
     .string()
     .refine((v) => v === 'none' || mongoose.Types.ObjectId.isValid(v), 'The epic filter is invalid. Pick an epic or "No epic".')
+    .optional(),
+  /** A task id (its subtasks) or `none` (top-level tasks only — subtasks hidden). */
+  parentTaskId: z
+    .string()
+    .refine((v) => v === 'none' || mongoose.Types.ObjectId.isValid(v), 'The parent filter is invalid. Pick a task or "none".')
     .optional(),
   /** Due-date window, by calendar day in the group's timezone (overdue excludes closed tasks). */
   due: z

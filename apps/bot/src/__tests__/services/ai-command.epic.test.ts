@@ -10,6 +10,15 @@ import { AI_COMMAND_SYSTEM_PROMPT, buildAiCommandPrompt } from 'src/shared/servi
 import { renderWeb } from 'src/shared/services/ai-command/web.renderer';
 import { EPIC_COLOR_EMOJI, EpicColor } from '@tbot/shared';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/epic.service', () => {
   class EpicTitleTakenError extends Error {}
   return {

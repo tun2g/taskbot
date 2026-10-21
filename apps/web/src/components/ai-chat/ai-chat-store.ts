@@ -16,6 +16,8 @@ export interface AssistantMessage {
   response: AiChatResponse;
   /** Set after a successful Undo of `response.batchId`. */
   undone?: number;
+  /** A subtask proposal (`kind: 'preview'`) the user turned down. Accepting replaces `response` instead. */
+  previewCancelled?: boolean;
 }
 
 export type ChatMessage = UserMessage | AssistantMessage;

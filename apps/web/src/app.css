@@ -3,6 +3,29 @@
 /* `dark:` follows the Telegram color scheme (data-theme is set in __root), else the OS. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/* Tailwind v4 dropped the pointer cursor on buttons — bring it back for everything clickable. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='menuitem'],
+  [role='option'],
+  [role='tab'],
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+  /* Busy (saving, loading more, retrying) is "wait", not "not allowed". */
+  button[aria-busy='true'],
+  [role='button'][aria-busy='true'] {
+    cursor: progress;
+  }
+}
+
 /*
  * Colors come ONLY from Telegram theme tokens. Inside Telegram, telegram-web-app.js sets
  * --tg-theme-* inline on <html>, overriding these. In a normal browser these fallbacks mirror
@@ -151,6 +174,11 @@ body {
 .tint-link {
   background: color-mix(in srgb, var(--tg-theme-link-color) 12%, transparent);
   color: var(--tg-theme-link-color);
+}
+@media (hover: hover) {
+  .tint-link-hover:hover {
+    background: color-mix(in srgb, var(--tg-theme-link-color) 20%, transparent);
+  }
 }
 .tint-neutral {
   background: var(--tg-theme-secondary-bg-color);

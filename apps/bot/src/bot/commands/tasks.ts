@@ -23,6 +23,8 @@ import { taskService } from 'src/database/services/task.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
 import { escapeHtml } from 'src/shared/services/task-event-lines';
+import { listSuffixHtml, populatedParent } from 'src/bot/subtasks/subtask-lines';
+import { SubtaskProgress, subtaskService } from 'src/database/services/subtask.service';
 import { boardButton, taskNumberHtml } from 'src/shared/utils/app-links';
 
 const LIST_LIMIT = 15;
@@ -209,7 +211,9 @@ export class TasksCommand {
         lines.push(isFiltered ? 'Nothing matches. Try <code>/list</code> for everything open.' : 'Nothing open right now. 🎉');
       } else {
         lines.push('');
-        for (const task of tasks) lines.push(this.formatLine(task, group._id));
+        // One query: "🧩 2/5" after parents in the list.
+        const progress = await subtaskService.progress(tasks.filter((t) => !t.parentTaskId).map((t) => String(t._id)));
+        for (const task of tasks) lines.push(this.formatLine(task, group._id, progress.get(String(task._id))));
         if (matchCount > tasks.length) {
           const more = matchCount - tasks.length;
           // Only point at the board when there's a button for it
@@ -246,13 +250,17 @@ export class TasksCommand {
     return filters.assignee ? `${base} for ${escapeHtml(displayName(filters.assignee))}` : base;
   }
 
-  /** "🔄 #14 Bug · Fix login on iOS — @an" (HTML; #14 opens the task when the app link exists). */
-  private formatLine(task: ITask, groupId: { toString(): string }): string {
+  /**
+   * "🔄 #14 Bug · Fix login on iOS — @an" (HTML; #14 opens the task when the app link exists).
+   * A subtask ends its title with "↳ #12"; a parent with "· 🧩 2/5".
+   */
+  private formatLine(task: ITask, groupId: { toString(): string }, subtasks?: SubtaskProgress): string {
     const emoji = STATUS_EMOJI[task.status] || STATUS_EMOJI.todo;
     const assignee = populatedUser(task.assigneeId);
     const who = assignee ? ` — ${escapeHtml(displayName(assignee))}` : '';
     const num = taskNumberHtml(task.taskNumber, groupId, task._id);
-    return `${emoji} ${num} ${typeWord(task.type)} · ${escapeHtml(truncate(task.title, 60))}${who}`;
+    const sub = listSuffixHtml(populatedParent(task.parentTaskId), subtasks);
+    return `${emoji} ${num} ${typeWord(task.type)} · ${escapeHtml(truncate(task.title, 60))}${sub}${who}`;
   }
 }
 

@@ -26,11 +26,8 @@ export function LoginContent({ botUsername, onAuth, isSigningIn, error }: LoginC
             )
           ) : (
             <div className="tint-link rounded-xl p-3 text-left text-sm">
-              <p className="font-semibold">Login isn't configured</p>
-              <p className="mt-1">
-                Set <code>VITE_BOT_USERNAME</code> (the bot's username, without @) in <code>apps/web/.env</code> and
-                rebuild the web app.
-              </p>
+              <p className="font-semibold">Sign-in isn't available on this page</p>
+              <p className="mt-1">Open the task board from the bot in Telegram — tap “Open board” on any task card.</p>
             </div>
           )}
         </div>

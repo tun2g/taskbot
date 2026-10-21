@@ -13,8 +13,10 @@ import {
   TaskStatus,
   TaskType,
 } from '@tbot/shared';
+import { parentLine, populatedParent, progressLine } from 'src/bot/subtasks/subtask-lines';
 import { configService } from 'src/configs/configuration';
 import { ITask } from 'src/database/models/task.model';
+import type { SubtaskProgress } from 'src/database/services/subtask.service';
 import { IUser } from 'src/database/models/user.model';
 import { dueWhen } from 'src/shared/services/ai-command/format';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
@@ -237,13 +239,15 @@ function sourceLine(task: ITask): string | null {
 
 /**
  * Task card text (legacy Markdown). Creator/assignee fall back to the populated refs on the task.
- * `timezone` decides "Due today" vs overdue (defaults to TIMEZONE env).
+ * `timezone` decides "Due today" vs overdue (defaults to TIMEZONE env). A subtask shows its parent (from the
+ * populated ref); a parent shows `subtasks` progress when the caller loaded it (see cardSubtaskProgress).
  */
 export function formatTaskCard(
   task: ITask,
   creatorUser?: IUser | null,
   assigneeUser?: IUser | null,
   timezone?: string,
+  subtasks?: SubtaskProgress | null,
 ): string {
   const creator = creatorUser ?? populatedUser(task.createdBy);
   const assignee = assigneeUser ?? populatedUser(task.assigneeId);
@@ -252,10 +256,14 @@ export function formatTaskCard(
 
   const lines: string[] = [];
   lines.push(`${typeEmoji(task.type)} *${typeWord(task.type)} #${task.taskNumber}* · ${escapeMarkdown(task.title)}`);
+  const parent = parentLine(populatedParent(task.parentTaskId));
+  if (parent) lines.push(parent);
   lines.push(`Status: ${statusLabel(task.status)}`);
   lines.push(`Priority: ${priorityLabel(task.priority)}`);
   const epic = epicTag(task.epicId);
   if (epic) lines.push(`Epic: ${epic}`);
+  const progress = progressLine(subtasks);
+  if (progress) lines.push(progress);
   if (assignee) lines.push(`Assignee: ${mdName(assignee)}`);
 
   const due = describeDue(task, tz);
@@ -301,7 +309,10 @@ export async function buildTaskButtons(task: ITask, _userId?: string): Promise<I
   return rows;
 }
 
-/** "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [💡 Explain] [🗑 Delete] [« Back]. */
+/**
+ * "⋯ More" keyboard: [🔁 Status] [🏷 Type] [🔼 Priority] / [💡 Explain] [🗑 Delete] [« Back].
+ * A task that can have subtasks (not a subtask itself) gets [🧩 Subtasks] [💡 Explain] [🗑 Delete] / [« Back].
+ */
 export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButton[][]> {
   const taskId = task._id.toString();
   const rows: InlineKeyboardButton[][] = [
@@ -312,11 +323,15 @@ export async function buildMoreButtons(task: ITask): Promise<InlineKeyboardButto
     ],
   ];
 
-  rows.push([
-    { text: '💡 Explain', callback_data: await storeTaskCallbackData(taskId, 'explain') },
-    { text: '🗑 Delete', callback_data: await storeTaskCallbackData(taskId, 'delete') },
-    { text: '« Back', callback_data: await storeTaskCallbackData(taskId, 'back') },
-  ]);
+  const explain = { text: '💡 Explain', callback_data: await storeTaskCallbackData(taskId, 'explain') };
+  const del = { text: '🗑 Delete', callback_data: await storeTaskCallbackData(taskId, 'delete') };
+  const back = { text: '« Back', callback_data: await storeTaskCallbackData(taskId, 'back') };
+  if (task.parentTaskId) {
+    rows.push([explain, del, back]);
+  } else {
+    rows.push([{ text: '🧩 Subtasks', callback_data: await storeTaskCallbackData(taskId, 'subtasks') }, explain, del]);
+    rows.push([back]);
+  }
   return rows;
 }
 
@@ -382,6 +397,11 @@ export async function buildDeleteConfirmButtons(task: ITask): Promise<InlineKeyb
   ];
 }
 
-export function deleteConfirmText(task: ITask): string {
-  return `🗑 *Delete #${task.taskNumber} for everyone?*\nThis removes the task from the board and can't be undone.`;
+/** `subtaskCount` > 0 adds what happens to the subtasks (they're kept as regular tasks). */
+export function deleteConfirmText(task: ITask, subtaskCount = 0): string {
+  const lines = [`🗑 *Delete #${task.taskNumber} for everyone?*`, "This removes the task from the board and can't be undone."];
+  if (subtaskCount > 0) {
+    lines.push(subtaskCount === 1 ? 'Its subtask stays as a regular task.' : `Its ${subtaskCount} subtasks stay as regular tasks.`);
+  }
+  return lines.join('\n');
 }

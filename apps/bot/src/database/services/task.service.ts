@@ -16,6 +16,7 @@ export interface CreateTaskData {
   assigneeId?: mongoose.Types.ObjectId;
   dueDate?: Date;
   epicId?: mongoose.Types.ObjectId | null;
+  parentTaskId?: mongoose.Types.ObjectId | null;
   sourceMessage?: ISourceMessage;
   sourceMessages?: ISourceMessage[];
   batchId?: string;
@@ -32,6 +33,8 @@ export interface TaskFilters {
   priority?: string;
   /** An epic id, or `null` for tasks without an epic. */
   epicId?: mongoose.Types.ObjectId | null;
+  /** A task id → its subtasks only; `null` → top-level tasks only (subtasks hidden). */
+  parentTaskId?: mongoose.Types.ObjectId | null;
   /** Due date on or after this instant (inclusive). */
   dueFrom?: Date;
   /** Due date strictly before this instant (exclusive). */
@@ -98,6 +101,7 @@ export class TaskService {
     if (filters.assigneeId !== undefined) query.assigneeId = filters.assigneeId;
     if (filters.priority) query.priority = filters.priority;
     if (filters.epicId !== undefined) query.epicId = filters.epicId;
+    if (filters.parentTaskId !== undefined) query.parentTaskId = filters.parentTaskId;
     if (filters.dueNone) {
       query.dueDate = null;
     } else if (filters.dueFrom || filters.dueTo) {
@@ -148,26 +152,33 @@ export class TaskService {
     }
   }
 
-  /** How many tasks match `filters`, per status (every status key present) and in total. */
+  /**
+   * How many tasks match `filters`: per status (every status key present), per assignee id (`"none"` =
+   * unassigned) and in total.
+   */
   async countTasksByStatus(
     groupId: mongoose.Types.ObjectId,
     filters: TaskFilters = {},
-  ): Promise<{ byStatus: Record<string, number>; total: number }> {
+  ): Promise<{ byStatus: Record<string, number>; byAssignee: Record<string, number>; total: number }> {
     const byStatus = emptyStatusCounts();
+    const byAssignee: Record<string, number> = {};
     let total = 0;
     try {
-      const rows: { _id: string; count: number }[] = await Task.aggregate([
-        { $match: this.buildTaskQuery(groupId, filters) },
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-      ]);
+      const rows: { _id: { status: string; assigneeId: mongoose.Types.ObjectId | null }; count: number }[] =
+        await Task.aggregate([
+          { $match: this.buildTaskQuery(groupId, filters) },
+          { $group: { _id: { status: '$status', assigneeId: '$assigneeId' }, count: { $sum: 1 } } },
+        ]);
       for (const row of rows) {
-        byStatus[row._id] = row.count;
+        byStatus[row._id.status] = (byStatus[row._id.status] ?? 0) + row.count;
+        const who = row._id.assigneeId ? String(row._id.assigneeId) : 'none';
+        byAssignee[who] = (byAssignee[who] ?? 0) + row.count;
         total += row.count;
       }
     } catch (error) {
       logger.error(`Error counting tasks for group ${groupId}: ${error}`);
     }
-    return { byStatus, total };
+    return { byStatus, byAssignee, total };
   }
 
   /**

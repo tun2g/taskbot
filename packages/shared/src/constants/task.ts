@@ -157,3 +157,6 @@ export function isClosedStatus(status: TaskStatus | string): boolean {
 export function statusesInCategory(category: TaskStatusCategory): TaskStatus[] {
   return TASK_STATUS_ORDER.filter((s) => TASK_STATUS_CATEGORY[s] === category);
 }
+
+/** Most subtasks one task may have — beyond this, split the work into an epic. */
+export const SUBTASKS_MAX = 50;

@@ -25,7 +25,20 @@ function tasksOf(data: AiChatResponse): TaskSummary[] {
 }
 
 /** The assistant's text plus the facts the web app shows as chips (task lines, warnings, undo). */
+/** An AI-proposed breakdown: agents can't tap "Add all" — they add the (possibly edited) list themselves. */
+function previewText(preview: NonNullable<AiChatResponse['preview']>, warnings: string[] = []): string {
+  const n = preview.parent.taskNumber;
+  return [
+    `TaskBot suggests these subtasks for #${n} ${preview.parent.title} (nothing was created yet):`,
+    ...preview.items.map((item, i) => `${i + 1}. ${item.title}${item.assignee ? ` → ${item.assignee.name}` : ''}`),
+    ...(warnings.length ? ['', ...warnings] : []),
+    '',
+    `To add them, call create_tasks with parent: ${n} on each task (edit, drop or reassign items first if needed).`,
+  ].join('\n');
+}
+
 function replyText(data: AiChatResponse, tasks: TaskSummary[], conversationId: string): string {
+  if (data.kind === 'preview' && data.preview) return previewText(data.preview, data.warnings);
   const lines = [data.text];
   if (tasks.length && data.kind !== 'clarify') {
     lines.push('', ...tasks.map((t) => `- ${taskLine(t)}`));
@@ -133,6 +146,7 @@ export const askTaskbotTool = defineTool({
         ...(data.batchId ? { undoToken: data.batchId, undoUntil: data.undoUntil } : {}),
         ...(data.warnings?.length ? { warnings: data.warnings } : {}),
         ...(data.suggestions?.length ? { suggestions: data.suggestions } : {}),
+        ...(data.preview ? { suggestedSubtasks: { parent: data.preview.parent.taskNumber, items: data.preview.items } } : {}),
       },
     };
   },

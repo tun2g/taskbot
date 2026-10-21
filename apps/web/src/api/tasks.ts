@@ -11,9 +11,11 @@ import type {
 import { type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/lib/api-client';
+import { getParentId, getProgress } from '@/lib/subtasks';
 
 import { epicKeys } from './epics';
 import { groupKeys } from './groups';
+import { invalidateSubtaskViews, patchSubtaskLists, subtaskListSnapshots } from './subtasks';
 import { applyTaskChange, findCachedTask, type TaskPage, type TaskPages } from './task-cache';
 
 /** Tasks per page (list view, each board column). The API caps a page at 100. */
@@ -147,6 +149,7 @@ export function useCreateTask(groupId: string) {
       // Show it in its column / the list right away; the refetch confirms.
       applyTaskChange(queryClient, groupId, null, task);
       invalidateGroup(queryClient, groupId);
+      invalidateSubtaskViews(queryClient, groupId, [getParentId(task)]);
     },
   });
 }
@@ -160,6 +163,8 @@ export interface UpdateTaskVariables {
 
 interface UpdateContext {
   snapshots: [QueryKey, unknown][];
+  /** Parent before the change — its progress / subtask list may need a refetch. */
+  previousParentId?: string | null;
 }
 
 /**
@@ -174,7 +179,10 @@ export function useUpdateTask(groupId: string) {
       return data.data;
     },
     onMutate: async ({ taskId, optimistic }) => {
-      if (!optimistic) return { snapshots: [] };
+      const cached =
+        findCachedTask(queryClient, groupId, taskId) ?? queryClient.getQueryData<ITask>(taskKeys.detail(taskId));
+      const previousParentId = cached ? getParentId(cached) : null;
+      if (!optimistic) return { snapshots: [], previousParentId };
       await Promise.all([
         queryClient.cancelQueries({ queryKey: taskKeys.groupLists(groupId) }),
         queryClient.cancelQueries({ queryKey: taskKeys.detail(taskId) }),
@@ -182,13 +190,15 @@ export function useUpdateTask(groupId: string) {
       const snapshots: [QueryKey, unknown][] = [
         ...queryClient.getQueriesData({ queryKey: taskKeys.groupLists(groupId) }),
         [taskKeys.detail(taskId), queryClient.getQueryData(taskKeys.detail(taskId))],
+        ...subtaskListSnapshots(queryClient),
       ];
       // Patch every cached copy; a status change moves the card between board columns' pages.
       const before =
         findCachedTask(queryClient, groupId, taskId) ?? queryClient.getQueryData<ITask>(taskKeys.detail(taskId));
       if (before) applyTaskChange(queryClient, groupId, before, { ...before, ...optimistic });
       queryClient.setQueryData<ITask>(taskKeys.detail(taskId), (old) => (old ? { ...old, ...optimistic } : old));
-      return { snapshots };
+      patchSubtaskLists(queryClient, taskId, optimistic);
+      return { snapshots, previousParentId };
     },
     onError: (_err, _vars, context) => {
       context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
@@ -196,9 +206,10 @@ export function useUpdateTask(groupId: string) {
     onSuccess: (task) => {
       queryClient.setQueryData(taskKeys.detail(task._id), task);
     },
-    onSettled: (_data, _err, { taskId }) => {
+    onSettled: (data, _err, { taskId }, context) => {
       invalidateGroup(queryClient, groupId);
       queryClient.invalidateQueries({ queryKey: taskKeys.activity(taskId) });
+      invalidateSubtaskViews(queryClient, groupId, [context?.previousParentId, data ? getParentId(data) : null]);
     },
   });
 }
@@ -216,6 +227,9 @@ export function useDeleteTask(groupId: string) {
       if (before) applyTaskChange(queryClient, groupId, before, null);
       queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) });
       invalidateGroup(queryClient, groupId);
+      invalidateSubtaskViews(queryClient, groupId, [before ? getParentId(before) : null]);
+      // A deleted parent's subtasks became regular tasks — any open detail of one must drop its "↳ #n".
+      if (before && getProgress(before)) queryClient.invalidateQueries({ queryKey: taskKeys.details() });
     },
   });
 }

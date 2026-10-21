@@ -39,6 +39,15 @@ jest.mock('src/database/services/task.service', () => ({
     deleteTask: jest.fn(),
   },
 }));
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn() } }));
 jest.mock('src/database/services/epic.service', () => ({
   ...jest.requireActual('src/database/services/epic.service'),
@@ -275,7 +284,7 @@ describe('delete_task', () => {
     const out = await call(deleteTaskTool, { group: G, taskNumber: 12 });
     expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', via: 'mcp' }));
     expect(taskSyncService.onTaskDeleted).toHaveBeenCalledWith(task, me._id, 'Claude Code');
-    expect(out.data).toEqual({ deleted: true, number: 12, title: 'Fix login' });
+    expect(out.data).toEqual({ deleted: true, number: 12, title: 'Fix login', keptSubtasks: [] });
   });
 
   it('others get an actionable refusal', async () => {

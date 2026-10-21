@@ -7,6 +7,7 @@ import { mcpCommand } from 'src/bot/commands/mcp/mcp.command';
 import { handleMembersCallback, MEMBERS_CALLBACK_PREFIX, membersCommand } from 'src/bot/commands/members';
 import { setTopicCommand } from 'src/bot/commands/settopic';
 import { startCommand } from 'src/bot/commands/start';
+import { subCommand } from 'src/bot/commands/sub';
 import { taskCommand } from 'src/bot/commands/task';
 import { tasksCommand } from 'src/bot/commands/tasks';
 import { BotContext } from 'src/bot/interface/context';
@@ -21,6 +22,10 @@ import { topicTrackerMiddleware } from 'src/bot/middlewares/topic-tracker.middle
 import { mentionCheckMiddleware } from 'src/bot/middlewares/mention-check.middleware';
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
+import {
+  handleSubtaskPreviewCallback,
+  isSubtaskPreviewCallback,
+} from 'src/shared/services/ai-command/subtask-preview.telegram';
 import { Telegraf } from 'telegraf';
 
 const bot = new Telegraf<BotContext>(configService.botToken);
@@ -45,6 +50,7 @@ const publicCommands: Map<string, (ctx: BotContext) => void> = new Map<string, (
   ...taskCommand.register(),
   ...tasksCommand.register(),
   ...doneCommand.register(),
+  ...subCommand.register(),
   ...aiCommand.register(),
   ...setTopicCommand.register(),
   ...membersCommand.register(),
@@ -58,6 +64,10 @@ Array.from(publicCommands).forEach(([command, callback]) => {
 // Handle inline button presses
 bot.on('callback_query', async (ctx: BotContext) => {
   const data = ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : '';
+  if (isSubtaskPreviewCallback(data)) {
+    await handleSubtaskPreviewCallback(ctx);
+    return;
+  }
   if (data?.startsWith('batch:')) {
     await handleBatchCallback(ctx);
     return;

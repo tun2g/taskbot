@@ -1,5 +1,7 @@
 import { isClosedStatus } from '@tbot/shared';
 import { bot } from 'src/bot';
+import { resolveParentRef } from 'src/bot/subtasks/parent-ref';
+import { parentLine } from 'src/bot/subtasks/subtask-lines';
 import {
   describeDue,
   dueState,
@@ -59,6 +61,9 @@ function closedStateText(status: string): string {
   return status === 'done' ? '✅ Marked done' : statusLabel(status);
 }
 
+/** `tdm:close:<taskId>` — "✅ Done #N" that closes the task whatever its status (all subtasks done, confirmed closes). */
+export const DM_CLOSE_ACTION = 'close';
+
 /** `tdm:explain:<taskId>` — "💡 Explain" under a DM: a short AI explanation of the task, as a new DM. */
 export const DM_EXPLAIN_ACTION = 'explain';
 
@@ -87,6 +92,12 @@ function assignButton(task: ITask): InlineKeyboardButton | null {
   if (!open || !('url' in open)) return open;
   const text = open.text === openTaskLabel(task.taskNumber) ? `👤 Assign #${task.taskNumber}` : '👤 Assign on card';
   return { text, url: open.url };
+}
+
+/** How to assign without the app: the card's 👤 Assign, or /ai when the task has no card (/sub, /ai, MCP batches). */
+function assignHint(task: ITask): string {
+  if (task.taskCardMessageId) return 'Use 👤 Assign on its card in the group.';
+  return `Assign it in the group with \`/ai giao #${task.taskNumber} cho @name\`.`;
 }
 
 function openOnly(task: ITask): InlineKeyboardButton[][] {
@@ -121,6 +132,12 @@ export class NotificationService {
   /** "🐞 Bug — Fix login on iOS" */
   private taskLine(task: ITask): string {
     return `${typeEmoji(task.type)} ${typeWord(task.type)} — ${escapeMarkdown(task.title)}`;
+  }
+
+  /** "🐞 Bug — Fix login on iOS", plus "↳ Subtask of #42 · Login" for a subtask. */
+  private async taskLines(task: ITask): Promise<string[]> {
+    const parent = parentLine(await resolveParentRef(task));
+    return parent ? [this.taskLine(task), parent] : [this.taskLine(task)];
   }
 
   /** " in Team" (escaped), or "" when the group is unknown. */
@@ -183,7 +200,7 @@ export class NotificationService {
     if (!(await this.shouldNotify(task._id.toString(), assignee.telegramUserId, 'assign'))) return 'skipped';
 
     const group = await this.loadGroup(task);
-    const lines = [`👤 *You were assigned #${task.taskNumber}*`, this.taskLine(task)];
+    const lines = [`👤 *You were assigned #${task.taskNumber}*`, ...(await this.taskLines(task))];
     const due = describeDue(task, groupTimezone(group));
     if (due) lines.push(`Due: ${due}`);
     lines.push(`By ${mdName(assignedBy)}${this.inGroup(group)}`);
@@ -198,7 +215,7 @@ export class NotificationService {
     const group = await this.loadGroup(task);
     const lines = [
       `*You're no longer assigned #${task.taskNumber}*`,
-      this.taskLine(task),
+      ...(await this.taskLines(task)),
       `Changed by ${mdName(changedBy)}${this.inGroup(group)}`,
     ];
     return this.send(task, previousAssignee, lines.join('\n'));
@@ -214,11 +231,34 @@ export class NotificationService {
     const headline = statusHeadline(task.status, task.taskNumber);
     const lines = [
       headline,
-      this.taskLine(task),
+      ...(await this.taskLines(task)),
       `By ${mdName(changedBy)}${this.inGroup(group)}`,
       `You're the assignee.`,
     ];
     return this.send(task, assignee, lines.join('\n'));
+  }
+
+  /**
+   * Every counted subtask of `parent` is done → nudge the parent's owner to close it:
+   *   🧩 *All 3 subtasks of #42 are done*
+   *   🐞 Bug — Fix login
+   *   In Team · close #42 too?
+   *   [✅ Done #42] [📱 Open #42]
+   */
+  async notifyAllSubtasksDone(parent: ITask, owner: IUser, total: number): Promise<NotifyResult> {
+    const group = await this.loadGroup(parent);
+    const what = total === 1 ? 'The only subtask' : `All ${total} subtasks`;
+    const lines = [
+      `🧩 *${what} of #${parent.taskNumber} ${total === 1 ? 'is' : 'are'} done*`,
+      this.taskLine(parent),
+      `${group?.groupName ? `In ${escapeMarkdown(group.groupName)} · ` : ''}close #${parent.taskNumber} too?`,
+    ];
+    const row: InlineKeyboardButton[] = [
+      { text: `✅ Done #${parent.taskNumber}`, callback_data: `${DM_TASK_CALLBACK_PREFIX}${DM_CLOSE_ACTION}:${parent._id}` },
+    ];
+    const open = taskButton(parent);
+    if (open) row.push(open);
+    return this.send(parent, owner, lines.join('\n'), [row]);
   }
 
   async notifyDueReminder(task: ITask, targetUser: IUser, reason?: ReminderReason): Promise<NotifyResult> {
@@ -236,7 +276,7 @@ export class NotificationService {
     const asAssignee =
       (reason ?? (refId(task.assigneeId) === targetUser._id.toString() ? 'assignee' : 'creator')) === 'assignee';
 
-    const lines = [headline, this.taskLine(task)];
+    const lines = [headline, ...(await this.taskLines(task))];
     const due = describeDue(task, tz);
     if (due) lines.push(`Due: ${due}`);
 
@@ -256,7 +296,7 @@ export class NotificationService {
     const assign = assignButton(task);
     lines.push(
       `You created it${this.inGroup(group)} and nobody is assigned yet.` +
-        (assign ? ` Tap “${assign.text}” to pick someone.` : ' Use 👤 Assign on its card in the group.'),
+        (assign ? ` Tap “${assign.text}” to pick someone.` : ` ${assignHint(task)}`),
     );
     return this.send(task, targetUser, lines.join('\n'), assign ? [[assign]] : []);
   }

@@ -12,6 +12,7 @@ import { Task } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import { groupService } from 'src/database/services/group.service';
+import { subtaskService } from 'src/database/services/subtask.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import { notificationService } from 'src/shared/services/notification.service';
@@ -21,6 +22,15 @@ jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/group-member.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task-activity.service');
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/epic.service');
 jest.mock('src/database/models/epic.model', () => ({ Epic: { findById: jest.fn() } }));
 jest.mock('src/database/models/task.model', () => ({ Task: { countDocuments: jest.fn() } }));
@@ -284,7 +294,7 @@ describe('TaskController', () => {
         expect.objectContaining({ type: 'bug', taskCardChatId: -1001, dueDate: new Date('2026-10-20T00:00:00.000Z') }),
       );
       expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith({ data: created });
+      expect(res.json).toHaveBeenCalledWith({ data: { ...created, subtaskProgress: null } });
       expect(taskSyncService.syncTaskCard).toHaveBeenCalledWith(created, { created: true, via: 'app' });
       expect(taskActivityService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'created', via: 'app', to: 'New' }),
@@ -328,7 +338,7 @@ describe('TaskController', () => {
       const task = makeTask();
       const { req, res } = createMockReqRes({ params: { taskId: taskId.toString() }, task });
       await controller.getTask(req, res);
-      expect(res.json).toHaveBeenCalledWith({ data: task });
+      expect(res.json).toHaveBeenCalledWith({ data: { ...task, subtaskProgress: null } });
     });
 
     it('returns 404 when task not found', async () => {
@@ -361,7 +371,7 @@ describe('TaskController', () => {
       expect(taskSyncService.postChangeSummary).toHaveBeenCalledWith(updated, me._id, [
         { field: 'status', from: '📝 To do', to: '🔄 In progress' },
       ]);
-      expect(res.json).toHaveBeenCalledWith({ data: updated });
+      expect(res.json).toHaveBeenCalledWith({ data: { ...updated, subtaskProgress: null } });
     });
 
     it('only records fields that actually changed', async () => {
@@ -384,7 +394,7 @@ describe('TaskController', () => {
       expect(actions).toEqual([]);
       expect(taskService.updateTask).not.toHaveBeenCalled();
       expect(taskSyncService.postChangeSummary).not.toHaveBeenCalled();
-      expect(res.json).toHaveBeenCalledWith({ data: before });
+      expect(res.json).toHaveBeenCalledWith({ data: { ...before, subtaskProgress: null } });
     });
 
     it('resets reminderSent and records YYYY-MM-DD when the due date changes', async () => {
@@ -456,14 +466,14 @@ describe('TaskController', () => {
         expect.objectContaining({ action: 'deleted', from: '#12 Fix login', via: 'app' }),
       );
       expect(taskSyncService.onTaskDeleted).toHaveBeenCalledWith(task, me._id);
-      expect(res.json).toHaveBeenCalledWith({ data: { deleted: true } });
+      expect(res.json).toHaveBeenCalledWith({ data: { deleted: true, detachedSubtasks: 0 } });
     });
 
     it('lets a Telegram group admin delete', async () => {
       (isTelegramGroupAdmin as jest.Mock).mockResolvedValue(true);
       const res = await del(makeTask({ createdBy: binh }));
       expect(isTelegramGroupAdmin).toHaveBeenCalledWith(-1001, 111);
-      expect(res.json).toHaveBeenCalledWith({ data: { deleted: true } });
+      expect(res.json).toHaveBeenCalledWith({ data: { deleted: true, detachedSubtasks: 0 } });
     });
 
     it('forbids other members', async () => {
@@ -616,5 +626,55 @@ describe('TaskController — epics', () => {
       expect(String((epicService.findInGroup as jest.Mock).mock.calls[0][0])).toBe(String(groupId));
       expect(taskService.updateTask).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('TaskController — subtasks', () => {
+  const controller = new TaskController();
+  beforeEach(() => jest.clearAllMocks());
+
+  it('list: parentTaskId filter (a task id or "none") and subtaskProgress on every task', async () => {
+    const parentId = new mongoose.Types.ObjectId();
+    const withKids = { _id: parentId, title: 'Parent', toJSON() { return { _id: parentId, title: 'Parent' }; } };
+    const plain = { _id: new mongoose.Types.ObjectId(), title: 'Plain' };
+    (taskService.getTasksByGroup as jest.Mock).mockResolvedValue({ tasks: [withKids, plain], total: 2, hasMore: false });
+    (subtaskService.progress as jest.Mock).mockResolvedValueOnce(new Map([[String(parentId), { total: 3, done: 1 }]]));
+
+    const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, query: { parentTaskId: 'none' } });
+    await controller.listTasks(req, res);
+    expect((taskService.getTasksByGroup as jest.Mock).mock.calls[0][1].parentTaskId).toBeNull();
+    const data = (res.json as jest.Mock).mock.calls[0][0].data;
+    expect(data[0]).toEqual({ _id: parentId, title: 'Parent', subtaskProgress: { total: 3, done: 1 } });
+    expect(data[1].subtaskProgress).toBeNull();
+
+    const byParent = createMockReqRes({ params: { groupId: groupId.toString() }, query: { parentTaskId: String(parentId) } });
+    await controller.listTasks(byParent.req, byParent.res);
+    expect(String((taskService.getTasksByGroup as jest.Mock).mock.calls[1][1].parentTaskId)).toBe(String(parentId));
+  });
+
+  it('list: rejects a malformed parent filter', async () => {
+    const { req, res } = createMockReqRes({ params: { groupId: groupId.toString() }, query: { parentTaskId: 'abc' } });
+    await controller.listTasks(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('GET /tasks/:id/subtasks returns the subtasks in order', async () => {
+    const kids = [{ taskNumber: 43 }, { taskNumber: 44 }];
+    (subtaskService.list as jest.Mock).mockResolvedValueOnce(kids);
+    const taskId = new mongoose.Types.ObjectId().toString();
+    const { req, res } = createMockReqRes({ params: { taskId } });
+    await controller.getSubtasks(req, res);
+    expect(subtaskService.list).toHaveBeenCalledWith(taskId);
+    expect(res.json).toHaveBeenCalledWith({ data: kids });
+  });
+
+  it('delete reports how many subtasks were kept', async () => {
+    (isTelegramGroupAdmin as jest.Mock).mockResolvedValue(true);
+    (taskService.deleteTask as jest.Mock).mockResolvedValue(true);
+    (subtaskService.detachAll as jest.Mock).mockResolvedValueOnce([{ _id: new mongoose.Types.ObjectId(), taskNumber: 43 }]);
+    const task = { _id: new mongoose.Types.ObjectId(), groupId, taskNumber: 42, title: 'P', createdBy: me._id };
+    const { req, res } = createMockReqRes({ params: { taskId: String(task._id) }, task, group: { telegramGroupId: -1 } });
+    await controller.deleteTask(req, res);
+    expect(res.json).toHaveBeenCalledWith({ data: { deleted: true, detachedSubtasks: 1 } });
   });
 });

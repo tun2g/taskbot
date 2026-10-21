@@ -28,10 +28,16 @@ export function displayName(
   return user.telegramUserId ? `User ${user.telegramUserId}` : fallback;
 }
 
-/** One or two letters for an avatar bubble. */
+/**
+ * Two letters for an avatar bubble, so "Tuan" and "Thao" don't both read "T": first + last initial
+ * ("TN"), else the first two letters of the first name / username ("Tu", "Th").
+ */
 export function initials(ref: UserRef | null | undefined, members?: IUser[]): string {
   const user = resolveUser(ref, members);
   if (!user) return '?';
-  const source = user.firstName || user.username || '?';
-  return source.slice(0, 1).toUpperCase();
+  const first = Array.from((user.firstName ?? '').trim());
+  const last = Array.from((user.lastName ?? '').trim());
+  if (first.length && last.length) return `${first[0]}${last[0]}`.toUpperCase();
+  const source = Array.from((user.firstName || user.username || '?').replace(/^@/, '').trim());
+  return `${(source[0] ?? '?').toUpperCase()}${(source[1] ?? '').toLowerCase()}`;
 }

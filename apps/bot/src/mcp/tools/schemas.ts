@@ -46,3 +46,11 @@ export const epicArg = z
   .trim()
   .min(1)
   .describe('An epic of this group: its exact title (case-insensitive) or id.');
+
+export const parentArg = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    'Number of the parent task, to make this a subtask of it (e.g. 42 for #42). Subtasks are one level deep and always share the parent\'s epic.',
+  );

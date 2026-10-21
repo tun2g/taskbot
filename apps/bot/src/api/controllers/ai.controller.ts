@@ -7,6 +7,7 @@ import { AuthenticatedRequest } from 'src/api/middlewares/auth.middleware';
 import { TASK_NOT_FOUND_MESSAGE } from 'src/api/middlewares/group-access.middleware';
 import { aiChatSchema } from 'src/api/validation';
 import { CardEditor } from 'src/shared/services/ai-command.service';
+import { decidePreviewFromApp, WebPreviewResult } from 'src/shared/services/ai-command/subtask-preview.web';
 import { handleWebChat, undoAppBatch, UndoAppBatchResult } from 'src/shared/services/ai-command/web-chat';
 
 export {
@@ -21,6 +22,12 @@ const UNDO_STATUS: Record<Exclude<UndoAppBatchResult['status'], 'ok'>, number> =
   not_member: 403,
   expired: 403,
   forbidden: 403,
+};
+
+const PREVIEW_STATUS: Record<Exclude<WebPreviewResult['status'], 'ok'>, number> = {
+  expired: 410,
+  forbidden: 403,
+  busy: 409,
 };
 
 export class AiController {
@@ -76,6 +83,24 @@ export class AiController {
     }
     const data: AiUndoResponse = { removed: result.removed };
     res.json({ data });
+  }
+
+  /**
+   * POST /api/ai/previews/:previewId/(accept|cancel) — decide on AI-proposed subtasks (the requester only).
+   * accept → { data: AiChatResponse } (kind `created`); cancel → { data: { cancelled: true } }.
+   */
+  async decidePreview(req: Request, res: Response, decision: 'add' | 'cancel') {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
+      sendError(res, 401, SIGN_IN_MESSAGE);
+      return;
+    }
+    const result = await decidePreviewFromApp(user, String(req.params.previewId ?? ''), decision);
+    if (result.status !== 'ok') {
+      sendError(res, PREVIEW_STATUS[result.status], result.message);
+      return;
+    }
+    res.json({ data: result.data });
   }
 }
 

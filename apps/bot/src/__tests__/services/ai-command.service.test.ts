@@ -13,6 +13,15 @@ import { notificationService } from 'src/shared/services/notification.service';
 import { aiService } from 'src/shared/services/ai/ai.service';
 import { EXPLAIN_TASK_SYSTEM_PROMPT } from 'src/shared/services/ai-command/explain.prompt';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/epic.service', () => ({
   ...jest.requireActual('src/database/services/epic.service'),
   epicService: {

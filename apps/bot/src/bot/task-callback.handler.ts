@@ -1,5 +1,15 @@
 import { TASK_PRIORITY_ORDER, TASK_STATUS_ORDER, TASK_TYPE_ORDER, TaskPriority, TaskStatus, TaskType } from '@tbot/shared';
 import { BotContext } from 'src/bot/interface/context';
+import { cardSubtaskProgress } from 'src/bot/subtasks/card-progress';
+import {
+  closeAnywayCardRows,
+  closeAnywayDmRows,
+  closeAnywayText,
+  openSubtasksBlockingClose,
+} from 'src/bot/subtasks/close-guard';
+import { cleanUpSubtasksAfterDelete, refreshParentAfterStatus } from 'src/bot/subtasks/parent-sync';
+import { parentSuffix, populatedParent } from 'src/bot/subtasks/subtask-lines';
+import { handleShowSubtasks } from 'src/bot/subtasks/subtask-list-view';
 import {
   buildDeleteConfirmButtons,
   buildMoreButtons,
@@ -39,6 +49,7 @@ import logger from 'src/shared/logger/logger';
 import { configService } from 'src/configs/configuration';
 import { groupMessengerService, isForumChat, topicOf } from 'src/shared/services/group-messenger.service';
 import {
+  DM_CLOSE_ACTION,
   DM_EXPLAIN_ACTION,
   DM_TASK_CALLBACK_PREFIX,
   dmTaskKeyboard,
@@ -99,8 +110,16 @@ export async function handleTaskCallback(ctx: BotContext) {
         await handleStatusChange(ctx, task, 'todo', fromUser);
         break;
       case 'set_status':
-        await handleStatusChange(ctx, task, String(cbData.value), fromUser);
+        await handleStatusChange(ctx, task, String(cbData.value), fromUser, cbData.force === true);
         break;
+      case 'subtasks':
+        await handleShowSubtasks(ctx, task, (rows, text) => renderCard(ctx, task, rows, text));
+        break;
+      case 'close_anyway': {
+        const { doneCommand } = await import('src/bot/commands/done');
+        await doneCommand.confirmClose(ctx, task, fromUser);
+        break;
+      }
       case 'status':
         await renderCard(ctx, task, await buildStatusPicker(task), statusPickerText());
         await ctx.answerCbQuery('Pick a status');
@@ -269,9 +288,17 @@ function statusVerb(from: string, to: string): string {
   }
 }
 
-async function handleStatusChange(ctx: BotContext, task: ITask, newStatus: string, user: IUser) {
+async function handleStatusChange(ctx: BotContext, task: ITask, newStatus: string, user: IUser, force = false) {
   if (!TASK_STATUS_ORDER.includes(newStatus as TaskStatus)) {
     await ctx.answerCbQuery('That option is outdated.');
+    return;
+  }
+
+  const openSubtasks = force ? 0 : await openSubtasksBlockingClose(task, newStatus);
+  if (openSubtasks > 0) {
+    const rows = await closeAnywayCardRows(task, newStatus);
+    await renderCard(ctx, task, rows, closeAnywayText(task.taskNumber, openSubtasks, newStatus));
+    await ctx.answerCbQuery(`${openSubtasks} subtask${openSubtasks === 1 ? ' is' : 's are'} still open`);
     return;
   }
 
@@ -308,13 +335,16 @@ async function applyStatusChange(task: ITask, newStatus: string, user: IUser): P
     to: statusLabel(newStatus),
     via: 'bot',
   });
+  // A subtask finishing / reopening moves its parent card's "🧩 Subtasks: 2/5 done".
+  refreshParentAfterStatus(updatedTask, task.status, newStatus).catch(() => {});
   return updatedTask;
 }
 
-/** "✅ @bob finished *#12* · Fix login" */
+/** "✅ @bob finished *#12* · Fix login" (+ " (↳ #10)" for a subtask) */
 function statusLine(user: IUser, from: string, updatedTask: ITask): string {
   const emoji = statusLabel(updatedTask.status).split(' ')[0];
-  return `${emoji} ${mdName(user)} ${statusVerb(from, updatedTask.status)} ${taskRefLine(updatedTask)}`;
+  const parent = parentSuffix(populatedParent(updatedTask.parentTaskId));
+  return `${emoji} ${mdName(user)} ${statusVerb(from, updatedTask.status)} ${taskRefLine(updatedTask)}${parent}`;
 }
 
 async function notifyAssigneeOfStatus(updatedTask: ITask, user: IUser) {
@@ -388,7 +418,10 @@ async function handleDmTaskCallback(ctx: BotContext, data: string) {
       await ctx.answerCbQuery('This task no longer exists.');
       return;
     }
-    if (!TASK_STATUS_ORDER.includes(to as TaskStatus)) {
+    // "✅ Done #N" (all subtasks done / "Yes, close" after the open-subtasks question): close from any status.
+    const forced = to === DM_CLOSE_ACTION;
+    const target = forced ? TaskStatus.DONE : to;
+    if (!TASK_STATUS_ORDER.includes(target as TaskStatus)) {
       await setDmButtons(ctx, dmTaskKeyboard(task));
       await ctx.answerCbQuery('That button is outdated.');
       return;
@@ -401,26 +434,34 @@ async function handleDmTaskCallback(ctx: BotContext, data: string) {
       return;
     }
 
-    if (task.status === to) {
+    if (task.status === target) {
       await setDmButtons(ctx, dmTaskKeyboard(task));
-      await ctx.answerCbQuery(`#${task.taskNumber} is already ${statusWord(to).toLowerCase()}`);
+      await ctx.answerCbQuery(`#${task.taskNumber} is already ${statusWord(target).toLowerCase()}`);
       return;
     }
     // Someone moved it meanwhile: don't apply a stale step, show the current next step instead.
-    if ((PRIMARY_ACTION[task.status] || PRIMARY_ACTION.todo).to !== to) {
+    if (!forced && (PRIMARY_ACTION[task.status] || PRIMARY_ACTION.todo).to !== target) {
       await setDmButtons(ctx, dmTaskKeyboard(task));
       await ctx.answerCbQuery(`#${task.taskNumber} is ${statusWord(task.status).toLowerCase()} now — buttons updated`);
       return;
     }
+    const openSubtasks = forced ? 0 : await openSubtasksBlockingClose(task, target);
+    if (openSubtasks > 0) {
+      await setDmButtons(ctx, closeAnywayDmRows(task, target));
+      await ctx.answerCbQuery(closeAnywayText(task.taskNumber, openSubtasks, target).replace(/\*/g, ''), {
+        show_alert: true,
+      });
+      return;
+    }
 
-    const updatedTask = await applyStatusChange(task, to, user);
+    const updatedTask = await applyStatusChange(task, target, user);
     if (!updatedTask) {
       await ctx.answerCbQuery("Couldn't update the status. Please try again.");
       return;
     }
 
     await setDmButtons(ctx, dmTaskKeyboard(updatedTask));
-    await ctx.answerCbQuery(`#${updatedTask.taskNumber}: ${statusWord(to)}`);
+    await ctx.answerCbQuery(`#${updatedTask.taskNumber}: ${statusWord(target)}`);
 
     await taskSyncService.syncTaskCard(updatedTask);
     await postGroupLineFor(ctx.telegram, group, updatedTask, statusLine(user, task.status, updatedTask));
@@ -706,7 +747,10 @@ async function handleDeleteRequest(ctx: BotContext, task: ITask, user: IUser) {
     return;
   }
 
-  await renderCard(ctx, task, await buildDeleteConfirmButtons(task), deleteConfirmText(task));
+  // Every subtask is kept, cancelled ones too.
+  const progress = await cardSubtaskProgress(task);
+  const subtasks = progress ? progress.total + progress.cancelled : 0;
+  await renderCard(ctx, task, await buildDeleteConfirmButtons(task), deleteConfirmText(task, subtasks));
   await ctx.answerCbQuery('Confirm to delete');
 }
 
@@ -731,6 +775,8 @@ async function handleDelete(ctx: BotContext, task: ITask, user: IUser) {
     to: null,
     via: 'bot',
   });
+  // A deleted parent's subtasks stay as regular tasks; a deleted subtask is logged on its parent.
+  const detached = await cleanUpSubtasksAfterDelete(task, user);
 
   // Edit the card in place instead of posting a new message.
   try {
@@ -742,7 +788,11 @@ async function handleDelete(ctx: BotContext, task: ITask, user: IUser) {
     logger.warn(`Failed to update deleted task card: ${error}`);
   }
 
-  await ctx.answerCbQuery(`Deleted #${task.taskNumber}`);
+  await ctx.answerCbQuery(
+    detached > 0
+      ? `Deleted #${task.taskNumber} · its ${detached} subtask${detached === 1 ? ' is' : 's are'} now regular tasks`
+      : `Deleted #${task.taskNumber}`,
+  );
 }
 
 /** Re-render the card text (plus an optional legend) with the given keyboard, in place. */
@@ -752,7 +802,7 @@ async function renderCard(ctx: BotContext, task: ITask, rows: InlineKeyboardButt
     const assignee = populatedUser(task.assigneeId) ?? (await findUser(task.assigneeId));
     const tz = await getTimezone(task);
 
-    const card = formatTaskCard(task, creator, assignee, tz);
+    const card = formatTaskCard(task, creator, assignee, tz, await cardSubtaskProgress(task));
     await ctx.editMessageText(extraText ? `${card}\n\n${extraText}` : card, {
       parse_mode: 'Markdown',
       link_preview_options: { is_disabled: true },

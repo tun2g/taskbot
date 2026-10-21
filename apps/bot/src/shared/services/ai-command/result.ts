@@ -1,4 +1,8 @@
+import type { AiBoardFilters } from '@tbot/shared';
+import type { SubtaskProgress } from 'src/database/services/subtask.service';
+import type { ReadyItem } from 'src/shared/services/ai-command/subtask-items';
 import { ITask } from 'src/database/models/task.model';
+import { IUser } from 'src/database/models/user.model';
 import type { TaskChange } from 'src/shared/services/task-sync.service';
 
 /**
@@ -94,6 +98,8 @@ export type QueryOutcome =
       emptyText: string;
       /** The epic the list is filtered by. */
       epic?: EpicRef;
+      /** The same query as board filters (web: "View all N on board" opens exactly these tasks). */
+      boardFilters: AiBoardFilters;
     }
   | { kind: 'unknown_person'; person: string }
   | { kind: 'unknown_epic'; miss: EpicMiss }
@@ -110,12 +116,34 @@ export interface ExplainOutcome {
   assignee: string | null;
   /** The task is the replied card (web: the open task) — already on screen, so no state lines / Open button. */
   fromReply?: boolean;
+  /** Its subtasks' progress (absent / null = none). */
+  subtasks?: SubtaskProgress | null;
+}
+
+/** "/ai chia #42 thành subtask …" — subtasks added to one task (or why none were). */
+export interface SubtasksOutcome {
+  parent: ITask;
+  /** In creation order, with the resolved assignee (null = unassigned). */
+  created: { task: ITask; assignee: IUser | null }[];
+  /** True when the AI proposed the items (the user only asked for a breakdown). */
+  proposed: boolean;
+  /** Plain notes: unknown people, items cut by the limit, items that could not be saved. */
+  warnings: string[];
+  /** Shared by the new subtasks (undo); null when nothing was created. */
+  batchId: string | null;
+  /** Telegram: key of the ↩️ Undo button's stored batch data. */
+  undoKey?: string;
+  /** A rule refused the whole request (e.g. #42 is itself a subtask) — plain sentence; nothing was created. */
+  refusal?: string;
+  /** AI-proposed items waiting for the requester's ✅ Add all (nothing created yet); `id` = the stored proposal. */
+  preview?: { id: string; items: ReadyItem[] };
 }
 
 export type AiSection =
   | { type: 'update'; update: UpdateOutcome }
   | { type: 'explain'; explain: ExplainOutcome }
   | { type: 'epic_created'; epic: EpicCreateOutcome }
+  | { type: 'subtasks'; subtasks: SubtasksOutcome }
   /** Short plain notes, e.g. "❌ No task #55." next to the explanations that did work. */
   | { type: 'note'; lines: string[] }
   | { type: 'query'; query: QueryOutcome }

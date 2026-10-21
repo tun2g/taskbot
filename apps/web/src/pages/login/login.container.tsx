@@ -10,6 +10,11 @@ import { isInTelegram } from '@/lib/telegram';
 
 import { LoginContent } from './login.content';
 
+if (!config.botUsername) {
+  // For whoever deploys it — end users only see "open the board from the bot".
+  console.warn('[login] VITE_BOT_USERNAME is not set: browser sign-in is off. Set it in apps/web/.env and rebuild.');
+}
+
 export function LoginContainer() {
   const { redirect } = useSearch({ from: '/login' });
   const router = useRouter();

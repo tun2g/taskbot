@@ -13,4 +13,6 @@ export interface IGroupSummary extends IGroup {
   counts: { todo: number; in_progress: number; done: number };
   /** Open (not done) tasks assigned to the caller in this group. */
   mine: number;
+  /** Open tasks whose due day is before today in the group's timezone. */
+  overdue: number;
 }

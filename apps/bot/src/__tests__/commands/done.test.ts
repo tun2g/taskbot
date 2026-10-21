@@ -6,7 +6,13 @@ import mongoose from 'mongoose';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { notificationService } from 'src/shared/services/notification.service';
 import { configService } from 'src/configs/configuration';
+import { subtaskService } from 'src/database/services/subtask.service';
+import { Group } from 'src/database/models/group.model';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: { progress: jest.fn().mockResolvedValue(new Map()) },
+}));
+jest.mock('src/database/models/group.model', () => ({ Group: { findById: jest.fn().mockResolvedValue(null) } }));
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');
@@ -135,6 +141,47 @@ describe('DoneCommand', () => {
       expect.stringContaining('#5'),
       expect.objectContaining({ parse_mode: 'Markdown' })
     );
+  });
+
+  describe('a parent with open subtasks', () => {
+    const parent = { _id: mockTaskId, groupId: mockGroupId, taskNumber: 42, title: 'Login', status: 'in_progress' };
+    beforeEach(() => {
+      (subtaskService.progress as jest.Mock).mockResolvedValue(
+        new Map([[String(mockTaskId), { total: 3, done: 1, cancelled: 0 }]]),
+      );
+    });
+    afterEach(() => (subtaskService.progress as jest.Mock).mockResolvedValue(new Map()));
+
+    it('/done asks first instead of closing', async () => {
+      const ctx = createMockCtx({ message: { text: '/done 42' } });
+      (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(parent);
+
+      await command.onDone(ctx);
+
+      expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
+      const [text, extra] = ctx.reply.mock.calls[0];
+      expect(text).toBe('⚠️ *#42 still has 2 open subtasks.* Close it anyway?');
+      expect(extra.reply_markup.inline_keyboard[0][0]).toEqual(
+        expect.objectContaining({ text: '✅ Yes, close #42' }),
+      );
+    });
+
+    it('"Yes, close" closes it and turns the question into the finished line', async () => {
+      (taskService.updateTaskStatus as jest.Mock).mockResolvedValue({ ...parent, status: 'done' });
+      const cbCtx = {
+        answerCbQuery: jest.fn(),
+        editMessageText: jest.fn().mockResolvedValue({}),
+        editMessageReplyMarkup: jest.fn().mockResolvedValue({}),
+        telegram: { editMessageText: jest.fn() },
+      } as any;
+
+      await command.confirmClose(cbCtx, parent as any, mockUser as any);
+
+      expect(taskService.updateTaskStatus).toHaveBeenCalledWith(mockTaskId, 'done', mockUserId);
+      expect(cbCtx.answerCbQuery).toHaveBeenCalledWith('#42: Done');
+      expect(cbCtx.editMessageText.mock.calls[0][0]).toBe('✅ @testuser finished *#42* · Login');
+      expect(Group.findById).toHaveBeenCalled();
+    });
   });
 
   it('should mark task as done by number without #', async () => {

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { dueLabel, dueState, formatDate, formatRelative, toDueDay } from '@/lib/dates';
 import { getEpicId } from '@/lib/epics';
+import { getParent, getProgress, isSubtask, subtaskCount as countSubtasks } from '@/lib/subtasks';
 import { displayName, getUserId } from '@/lib/user';
 
 import { ActivityTimeline } from './components/activity-timeline';
@@ -24,6 +25,9 @@ import { AssigneePicker } from './components/assignee-picker';
 import { DeleteDialog } from './components/delete-dialog';
 import { EditableText } from './components/editable-text';
 import { getSourceMessages, SourceMessages } from './components/source-messages';
+import { ParentBreadcrumb } from './components/subtasks/parent-breadcrumb';
+import { ParentField } from './components/subtasks/parent-field';
+import { SubtasksSection } from './components/subtasks/subtasks-section';
 import type { SaveResult } from './task-detail.container';
 
 /** Short hint under the Epic field: "3/8 done", or "Done" once the epic is closed. */
@@ -74,7 +78,14 @@ interface TaskDetailContentProps {
   activityLoading: boolean;
   activityError: string | null;
   onRetryActivity: () => void;
+  /** Back: to the task this one was opened from, else the board. */
   onBack: () => void;
+  /** The group name in the breadcrumb, and the error states' "Back to board". */
+  onBackToBoard: () => void;
+  /** Opens another task (a subtask row, the parent link). */
+  onOpenTask: (taskId: string) => void;
+  /** Make it a subtask of `parent`, or a regular task with null. */
+  onChangeParent: (parent: ITask | null) => void;
   /**
    * Opened straight from a chat deep link: no native BackButton (Telegram shows "Close"); the
    * breadcrumb still leads to the board.
@@ -123,7 +134,7 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
                   Retry
                 </Button>
               )}
-              <Button variant="primary" onClick={onBack}>
+              <Button variant="primary" onClick={props.onBackToBoard}>
                 Back to board
               </Button>
             </>
@@ -145,10 +156,13 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
 
   const epicId = getEpicId(task.epicId);
   const epicProgress = epicFieldHint(props.epics.find((e) => e._id === epicId));
+  const subtask = isSubtask(task);
+  const parent = getParent(task);
+  const subtaskCount = countSubtasks(getProgress(task));
 
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1.5 text-base">
-      <button type="button" onClick={onBack} className="min-h-11 truncate font-normal text-tg-link hover:underline">
+      <button type="button" onClick={props.onBackToBoard} className="min-h-11 truncate font-normal text-tg-link hover:underline">
         {groupName ?? 'Board'}
       </button>
       <span className="text-tg-hint">/</span>
@@ -175,9 +189,20 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
         <Field label="Assignee" htmlFor="detail-assignee">
           <AssigneePicker id="detail-assignee" members={members} assignee={task.assigneeId} onSelect={saveAssignee} />
         </Field>
+        <Field label="Parent" htmlFor="detail-parent">
+          <ParentField
+            id="detail-parent"
+            groupId={props.groupId}
+            task={task}
+            ownSubtasks={subtaskCount}
+            onOpenParent={props.onOpenTask}
+            onChange={props.onChangeParent}
+          />
+        </Field>
         <Field label="Epic" htmlFor="detail-epic">
           <EpicPicker
             id="detail-epic"
+            disabled={subtask}
             epics={props.epics}
             value={task.epicId}
             onSelect={(epic) =>
@@ -191,11 +216,16 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
             onCreateEpic={props.onCreateEpic}
             isCreating={props.isCreatingEpic}
           />
+          {subtask && (
+            <p className="text-xs text-tg-hint">
+              Follows its parent{parent ? ` #${parent.taskNumber}` : ''}. Change the epic there.
+            </p>
+          )}
           {epicId && (
             <button
               type="button"
               onClick={() => props.onOpenEpicBoard(epicId)}
-              className="mt-0.5 flex min-h-8 items-center gap-1 text-xs text-tg-hint hover:underline"
+              className="mt-0.5 flex min-h-11 items-center gap-1 text-xs text-tg-hint hover:underline sm:min-h-8"
               aria-label="See all tasks in this epic on the board"
             >
               {epicProgress && <span>{epicProgress}</span>}
@@ -258,19 +288,23 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
         </Field>
       </div>
       <dl className="flex flex-col gap-1 border-t border-tg-separator px-4 py-3 text-xs text-tg-hint">
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-x-1">
           <dt>Created</dt>
-          <dd title={formatDate(task.createdAt)}>{formatRelative(task.createdAt)}</dd>
+          <dd>
+            {formatRelative(task.createdAt)} · {formatDate(task.createdAt)}
+          </dd>
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-x-1">
           <dt>Updated</dt>
-          <dd title={formatDate(task.updatedAt)}>{formatRelative(task.updatedAt)}</dd>
+          <dd>
+            {formatRelative(task.updatedAt)} · {formatDate(task.updatedAt)}
+          </dd>
         </div>
         {isClosedStatus(task.status) && task.completedAt && (
           <div className="flex flex-wrap gap-1">
             <dt>Resolved</dt>
-            <dd title={formatDate(task.completedAt)}>
-              {formatRelative(task.completedAt)}
+            <dd>
+              {formatRelative(task.completedAt)} · {formatDate(task.completedAt)}
               {getUserId(task.completedBy) &&
                 ` by ${displayName(task.completedBy, { members, fallback: 'a group member' })}`}
             </dd>
@@ -291,6 +325,7 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
     >
       <div className="grid gap-5 p-4 md:grid-cols-[minmax(0,1fr)_320px] md:items-start md:gap-8">
         <div className="md:col-start-1 md:row-start-1">
+          <ParentBreadcrumb task={task} onOpen={props.onOpenTask} />
           <EditableText
             label="Summary"
             value={task.title}
@@ -317,6 +352,16 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
             displayClassName="text-sm leading-relaxed text-tg-text"
             renderValue={(v) => <FormattedText text={v} />}
           />
+
+          {!subtask && (
+            <SubtasksSection
+              groupId={props.groupId}
+              task={task}
+              members={members}
+              onOpenTask={(t) => props.onOpenTask(t._id)}
+              onParentStatus={(status) => void saveStatus(status)}
+            />
+          )}
 
           <SourceMessages messages={sources} />
 
@@ -347,7 +392,8 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
 
       {showDelete && (
         <DeleteDialog
-          taskNumber={task.taskNumber}
+          task={task}
+          subtaskCount={subtaskCount}
           isDeleting={props.isDeleting}
           error={props.deleteError}
           onConfirm={props.onDelete}

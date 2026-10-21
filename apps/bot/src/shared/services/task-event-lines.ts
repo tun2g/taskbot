@@ -2,7 +2,17 @@ import { IUser } from 'src/database/models/user.model';
 
 // Pure builders for the one-line group "event" messages about task changes (HTML).
 
-export type TaskChangeField = 'status' | 'assignee' | 'priority' | 'type' | 'title' | 'description' | 'due_date' | 'epic';
+export type TaskChangeField =
+  | 'status'
+  | 'assignee'
+  | 'priority'
+  | 'type'
+  | 'title'
+  | 'description'
+  | 'due_date'
+  | 'epic'
+  /** Became / stopped being a subtask; values are "#12 Title". */
+  | 'parent';
 
 /** One changed field, with human-readable before/after values (labels, names, YYYY-MM-DD). */
 export interface TaskChange {

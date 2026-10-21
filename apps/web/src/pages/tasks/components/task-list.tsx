@@ -3,6 +3,7 @@ import { TaskStatus } from '@tbot/shared';
 import type { ReactNode } from 'react';
 
 import { EpicChip } from '@/components/epics/epic-chip';
+import { ParentLine, SubtaskChips, SubtaskProgressChip } from '@/components/subtasks/subtask-chips';
 import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
 import { type SelectOption, SelectMenu } from '@/components/ui/select-menu';
 import type { EpicRef } from '@/lib/epics';
@@ -128,6 +129,7 @@ export function TaskList({
                   >
                     {task.title}
                   </button>
+                  <SubtaskChips task={task} />
                   {!hideEpic && <EpicChip epic={task.epicId} epics={epics} className="max-w-[7.5rem]" />}
                 </span>
               </td>
@@ -185,7 +187,7 @@ export function TaskList({
               <button
                 type="button"
                 onClick={() => onTaskClick(task)}
-                className="min-w-0 flex-1 py-2.5 pl-1 text-left transition-colors active:bg-tg-secondary"
+                className="min-w-0 flex-1 rounded-md py-2.5 pl-1 text-left transition-colors hover:bg-tg-secondary/60 active:bg-tg-secondary"
               >
                 <span className="line-clamp-2 text-sm leading-snug text-tg-text [overflow-wrap:anywhere]">
                   <span className="mr-1.5 inline-flex items-center gap-1 align-[1px]">
@@ -194,10 +196,12 @@ export function TaskList({
                   </span>
                   {task.title}
                 </span>
-                <span className="mt-1.5 flex items-center gap-2">
+                <ParentLine task={task} className="mt-1" />
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   <StatusLozenge status={task.status} />
                   <PriorityIcon priority={task.priority} />
                   <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
+                  <SubtaskProgressChip task={task} />
                   {!hideEpic && <EpicChip epic={task.epicId} epics={epics} />}
                   <span className="ml-auto shrink-0">
                     <Avatar user={task.assigneeId} members={members} />

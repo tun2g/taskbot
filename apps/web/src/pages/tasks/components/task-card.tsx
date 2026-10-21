@@ -2,6 +2,7 @@ import type { ITask, IUser } from '@tbot/shared';
 import { isClosedStatus, TaskStatus } from '@tbot/shared';
 
 import { EpicChip } from '@/components/epics/epic-chip';
+import { ParentLine, SubtaskProgressChip } from '@/components/subtasks/subtask-chips';
 import { Avatar, PriorityIcon, StatusLozenge, TypeIcon } from '@/components/ui/badges';
 import type { EpicRef } from '@/lib/epics';
 
@@ -67,17 +68,19 @@ export function TaskCard({
         </span>
         {task.title}
       </p>
+      <ParentLine task={task} className={`mt-1 ${onStatusChange && !isOverlay ? 'pr-8' : ''}`} />
       {onStatusChange && !isOverlay && (
         <div className="absolute right-0 top-0">
           <StatusMenu task={task} onChange={onStatusChange} />
         </div>
       )}
 
-      {/* Line 2: meta */}
-      <div className="mt-2 flex min-h-6 items-center gap-2">
+      {/* Meta: wraps onto a second row on narrow columns instead of squeezing the epic to a dot. */}
+      <div className="mt-2 flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
         {showStatus && <StatusLozenge status={task.status} />}
         <PriorityIcon priority={task.priority} />
         <DueChip dueDate={task.dueDate} timeZone={timeZone} status={task.status} />
+        <SubtaskProgressChip task={task} />
         {!hideEpic && <EpicChip epic={task.epicId} epics={epics} />}
         <span className="ml-auto shrink-0">
           <Avatar user={task.assigneeId} members={members} />

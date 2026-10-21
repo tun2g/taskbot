@@ -1,4 +1,4 @@
-import type { AiChatRequest, AiChatResponse, AiUndoResponse, ApiResponse } from '@tbot/shared';
+import type { AiChatRequest, AiChatResponse, AiPreviewCancelResponse, AiUndoResponse, ApiResponse } from '@tbot/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/lib/api-client';
@@ -35,5 +35,27 @@ export function useUndoBatch() {
       return data.data;
     },
     onSuccess: () => invalidateTasks(queryClient),
+  });
+}
+
+/** POST /ai/previews/:previewId/accept — creates the subtasks an AI reply proposed (a `created` result, undoable). */
+export function useAcceptPreview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (previewId: string) => {
+      const { data } = await apiClient.post<ApiResponse<AiChatResponse>>(`/ai/previews/${previewId}/accept`);
+      return data.data;
+    },
+    onSuccess: () => invalidateTasks(queryClient),
+  });
+}
+
+/** POST /ai/previews/:previewId/cancel — drops a proposal; nothing was created. */
+export function useCancelPreview() {
+  return useMutation({
+    mutationFn: async (previewId: string) => {
+      const { data } = await apiClient.post<ApiResponse<AiPreviewCancelResponse>>(`/ai/previews/${previewId}/cancel`);
+      return data.data;
+    },
   });
 }

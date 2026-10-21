@@ -122,6 +122,7 @@ describe('web renderer (plain text)', () => {
             kind: 'list',
             queryKind: 'open',
             mine: false,
+            boardFilters: { open: true, search: 'a & b' },
             title: 'Open tasks matching “a & b”',
             icon: '🔎',
             tasks: [task()],
@@ -172,6 +173,7 @@ describe('web renderer (plain text)', () => {
             kind: 'list',
             queryKind: 'mine',
             mine: true,
+            boardFilters: { open: true, assigneeId: 'me-id' },
             title: 'Your open tasks',
             icon: '📋',
             tasks: [task({ title: 'Fix login', assigneeId: me })],
@@ -183,6 +185,7 @@ describe('web renderer (plain text)', () => {
       ],
     });
     expect(data.kind).toBe('query');
+    expect(data.boardFilters).toEqual({ open: true, assigneeId: 'me-id' });
     expect(data.text).toBe('📋 Your open tasks · 1\n#12 🐞 Fix login');
     expect(data.suggestions).toEqual(['Mark #12 done', "What's overdue?", 'What is still open?']);
   });

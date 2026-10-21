@@ -7,23 +7,18 @@ import { AskAiButton, useAskAi } from '@/components/ai-chat/ask-ai';
 import { EpicDot } from '@/components/epics/epic-chip';
 import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
 import { Layout } from '@/components/layout/layout';
-import { Avatar } from '@/components/ui/badges';
 import { LoadMore } from '@/components/ui/load-more';
 import { CardSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { StateMessage } from '@/components/ui/state';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { displayName, getUserId, resolveUser } from '@/lib/user';
 
 import type { BoardGroupBy, BoardSearch, BoardView } from './board-search';
+import { AssigneeBoard } from './components/assignee-board';
 import { CreateTaskModal } from './components/create-task-modal';
-import { type KanbanColumn, KanbanBoard } from './components/kanban-board';
 import { StatusBoard } from './components/status-board';
 import { TaskCard } from './components/task-card';
 import { TaskFiltersBar } from './components/task-filters';
 import { TaskList } from './components/task-list';
-
-const UNASSIGNED = '__unassigned';
 
 interface TasksContentProps {
   groupId: string;
@@ -54,6 +49,8 @@ interface TasksContentProps {
   /** Status board: filters every column applies (each adds its status) + per-status totals. */
   boardFilters: ApiTaskFilters;
   statusCounts: TaskCounts | null;
+  /** Assignee board: server totals per assignee for the same filters. */
+  assigneeCounts: Record<string, number> | null;
   hasActiveFilters: boolean;
   overdueCount?: number;
   onSearchChange: (patch: Partial<BoardSearch>, options?: { replace?: boolean }) => void;
@@ -174,8 +171,8 @@ export function TasksContent(props: TasksContentProps) {
                 Clear filters
               </Button>
             )}
-            <Button variant="primary" onClick={onRetry} disabled={isRefetching}>
-              {isRefetching ? 'Retrying…' : 'Retry'}
+            <Button variant="primary" onClick={onRetry} loading={isRefetching} loadingText="Retrying…">
+              Retry
             </Button>
           </>
         }
@@ -202,15 +199,29 @@ export function TasksContent(props: TasksContentProps) {
   } else if (isEmpty && epicPending) {
     body = <BoardSkeleton view={view} />;
   } else if (isEmpty && hasActiveFilters) {
+    const onlyHidingSubtasks = search.subtasks === 'hide' && !hasOtherFilters(search) && !search.epic;
     body = (
       <StateMessage
         icon="🔍"
-        title="No tasks match these filters"
-        body="Try another search, or clear the filters to see every task."
+        title={onlyHidingSubtasks ? 'No top-level tasks here' : 'No tasks match these filters'}
+        body={
+          search.subtasks === 'hide'
+            ? 'Subtasks are hidden — the work you are looking for may be one of them.'
+            : 'Try another search, or clear the filters to see every task.'
+        }
         action={
-          <Button variant="secondary" onClick={onClearFilters}>
-            Clear filters
-          </Button>
+          <>
+            {search.subtasks === 'hide' && (
+              <Button variant={onlyHidingSubtasks ? 'primary' : 'secondary'} onClick={() => onSearchChange({ subtasks: undefined })}>
+                Show subtasks
+              </Button>
+            )}
+            {!onlyHidingSubtasks && (
+              <Button variant="secondary" onClick={onClearFilters}>
+                Clear filters
+              </Button>
+            )}
+          </>
         }
       />
     );
@@ -262,7 +273,13 @@ export function TasksContent(props: TasksContentProps) {
   } else {
     body = (
       <AssigneeBoard
-        {...props}
+        tasks={tasks}
+        members={members}
+        search={search}
+        assigneeCounts={props.assigneeCounts}
+        hasMore={hasMore}
+        onSearchChange={onSearchChange}
+        onAssigneeChange={props.onAssigneeChange}
         renderCard={renderCard}
         footer={
           hasMore ? (
@@ -368,91 +385,6 @@ function hasOtherFilters(search: BoardSearch): boolean {
     search.status ||
     search.category ||
     search.q
-  );
-}
-
-type BoardProps = TasksContentProps & {
-  renderCard: (task: ITask, isOverlay?: boolean) => ReactNode;
-  footer?: ReactNode;
-};
-
-/** Assignee board: one paged list (all statuses) grouped client-side; "Load more" sits under the board. */
-function AssigneeBoard({ tasks, members, search, onSearchChange, onAssigneeChange, renderCard, footer }: BoardProps) {
-  const byAssignee = new Map<string, ITask[]>();
-  const users = new Map<string, IUser | null>();
-  for (const task of tasks) {
-    const id = getUserId(task.assigneeId) ?? UNASSIGNED;
-    if (!byAssignee.has(id)) byAssignee.set(id, []);
-    byAssignee.get(id)!.push(task);
-    if (id !== UNASSIGNED && !users.has(id)) users.set(id, resolveUser(task.assigneeId, members));
-  }
-
-  const memberIdsWithTasks = [...byAssignee.keys()].filter((id) => id !== UNASSIGNED);
-  const idle = members.filter((m) => !byAssignee.has(m._id));
-  const showEveryone = !!search.everyone;
-
-  const nameOf = (id: string) => displayName(users.get(id) ?? members.find((m) => m._id === id) ?? id, { members });
-  const sortedWithTasks = memberIdsWithTasks.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
-
-  const columns: KanbanColumn[] = [
-    {
-      id: UNASSIGNED,
-      title: (
-        <>
-          <Avatar user={null} /> Unassigned
-        </>
-      ),
-      label: 'Unassigned',
-      count: byAssignee.get(UNASSIGNED)?.length ?? 0,
-      tasks: byAssignee.get(UNASSIGNED) ?? [],
-      emptyText: 'Everything is assigned',
-    },
-    ...sortedWithTasks.map((id) => ({
-      id,
-      title: (
-        <>
-          <Avatar user={users.get(id) ?? id} members={members} /> <span className="truncate">{nameOf(id)}</span>
-        </>
-      ),
-      label: nameOf(id),
-      count: byAssignee.get(id)!.length,
-      tasks: byAssignee.get(id)!,
-    })),
-    ...(showEveryone
-      ? idle.map((m) => ({
-          id: m._id,
-          title: (
-            <>
-              <Avatar user={m} /> <span className="truncate">{displayName(m)}</span>
-            </>
-          ),
-          label: displayName(m),
-          count: 0,
-          tasks: [],
-          emptyText: 'Drag a card here to assign',
-        }))
-      : []),
-  ];
-
-  return (
-    <>
-      {idle.length > 0 && (
-        <div className="flex items-center justify-end px-4 pt-2">
-          <Checkbox
-            checked={showEveryone}
-            onChange={(v) => onSearchChange({ everyone: v || undefined }, { replace: true })}
-          >
-            Show everyone ({idle.length} with no tasks)
-          </Checkbox>
-        </div>
-      )}
-      <KanbanBoard
-        columns={columns}
-        renderCard={(task, { isOverlay }) => renderCard(task, isOverlay)}
-        onMove={(task, _from, to) => onAssigneeChange(task, to === UNASSIGNED ? null : to)}
-        footer={footer}
-      />
-    </>
   );
 }
 

@@ -1,5 +1,9 @@
 import { replyGroupOnly } from 'src/bot/commands/private-chat-hint';
 import { BotContext } from 'src/bot/interface/context';
+import { cardSubtaskProgress } from 'src/bot/subtasks/card-progress';
+import { closeAnywayButtonText, closeAnywayText, openSubtasksBlockingClose } from 'src/bot/subtasks/close-guard';
+import { refreshParentAfterStatus } from 'src/bot/subtasks/parent-sync';
+import { parentSuffix, populatedParent } from 'src/bot/subtasks/subtask-lines';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import {
@@ -10,9 +14,10 @@ import {
   mdName,
   populatedUser,
   statusLabel,
+  storeTaskCallbackData,
   truncate,
 } from 'src/bot/task-card.renderer';
-import { IGroup } from 'src/database/models/group.model';
+import { Group, IGroup } from 'src/database/models/group.model';
 import { groupService } from 'src/database/services/group.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
@@ -121,12 +126,61 @@ export class DoneCommand {
       return;
     }
 
-    const updatedTask = await taskService.updateTaskStatus(task._id, 'done', user._id);
+    // A parent with open subtasks: ask first (answered by `close_anyway` → confirmClose).
+    const openSubtasks = await openSubtasksBlockingClose(task, 'done');
+    if (openSubtasks > 0) {
+      const open = taskButton(task);
+      const yes = {
+        text: closeAnywayButtonText(task.taskNumber, 'done'),
+        callback_data: await storeTaskCallbackData(String(task._id), 'close_anyway'),
+      };
+      await ctx.reply(closeAnywayText(task.taskNumber, openSubtasks, 'done'), {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[yes, ...(open ? [open] : [])]] },
+      });
+      return;
+    }
+
+    const updatedTask = await this.markDone(task, user);
     if (!updatedTask) {
       await ctx.reply(`❌ Couldn't update #${task.taskNumber}. Please try again.`, withButton(taskButton(task)));
       return;
     }
 
+    // An event: forums post it in "Task events" (👌 on the command); normal groups reply here as before.
+    await groupMessengerService.sendCommandEvent(ctx, group, finishedLine(user, updatedTask), {
+      extra: { parse_mode: 'Markdown', ...withButton(taskButton(updatedTask)) },
+    });
+    await this.afterDone(ctx, task, updatedTask, user, group);
+  }
+
+  /** "✅ Yes, close #42" under the open-subtasks question: close it and turn the question into the event line. */
+  async confirmClose(ctx: BotContext, task: ITask, user: IUser) {
+    if (task.status === 'done') {
+      await ctx.answerCbQuery(`#${task.taskNumber} is already done`);
+      await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+      return;
+    }
+    const updatedTask = await this.markDone(task, user);
+    if (!updatedTask) {
+      await ctx.answerCbQuery("Couldn't update the status. Please try again.");
+      return;
+    }
+    await ctx.answerCbQuery(`#${task.taskNumber}: Done`);
+    await ctx
+      .editMessageText(finishedLine(user, updatedTask), {
+        parse_mode: 'Markdown',
+        link_preview_options: { is_disabled: true },
+        ...withButton(taskButton(updatedTask)),
+      })
+      .catch((error) => logger.warn(`Could not edit the close question for #${task.taskNumber}: ${error}`));
+    const group = await Group.findById(task.groupId).catch(() => null);
+    await this.afterDone(ctx, task, updatedTask, user, group);
+  }
+
+  private async markDone(task: ITask, user: IUser): Promise<ITask | null> {
+    const updatedTask = await taskService.updateTaskStatus(task._id, 'done', user._id);
+    if (!updatedTask) return null;
     await taskActivityService.record({
       taskId: task._id,
       groupId: task.groupId,
@@ -136,16 +190,13 @@ export class DoneCommand {
       to: statusLabel('done'),
       via: 'bot',
     });
+    return updatedTask;
+  }
 
-    // An event: forums post it in "Task events" (👌 on the command); normal groups reply here as before.
-    await groupMessengerService.sendCommandEvent(
-      ctx,
-      group,
-      `✅ ${mdName(user)} finished *#${updatedTask.taskNumber}* · ${escapeMarkdown(truncate(updatedTask.title, 60))}`,
-      { extra: { parse_mode: 'Markdown', ...withButton(taskButton(updatedTask)) } },
-    );
-
+  /** Card, parent card and assignee DM after a /done. */
+  private async afterDone(ctx: BotContext, task: ITask, updatedTask: ITask, user: IUser, group: IGroup | null) {
     await this.refreshTaskCard(ctx, updatedTask, group);
+    refreshParentAfterStatus(updatedTask, task.status, 'done').catch(() => {});
 
     const assignee = populatedUser(updatedTask.assigneeId);
     if (assignee && assignee.telegramUserId !== user.telegramUserId) {
@@ -154,10 +205,10 @@ export class DoneCommand {
   }
 
   /** Edit the original task card so it doesn't keep showing stale buttons. */
-  private async refreshTaskCard(ctx: BotContext, task: ITask, group: IGroup) {
+  private async refreshTaskCard(ctx: BotContext, task: ITask, group: IGroup | null) {
     if (!task.taskCardChatId || !task.taskCardMessageId) return;
     try {
-      const text = formatTaskCard(task, undefined, undefined, groupTimezone(group));
+      const text = formatTaskCard(task, undefined, undefined, groupTimezone(group), await cardSubtaskProgress(task));
       const buttons = await buildTaskButtons(task);
       await ctx.telegram.editMessageText(task.taskCardChatId, task.taskCardMessageId, undefined, text, {
         parse_mode: 'Markdown',
@@ -170,6 +221,12 @@ export class DoneCommand {
       }
     }
   }
+}
+
+/** "✅ @me finished *#45* · Write tests (↳ #42)" */
+function finishedLine(user: IUser, task: ITask): string {
+  const parent = parentSuffix(populatedParent(task.parentTaskId));
+  return `✅ ${mdName(user)} finished *#${task.taskNumber}* · ${escapeMarkdown(truncate(task.title, 60))}${parent}`;
 }
 
 export const doneCommand = new DoneCommand();

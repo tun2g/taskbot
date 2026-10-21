@@ -23,6 +23,8 @@ export interface ITask extends Document {
   taskNumber: number;
   /** Epic the task belongs to (at most one); populated as `{ _id, title, color, status }` where cards/API need it. */
   epicId?: mongoose.Types.ObjectId | null;
+  /** Parent task when this is a subtask (one level only; a subtask shares its parent's epic). */
+  parentTaskId?: mongoose.Types.ObjectId | null;
   sourceMessage?: ISourceMessage;
   sourceMessages?: ISourceMessage[];
   batchId?: string;
@@ -102,6 +104,11 @@ const TaskSchema: Schema = new Schema(
       ref: 'Epic',
       default: null,
     },
+    parentTaskId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Task',
+      default: null,
+    },
     sourceMessage: {
       type: SourceMessageSchema,
       default: null,
@@ -152,5 +159,7 @@ TaskSchema.index({ assigneeId: 1, status: 1 });
 TaskSchema.index({ groupId: 1, type: 1 });
 TaskSchema.index({ groupId: 1, taskNumber: 1 }, { unique: true });
 TaskSchema.index({ groupId: 1, epicId: 1 });
+// A parent's subtasks (detail page, progress counts) and the "hide subtasks" filter.
+TaskSchema.index({ parentTaskId: 1, taskNumber: 1 });
 
 export const Task = mongoose.model<ITask>('Task', TaskSchema);

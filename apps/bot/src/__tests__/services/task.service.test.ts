@@ -309,8 +309,9 @@ describe('TaskService', () => {
   describe('countTasksByStatus', () => {
     it('counts per status with the list filters, every status present', async () => {
       (Task.aggregate as jest.Mock).mockResolvedValue([
-        { _id: 'todo', count: 4 },
-        { _id: 'done', count: 2 },
+        { _id: { status: 'todo', assigneeId: mockGroupId }, count: 3 },
+        { _id: { status: 'todo', assigneeId: null }, count: 1 },
+        { _id: { status: 'done', assigneeId: null }, count: 2 },
       ]);
       const result = await service.countTasksByStatus(mockGroupId, { type: 'bug' });
       expect((Task.aggregate as jest.Mock).mock.calls[0][0][0]).toEqual({
@@ -318,6 +319,7 @@ describe('TaskService', () => {
       });
       expect(result.total).toBe(6);
       expect(result.byStatus).toEqual(expect.objectContaining({ todo: 4, done: 2, in_progress: 0, backlog: 0 }));
+      expect(result.byAssignee).toEqual({ [String(mockGroupId)]: 3, none: 3 });
     });
   });
 

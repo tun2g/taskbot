@@ -193,7 +193,7 @@ export function TaskFiltersBar({
           <button
             type="button"
             onClick={() => onChange({ due: 'overdue' })}
-            aria-label={`Show ${overdueCount} overdue task${overdueCount === 1 ? '' : 's'}`}
+            aria-label={`Show the ${overdueCount} overdue task${overdueCount === 1 ? '' : 's'} in this view`}
             className="focus-ring ml-auto inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-tg-destructive transition-colors hover:bg-tg-secondary"
           >
             <span aria-hidden>⚠️</span> {overdueCount} overdue <span aria-hidden>›</span>
@@ -327,7 +327,17 @@ export function TaskFiltersBar({
             aria-pressed={mine}
             onClick={() => onChange({ assignee: mine ? undefined : 'me' })}
           >
-            Only my issues
+            My tasks
+          </Button>
+
+          <Button
+            variant={search.subtasks === 'hide' ? 'primary' : 'secondary'}
+            size="sm"
+            aria-pressed={search.subtasks === 'hide'}
+            title="Show only top-level tasks"
+            onClick={() => onChange({ subtasks: search.subtasks === 'hide' ? undefined : 'hide' })}
+          >
+            Hide subtasks
           </Button>
 
           {hasActiveFilters && (

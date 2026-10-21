@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { bot } from 'src/bot';
+import { notifyIfAllSubtasksDone } from 'src/bot/subtasks/all-done';
+import { cardSubtaskProgress } from 'src/bot/subtasks/card-progress';
 import { buildTaskButtons, formatTaskCard, groupTimezone } from 'src/bot/task-card.renderer';
 import { IGroup } from 'src/database/models/group.model';
 import { ITask, Task } from 'src/database/models/task.model';
@@ -13,6 +15,7 @@ import { buildUndoneText, UndoneTask } from 'src/shared/services/batch-undo.serv
 import { boardButton, taskButton } from 'src/shared/utils/app-links';
 import { Message } from 'telegraf/types';
 
+import { createdSummaryHeader } from 'src/shared/services/created-summary';
 import {
   buildChangeLine,
   buildDeleteLine,
@@ -46,7 +49,9 @@ export class TaskSyncService {
       const creator = isUserDoc(fullTask.createdBy) ? fullTask.createdBy : null;
       const assignee = isUserDoc(fullTask.assigneeId) ? fullTask.assigneeId : null;
 
-      const text = formatTaskCard(fullTask, creator, assignee);
+      const progress = await cardSubtaskProgress(fullTask);
+      notifyIfAllSubtasksDone(fullTask, progress).catch(() => {});
+      const text = formatTaskCard(fullTask, creator, assignee, undefined, progress);
       const buttons = await buildTaskButtons(fullTask);
 
       if (fullTask.taskCardMessageId && fullTask.taskCardChatId) {
@@ -152,7 +157,11 @@ export class TaskSyncService {
       }
 
       const lines = [
-        `<b>🤖 ${escapeHtml(userDisplayName(requester))} created ${created.length} tasks (via ${escapeHtml(via)})</b>`,
+        createdSummaryHeader(
+          userDisplayName(requester),
+          created.map((c) => c.task),
+          via,
+        ),
         '',
         ...createdSummaryLines(created, group._id),
       ];

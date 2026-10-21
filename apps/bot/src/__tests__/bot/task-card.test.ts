@@ -131,6 +131,13 @@ describe('task card renderer', () => {
     const rows = (await buildMoreButtons(task())) as any[][];
     expect(texts(rows)).toEqual([
       ['🔁 Status', '🏷 Type', '🔼 Priority'],
+      ['🧩 Subtasks', '💡 Explain', '🗑 Delete'],
+      ['« Back'],
+    ]);
+    // A subtask can't have subtasks: no 🧩 button.
+    const subRows = (await buildMoreButtons(task({ parentTaskId: new mongoose.Types.ObjectId() }))) as any[][];
+    expect(texts(subRows)).toEqual([
+      ['🔁 Status', '🏷 Type', '🔼 Priority'],
       ['💡 Explain', '🗑 Delete', '« Back'],
     ]);
   });

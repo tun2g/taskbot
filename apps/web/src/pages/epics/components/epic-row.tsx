@@ -99,7 +99,7 @@ export function EpicRow({ epic, onOpen, onEdit, onToggleDone, onDelete }: EpicRo
                   type="button"
                   onClick={() => onOpen(epic, segment.category)}
                   aria-label={`Show ${segment.label} in ${epic.title}`}
-                  className="focus-ring min-h-8 rounded px-1 underline-offset-2 transition-colors hover:text-tg-link hover:underline active:text-tg-link"
+                  className="focus-ring min-h-11 rounded px-1.5 underline-offset-2 transition-colors hover:text-tg-link hover:underline active:text-tg-link sm:min-h-8"
                 >
                   {segment.label}
                 </button>
@@ -112,6 +112,7 @@ export function EpicRow({ epic, onOpen, onEdit, onToggleDone, onDelete }: EpicRo
       <span className="flex items-center pr-1 pt-1.5">
         <SelectMenu<EpicAction>
           variant="custom"
+          menuRole="menu"
           title={epic.title}
           triggerLabel={`More actions for ${epic.title}`}
           value={null}

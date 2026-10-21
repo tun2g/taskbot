@@ -5,7 +5,7 @@ import {
   TASK_TYPE_HINTS,
   TASK_TYPE_ORDER,
 } from '@tbot/shared';
-import { MAX_AI_MUTATIONS } from 'src/shared/services/ai-command/plan.schema';
+import { MAX_AI_MUTATIONS, MAX_AI_SUBTASKS } from 'src/shared/services/ai-command/plan.schema';
 
 export interface PromptMember {
   username?: string | null;
@@ -25,6 +25,8 @@ export interface PromptTask {
   description?: string | null;
   /** Title of the task's epic (null = none). */
   epic?: string | null;
+  /** Number of the parent task when this is a subtask. */
+  parent?: number | null;
 }
 
 export interface AiPromptInput {
@@ -64,7 +66,8 @@ Return ONLY a JSON object: {"actions":[ ...1 to ${MAX_AI_MUTATIONS} actions... ]
 
 Action shapes:
 - {"action":"create_tasks","useReply":boolean} — the user wants NEW tasks. The request text (and the replied message when useReply is true) is the material; another component extracts titles, assignees and due dates from it. Use one create_tasks action even for several tasks.
-- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?,"description"?,"epic"?},"newEpic"?:true}
+- {"action":"create_subtasks","taskRef":...,"items"?:[{"title":"...","assignee"?:"@an","dueDate"?:"YYYY-MM-DD"}],"assignees"?:["@an"],"count"?:3} — the user wants to split an EXISTING task into subtasks (smaller steps of that task, each with its own assignee), e.g. "chia #42 thành subtask", "thêm subtask cho #42: …", "break #42 down". items: exactly the subtasks the user listed (clean work-item titles, at most ${MAX_AI_SUBTASKS}; assignee/dueDate only when written for that item). Omit items when the user asks to split/suggest without listing them — another component proposes them; then put the people they named for the split in "assignees" (in order, as written) and a number they asked for in "count". This is NOT create_tasks.
+- {"action":"update_task","taskRef":"reply"|"previous"|<task number>|{"search":"<words from the title>"},"changes":{"status"?,"assignee"?,"priority"?,"type"?,"dueDate"?,"title"?,"description"?,"epic"?,"parent"?},"newEpic"?:true}
     status: one of ${TASK_STATUS_ORDER.join(', ')}
     type: one of ${TASK_TYPE_ORDER.join(', ')}
     priority: one of ${TASK_PRIORITY_ORDER.join(', ')}
@@ -73,6 +76,7 @@ Action shapes:
     title: only when the user explicitly renames the task. Write it as a clean work-item title (verb first, no chat filler).
     description: only when the user asks to change the description/details/notes. Return the FULL new text, same language as the task: to add something, keep the existing description and append the addition; to rewrite, keep its facts. null clears it.
     epic: the epic (a named group of related tasks) to put the task in — its title as the user wrote it ("thêm #5 vào epic Login" → "Login"); prefer the exact title from "Open epics" when it clearly is the one meant. null takes the task out of its epic ("bỏ #5 khỏi epic").
+    parent: a task number the user wrote, to make the task a subtask of it ("cho #45 làm subtask của #42" → 42); null turns a subtask back into a normal task ("tách #45 ra khỏi #42", "#45 không còn là subtask").
     newEpic: true ONLY when the user explicitly asks for a NEW epic ("epic mới", "new epic"); otherwise omit it.
     Include ONLY the fields the user asked to change.
 - {"action":"create_epic","title":"...","description"?:"..."} — the user wants a new epic ("tạo epic Login", "new epic Payments"). title: the name as written, without the word "epic". This is NOT create_tasks.
@@ -99,6 +103,7 @@ Rules:
 - Questions about tasks ("tôi còn task nào?", "what's overdue?", "task của @an") = query. Never answer them with "answer".
 - Questions about the meaning of one specific task ("#5 là gì?", "task này để làm gì") = explain_task, not query.
 - Epics: "epic Login còn gì?"/"task trong epic Login" = query kind "epic" with "epic":"Login"; "có những epic nào?"/"tiến độ các epic" = query kind "epics". Never invent an epic for a task the user didn't ask to put in one.
+- Subtasks: "chia"/"tách nhỏ"/"thêm subtask"/"break down"/"split into subtasks" on an existing task = create_subtasks. A subtask always stays in its parent's epic.
 - Do not invent people, dates or task numbers.
 
 Examples:
@@ -126,6 +131,12 @@ Request: "tạo epic Login" → {"actions":[{"action":"create_epic","title":"Log
 Request: "epic Login còn gì?" → {"actions":[{"action":"query","kind":"epic","epic":"Login"}]}
 Request: "bug của tôi trong epic Login" → {"actions":[{"action":"query","kind":"mine","type":"bug","epic":"Login"}]}
 Request: "tiến độ các epic" → {"actions":[{"action":"query","kind":"epics"}]}
+Request: "chia #42 thành subtask: thiết kế API, viết UI cho @an" → {"actions":[{"action":"create_subtasks","taskRef":42,"items":[{"title":"Thiết kế API"},{"title":"Viết UI","assignee":"@an"}]}]}
+Request: "tách nhỏ task này giúp mình" (replied task card #12) → {"actions":[{"action":"create_subtasks","taskRef":"reply"}]}
+Request: "break #7 into subtasks" → {"actions":[{"action":"create_subtasks","taskRef":7}]}
+Request: "chia #42 thành 3 subtask cho @an @binh @chi" → {"actions":[{"action":"create_subtasks","taskRef":42,"assignees":["@an","@binh","@chi"],"count":3}]}
+Request: "cho #45 làm subtask của #42" → {"actions":[{"action":"update_task","taskRef":45,"changes":{"parent":42}}]}
+Request: "tách #45 ra khỏi task cha" → {"actions":[{"action":"update_task","taskRef":45,"changes":{"parent":null}}]}
 Request: "xoá #5" → {"actions":[{"action":"delete_task","taskRef":5}]}
 Request: "đóng hết task của @an" → {"actions":[{"action":"bulk"}]}
 Request: "bạn làm được gì?" → {"actions":[{"action":"answer","text":"Mình có thể tạo, cập nhật, tìm, giải thích task và gom task vào epic. Ví dụ: /ai #12 xong rồi"}]}`;
@@ -143,6 +154,7 @@ function taskLabel(t: PromptTask): string {
   parts.push(`assignee ${t.assignee || 'none'}`);
   if (t.dueDate) parts.push(`due ${t.dueDate}`);
   if (t.epic) parts.push(`epic "${t.epic.slice(0, 80)}"`);
+  if (t.parent) parts.push(`subtask of #${t.parent}`);
   const label = parts.join(' · ');
   return t.description ? `${label}\n    description: ${JSON.stringify(t.description.slice(0, 800))}` : label;
 }

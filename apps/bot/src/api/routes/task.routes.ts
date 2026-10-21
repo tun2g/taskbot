@@ -17,6 +17,7 @@ router.get('/groups/:groupId/stats', ...groupScope, asyncHandler((req, res) => t
 
 // Task-scoped routes (caller must be a member of the task's group)
 router.get('/tasks/:taskId', ...taskScope, asyncHandler((req, res) => taskController.getTask(req, res)));
+router.get('/tasks/:taskId/subtasks', ...taskScope, asyncHandler((req, res) => taskController.getSubtasks(req, res)));
 router.get('/tasks/:taskId/activity', ...taskScope, asyncHandler((req, res) => taskController.getActivity(req, res)));
 router.patch('/tasks/:taskId', ...taskScope, asyncHandler((req, res) => taskController.updateTask(req, res)));
 router.delete('/tasks/:taskId', ...taskScope, asyncHandler((req, res) => taskController.deleteTask(req, res)));

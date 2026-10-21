@@ -108,17 +108,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 t.kind === 'error' ? 'bg-tg-destructive text-white' : 'bg-tg-text text-tg-bg'
               }`}
             >
-              <button
-                type="button"
-                onClick={() => dismiss(t.id)}
-                aria-label={`${t.message}. Dismiss`}
-                className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl py-2.5 pl-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-current ${
-                  t.action ? 'pr-2' : 'pr-4'
-                }`}
-              >
-                <span aria-hidden>{t.kind === 'error' ? '⚠️' : t.kind === 'success' ? '✓' : 'ℹ️'}</span>
-                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t.message}</span>
-              </button>
+              {t.action ? (
+                // With an action, a stray tap on the text must not throw away the only way to it.
+                <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2.5 pl-4 pr-2">
+                  <ToastText kind={t.kind} message={t.message} />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => dismiss(t.id)}
+                  aria-label={`${t.message}. Dismiss`}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl py-2.5 pl-4 pr-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-current"
+                >
+                  <ToastText kind={t.kind} message={t.message} />
+                </button>
+              )}
               {t.action && (
                 <button
                   type="button"
@@ -138,6 +142,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         })}
       </div>
     </ToastContext.Provider>
+  );
+}
+
+function ToastText({ kind, message }: { kind: string; message: ReactNode }) {
+  return (
+    <>
+      <span aria-hidden>{kind === 'error' ? '⚠️' : kind === 'success' ? '✓' : 'ℹ️'}</span>
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{message}</span>
+    </>
   );
 }
 

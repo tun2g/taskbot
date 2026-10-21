@@ -11,6 +11,9 @@ function stats(partial: Record<string, number>) {
   return { backlog: 0, todo: 0, in_progress: 0, in_review: 0, pending: 0, done: 0, cancelled: 0, ...partial };
 }
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: { progress: jest.fn().mockResolvedValue(new Map()) },
+}));
 jest.mock('src/database/services/user.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');

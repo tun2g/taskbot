@@ -1,18 +1,19 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'link';
 export type ButtonSize = 'md' | 'sm' | 'icon' | 'fab';
 
 const base =
-  'focus-ring inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,opacity,color,transform] duration-150 disabled:pointer-events-none disabled:opacity-50';
+  'focus-ring inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,opacity,color,transform] duration-150 disabled:opacity-50';
 
+// `enabled:` so a disabled or busy button doesn't light up on hover (its cursor says why — see app.css).
 const variants: Record<ButtonVariant, string> = {
-  primary: 'bg-tg-button font-semibold text-tg-button-text hover:opacity-90 active:opacity-80',
-  secondary: 'border border-tg-separator text-tg-text hover:bg-tg-secondary active:bg-tg-secondary',
-  danger: 'bg-tg-destructive font-semibold text-white hover:opacity-90 active:opacity-80',
+  primary: 'bg-tg-button font-semibold text-tg-button-text enabled:hover:opacity-90 enabled:active:opacity-80',
+  secondary: 'border border-tg-separator text-tg-text enabled:hover:bg-tg-secondary enabled:active:bg-tg-secondary',
+  danger: 'bg-tg-destructive font-semibold text-white enabled:hover:opacity-90 enabled:active:opacity-80',
   // Inherits the text color, so callers can tint it (e.g. text-tg-destructive).
-  ghost: 'hover:bg-tg-secondary active:bg-tg-secondary',
-  link: 'text-tg-link hover:underline active:opacity-70',
+  ghost: 'enabled:hover:bg-tg-secondary enabled:active:bg-tg-secondary',
+  link: 'text-tg-link enabled:hover:underline enabled:active:opacity-70',
 };
 
 /** Every size keeps a 44px touch target on phones; `sm` shrinks to 36px from 640px up. */
@@ -30,6 +31,7 @@ export function buttonClass(variant: ButtonVariant = 'secondary', size: ButtonSi
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   size?: ButtonSize;
   /** Disables the button and shows this text instead of the children. */

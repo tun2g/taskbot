@@ -75,6 +75,26 @@ export interface SelectMenuProps<T extends string> {
   align?: 'start' | 'end';
   /** Popover min width in px (desktop). Default 240. */
   menuWidth?: number;
+
+  /** Called when the menu opens / closes (e.g. load the options only once someone opens it). */
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * Server-side search: called (as typed) with the search text, and the options are shown as given — no local
+   * filtering. The caller debounces and fetches.
+   */
+  onSearchChange?: (query: string) => void;
+  /** Options are loading: the list says so instead of "No matches". */
+  loading?: boolean;
+  /** Options failed to load: shown in the list, with a Retry button when `onRetry` is set. */
+  loadError?: string | null;
+  onRetry?: () => void;
+  /** Text when nothing matches (default "No matches"). */
+  emptyText?: string;
+  /**
+   * `menu` for a list of actions (⋯ "Move to…", epic actions): menu / menuitem semantics instead of a
+   * listbox with a selected value.
+   */
+  menuRole?: 'listbox' | 'menu';
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -141,7 +161,16 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     triggerClassName = '',
     align = 'start',
     menuWidth = 240,
+    onOpenChange,
+    onSearchChange,
+    loading,
+    loadError,
+    onRetry,
+    emptyText = 'No matches',
+    menuRole = 'listbox',
   } = props;
+  const remoteSearch = !!onSearchChange;
+  const isMenu = menuRole === 'menu';
 
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -175,7 +204,7 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
   const { flat, visibleSections } = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
     const matches = (o: SelectOption<T>) =>
-      !q || o.label.toLocaleLowerCase().includes(q) || (o.hint?.toLocaleLowerCase().includes(q) ?? false);
+      !q || remoteSearch || o.label.toLocaleLowerCase().includes(q) || (o.hint?.toLocaleLowerCase().includes(q) ?? false);
     const flatItems: Item<T>[] = [];
     const out: Section<T>[] = [];
     if (clearOption && !q) {
@@ -191,7 +220,7 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
       if (items.length) out.push({ label: s.label, items });
     }
     return { flat: flatItems, visibleSections: out };
-  }, [allSections, clearOption, query]);
+  }, [allSections, clearOption, query, remoteSearch]);
 
   /* ---------- open / close ---------- */
 
@@ -201,14 +230,20 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     setPos(null);
     setDragY(0);
     setOpen(true);
-  }, [disabled]);
+    onOpenChange?.(true);
+    onSearchChange?.('');
+  }, [disabled, onOpenChange, onSearchChange]);
 
-  const close = useCallback((returnFocus = true) => {
-    setOpen(false);
-    setQuery('');
-    setDragY(0);
-    if (returnFocus) triggerRef.current?.focus({ preventScroll: true });
-  }, []);
+  const close = useCallback(
+    (returnFocus = true) => {
+      setOpen(false);
+      setQuery('');
+      setDragY(0);
+      onOpenChange?.(false);
+      if (returnFocus) triggerRef.current?.focus({ preventScroll: true });
+    },
+    [onOpenChange],
+  );
 
   const choose = (item: Item<T> | undefined) => {
     if (!item) return;
@@ -418,7 +453,7 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     id,
     type: 'button' as const,
     disabled,
-    'aria-haspopup': 'listbox' as const,
+    'aria-haspopup': (isMenu ? 'menu' : 'listbox') as 'menu' | 'listbox',
     'aria-expanded': open,
     'aria-controls': open ? listId : undefined,
     'aria-label': ariaLabel,
@@ -431,7 +466,7 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     trigger = (
       <span
         className={`inline-flex min-h-11 shrink-0 items-center rounded-lg text-sm font-medium transition-colors sm:min-h-9 ${
-          hasValue ? 'tint-link' : 'border border-tg-separator text-tg-text hover:bg-tg-secondary'
+          hasValue ? 'tint-link tint-link-hover' : 'border border-tg-separator text-tg-text hover:bg-tg-secondary'
         } ${triggerClassName}`}
       >
         <button
@@ -461,8 +496,8 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
   } else if (variant === 'field') {
     const look =
       appearance === 'input'
-        ? 'w-full rounded-lg border border-tg-separator bg-tg-section px-3 hover:border-tg-hint/60'
-        : '-mx-2 w-[calc(100%+1rem)] rounded-md px-2 hover:bg-tg-secondary';
+        ? 'w-full rounded-lg border border-tg-separator bg-tg-section px-3 enabled:hover:border-tg-hint/60'
+        : '-mx-2 w-[calc(100%+1rem)] rounded-md px-2 enabled:hover:bg-tg-secondary';
     trigger = (
       <button
         {...triggerProps}
@@ -518,7 +553,10 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
         aria-activedescendant={flat.length ? optId(active) : undefined}
         aria-label={`Search ${title.toLocaleLowerCase()}`}
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onSearchChange?.(e.target.value);
+        }}
         placeholder={searchPlaceholder}
         className="h-9 w-full rounded-lg bg-tg-secondary px-3 text-sm text-tg-text outline-none placeholder:text-tg-hint focus:ring-2 focus:ring-tg-link/50"
         autoComplete="off"
@@ -531,13 +569,30 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
     <div
       ref={listRef}
       id={listId}
-      role="listbox"
+      role={isMenu ? 'menu' : 'listbox'}
       aria-label={title}
       tabIndex={-1}
       aria-activedescendant={flat.length ? optId(active) : undefined}
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none"
     >
-      {flat.length === 0 && <p className="px-3 py-6 text-center text-sm text-tg-hint">No matches</p>}
+      {loadError ? (
+        <div className="flex flex-col items-center gap-1 px-3 py-5 text-center text-sm text-tg-hint">
+          <p>{loadError}</p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="focus-ring min-h-11 rounded-lg px-3 font-medium text-tg-link hover:bg-tg-secondary"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      ) : (
+        flat.length === 0 && (
+          <p className="px-3 py-6 text-center text-sm text-tg-hint">{loading ? 'Loading…' : emptyText}</p>
+        )
+      )}
       {visibleSections.map((section, si) => {
         const headerId = `${baseId}-sec-${si}`;
         return (
@@ -561,6 +616,7 @@ export function SelectMenu<T extends string>(props: SelectMenuProps<T>) {
                 id={optId(index)}
                 option={item.option}
                 selected={isSelected(item.value)}
+                isMenu={isMenu}
                 active={index === active}
                 onHover={() => setActive(index)}
                 onSelect={() => choose(item)}
@@ -660,6 +716,7 @@ function OptionRow<T extends string>({
   id,
   option,
   selected,
+  isMenu,
   active,
   onHover,
   onSelect,
@@ -667,6 +724,7 @@ function OptionRow<T extends string>({
   id: string;
   option: SelectOption<T>;
   selected: boolean;
+  isMenu: boolean;
   active: boolean;
   onHover: () => void;
   onSelect: () => void;
@@ -674,8 +732,9 @@ function OptionRow<T extends string>({
   return (
     <div
       id={id}
-      role="option"
-      aria-selected={selected}
+      role={isMenu ? 'menuitem' : 'option'}
+      aria-selected={isMenu ? undefined : selected}
+      aria-current={isMenu && selected ? true : undefined}
       onPointerMove={onHover}
       onClick={onSelect}
       className={`flex min-h-11 cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-1.5 transition-colors duration-100 sm:min-h-10 ${

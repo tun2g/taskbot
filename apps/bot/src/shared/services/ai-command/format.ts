@@ -171,6 +171,8 @@ interface StateTask {
   dueDate?: Date | string | null;
   /** Populated epic ref — adds an "Epic: 🔵 Login" line. */
   epicId?: unknown;
+  /** Populated parent ref — adds "🧩 Subtask of #42 Checkout". */
+  parentTaskId?: unknown;
 }
 
 /**
@@ -179,7 +181,19 @@ interface StateTask {
  * "👤 @an · 📅 due tomorrow" / "👤 Unassigned · ⚠️ overdue since Fri, Oct 16" / "… · 📅 No due date",
  * plus "Epic: 🔵 Login" (as on the card) when the task is in an epic.
  */
-export function taskStateLines(task: StateTask, assignee: string | null, today: string): string[] {
+/** "2/4 done · 1 cancelled" (cancelled subtasks don't count toward the total); "2 cancelled" when that's all. */
+export function subtaskProgressText(p: { total: number; done: number; cancelled?: number }): string {
+  const cancelled = p.cancelled ? `${p.cancelled} cancelled` : '';
+  if (!p.total) return cancelled;
+  return `${p.done}/${p.total} done${cancelled ? ` · ${cancelled}` : ''}`;
+}
+
+export function taskStateLines(
+  task: StateTask,
+  assignee: string | null,
+  today: string,
+  subtasks?: { total: number; done: number; cancelled?: number } | null,
+): string[] {
   const first = [typeText(task.type), statusText(task.status)];
   if (task.priority === 'high' || task.priority === 'urgent') first.push(priorityText(task.priority));
   const due = dueText(task.dueDate, task.status, today);
@@ -187,5 +201,8 @@ export function taskStateLines(task: StateTask, assignee: string | null, today: 
   const lines = [first.join(' · '), `👤 ${assignee ?? 'Unassigned'} · ${when}`];
   const epic = epicOf(task.epicId);
   if (epic) lines.push(`Epic: ${epicLabel(epic)}`);
+  const parent = task.parentTaskId as { taskNumber?: number; title?: string } | null | undefined;
+  if (parent?.taskNumber) lines.push(`↳ Subtask of #${parent.taskNumber} ${shorten(parent.title ?? '', 40)}`.trimEnd());
+  if (subtasks && (subtasks.total || subtasks.cancelled)) lines.push(`🧩 Subtasks: ${subtaskProgressText(subtasks)}`);
   return lines;
 }

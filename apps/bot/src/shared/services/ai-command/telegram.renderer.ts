@@ -26,6 +26,7 @@ import {
   TargetMiss,
   UpdateOutcome,
 } from 'src/shared/services/ai-command/result';
+import { telegramSubtasksButtons, telegramSubtasksText } from 'src/shared/services/ai-command/subtasks.render';
 import { boardButton, taskButton, taskNumberHtml } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
@@ -157,7 +158,7 @@ function explainText(e: ExplainOutcome, today: string, groupId: GroupId): string
   const body = e.text ? escapeHtml(e.text) : [`<i>${EXPLAIN_UNAVAILABLE_NOTE}</i>`, fallbackDetail(t)].join('\n');
   // The replied card is right above: its state would only repeat it.
   if (e.fromReply) return [header, body].join('\n');
-  return [header, body, '', ...taskStateLines(t, e.assignee, today).map(escapeHtml)].join('\n');
+  return [header, body, '', ...taskStateLines(t, e.assignee, today, e.subtasks).map(escapeHtml)].join('\n');
 }
 
 function queryText(q: QueryOutcome, today: string, groupId: GroupId): string {
@@ -199,6 +200,7 @@ function sectionText(s: AiSection, today: string, groupId: GroupId): string {
   if (s.type === 'explain') return explainText(s.explain, today, groupId);
   if (s.type === 'epic_created') return epicCreatedText(s.epic);
   if (s.type === 'note') return s.lines.map(escapeHtml).join('\n');
+  if (s.type === 'subtasks') return telegramSubtasksText(s.subtasks, today, groupId);
   return `🤖 ${escapeHtml(s.text)}`;
 }
 
@@ -240,7 +242,10 @@ export function renderTelegram(c: AiRequestContext, result: AiResult): AiOutcome
   const explainSections = sections.flatMap((s) => (s.type === 'explain' ? [s.explain] : []));
   // The replied card needs no "Open" button — the user is looking at it.
   const explained = explainSections.filter((e) => !e.fromReply).map((e) => e.task);
-  if (sections.some((s) => s.type === 'query')) {
+  const subtasks = sections.find((s) => s.type === 'subtasks');
+  if (subtasks?.type === 'subtasks') {
+    buttons = telegramSubtasksButtons(subtasks.subtasks);
+  } else if (sections.some((s) => s.type === 'query')) {
     buttons = boardButtons;
   } else if (sections.some((s) => s.type === 'epic_created')) {
     // The new epic lives on the board; tasks changed in the same request get their own button.

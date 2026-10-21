@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { pushBackInterceptor } from '@/lib/back-button';
 
 import { Button } from './button';
+import { useFocusTrap } from './use-focus-trap';
 
 const openDialogs: object[] = [];
 
@@ -28,7 +29,8 @@ interface DialogProps {
 
 /**
  * Modal: a bottom sheet on phones (grab handle, safe-area padding), a centered card from
- * 640px. Esc, backdrop tap and Telegram's BackButton close it; focus returns to the opener.
+ * 640px. Esc, backdrop tap and Telegram's BackButton close it. Focus moves into it (Tab stays inside) and
+ * returns to the opener on close.
  */
 export function Dialog({
   onClose,
@@ -47,9 +49,15 @@ export function Dialog({
   onCloseRef.current = onClose;
   const dismissibleRef = useRef(dismissible);
   dismissibleRef.current = dismissible;
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Read during the first render — by the time effects run, an `autoFocus` child has already taken focus.
+  const openerRef = useRef<HTMLElement | null>(
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
+  );
+  useFocusTrap(panelRef);
 
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
+    const opener = openerRef.current;
     // Stacked dialogs (e.g. "New epic" over "Create task"): Esc closes only the top one.
     const token = {};
     openDialogs.push(token);
@@ -85,8 +93,10 @@ export function Dialog({
     >
       <div className="tbot-fade-in fixed inset-0 bg-black/40" onClick={dismissible ? onClose : undefined} aria-hidden />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         style={{ maxHeight: 'calc(var(--app-vh) * 0.92 - var(--app-safe-top))' }}
-        className={`tbot-sheet-in pb-safe relative w-full overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-2 shadow-xl sm:rounded-xl sm:pt-4 ${
+        className={`tbot-sheet-in pb-safe relative w-full overflow-y-auto rounded-t-2xl bg-tg-section px-5 pt-2 shadow-xl outline-none sm:rounded-xl sm:pt-4 ${
           size === 'sm' ? 'max-w-md' : 'max-w-lg'
         }`}
       >

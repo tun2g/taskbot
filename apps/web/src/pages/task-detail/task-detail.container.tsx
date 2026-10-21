@@ -1,5 +1,5 @@
 import type { IEpic, ITask, UpdateTaskInput } from '@tbot/shared';
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { useNavigate, useParams, useRouter, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { useCreateEpic, useEpics } from '@/api/epics';
@@ -13,6 +13,7 @@ import { haptic, isLandedTask } from '@/lib/telegram';
 
 import { recallBoardSearch } from '../tasks/board-search';
 import { useUndoableTaskChange } from '../tasks/use-undoable-change';
+import { useParentChange } from './components/subtasks/use-parent-change';
 import { TaskDetailContent } from './task-detail.content';
 
 export type SaveResult = { ok: true } | { ok: false; message: string };
@@ -25,7 +26,9 @@ function pickView(groupId: string) {
 
 export function TaskDetailContainer() {
   const { groupId, taskId } = useParams({ from: '/$groupId/tasks/$taskId' });
+  const { from } = useSearch({ from: '/$groupId/tasks/$taskId' });
   const navigate = useNavigate();
+  const router = useRouter();
   const toast = useToast();
 
   const task = useTask(taskId);
@@ -38,9 +41,17 @@ export function TaskDetailContainer() {
   const { data: epics = [] } = useEpics(groupId);
   const createEpic = useCreateEpic(groupId);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const changeParent = useParentChange(groupId);
 
-  const handleBack = () => {
+  const goToBoard = () => {
     navigate({ to: '/$groupId/tasks', params: { groupId }, search: recallBoardSearch(groupId) });
+  };
+
+  /** Opened from another task (a parent's subtask list): back returns to that task, not all the way to the board. */
+  const handleBack = () => {
+    if (!from) return goToBoard();
+    if (router.history.canGoBack()) return router.history.back();
+    navigate({ to: '/$groupId/tasks/$taskId', params: { groupId, taskId: from }, replace: true });
   };
 
   /** Epic changes get the same "· Undo" toast as status / assignee (the shared hook covers only those two). */
@@ -159,6 +170,11 @@ export function TaskDetailContainer() {
       activityError={activity.isError ? getErrorMessage(activity.error) : null}
       onRetryActivity={() => activity.refetch()}
       onBack={handleBack}
+      onOpenTask={(id) =>
+        navigate({ to: '/$groupId/tasks/$taskId', params: { groupId, taskId: id }, search: { from: taskId } })
+      }
+      onBackToBoard={goToBoard}
+      onChangeParent={(parent) => task.data && void changeParent(task.data, parent)}
       quickLook={isLandedTask(groupId, taskId)}
       onUpdate={handleUpdate}
       isUpdating={updateTask.isPending || quick.updateTask.isPending}

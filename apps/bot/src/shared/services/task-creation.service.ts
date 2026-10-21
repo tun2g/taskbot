@@ -33,22 +33,16 @@ import {
 import { boardButton, taskNumberHtml } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton, Message } from 'telegraf/types';
 
-export const BATCH_CALLBACK_PREFIX = 'batch_cb';
-export const BATCH_UNDO_WINDOW_MS = 10 * 60 * 1000;
+import { BATCH_CALLBACK_PREFIX, BatchCallbackData } from 'src/shared/services/batch-undo.constants';
+import { parentRefOf, sharedParentOf } from 'src/shared/services/created-summary';
+
+export { BATCH_CALLBACK_PREFIX, BATCH_UNDO_WINDOW_MS } from 'src/shared/services/batch-undo.constants';
+export type { BatchCallbackData } from 'src/shared/services/batch-undo.constants';
 const AI_RATE_LIMIT = 20;
 const AI_RATE_WINDOW_SECONDS = 10 * 60;
 const PROGRESS_DELAY_MS = 1500;
 const SUMMARY_TITLE_MAX = 60;
 
-export interface BatchCallbackData {
-  batchId: string;
-  groupId: string;
-  chatId: number;
-  requesterTelegramId: number;
-  requesterName: string;
-  count: number;
-  createdAt: number;
-}
 
 export interface CreateTasksInput {
   /** Oldest first. For free text, pass one message whose text is the request. */
@@ -419,11 +413,15 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
  * exists; the epic only when the AI put the task in one, so a wrong pick is easy to spot).
  */
 export function createdSummaryLines(created: CreatedTask[], groupId: IGroup['_id'] | string): string[] {
+  // Subtasks of different parents say whose they are; when all share one, the headline says it instead.
+  const shared = sharedParentOf(created.map((c) => c.task));
   return created.map(({ task, assignee }) => {
     const who = assignee ? ` → ${escapeHtml(userName(assignee))}` : '';
+    const parent = shared ? null : parentRefOf(task);
+    const under = parent ? ` ↳ #${parent.taskNumber}` : '';
     const epic = epicOf(task.epicId);
     const inEpic = epic ? ` · ${escapeHtml(epicLabel(epic, 16))}` : '';
-    return `${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${who}${inEpic}`;
+    return `${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeEmoji(task.type)} ${escapeHtml(truncate(task.title, SUMMARY_TITLE_MAX))}${under}${who}${inEpic}`;
   });
 }
 

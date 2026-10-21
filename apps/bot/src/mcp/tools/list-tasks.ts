@@ -6,9 +6,11 @@ import { IGroup } from 'src/database/models/group.model';
 import { TaskFilters, taskService } from 'src/database/services/task.service';
 import { McpContext } from 'src/mcp/context';
 import { requireGroup } from 'src/mcp/resolve/group';
-import { taskLine, taskSummary } from 'src/mcp/format/task';
+import { taskLine } from 'src/mcp/format/task';
+import { summarizeTasks } from 'src/mcp/format/task-summaries';
 import { resolveAssignee } from 'src/mcp/resolve/assignee';
 import { resolveEpic } from 'src/mcp/resolve/epic';
+import { resolveTask } from 'src/mcp/resolve/task';
 import { categoryEnum, priorityEnum, statusEnum, typeEnum } from 'src/mcp/tools/schemas';
 import { defineTool, groupArg, READ_ONLY } from 'src/mcp/tools/types';
 import { z } from 'zod';
@@ -26,6 +28,10 @@ const inputSchema = {
     .describe('Without status/category only open tasks are listed; set true to include done and cancelled ones.'),
   assignee: z.string().trim().min(1).optional().describe('"me", "none" (unassigned), or a member\'s @username / name.'),
   epic: z.string().trim().min(1).optional().describe('Epic title or id, or "none" for tasks without an epic.'),
+  parent: z
+    .union([z.number().int().positive(), z.literal('none')])
+    .optional()
+    .describe('A task number → only its subtasks (all statuses unless you filter); "none" → only top-level tasks (hides subtasks).'),
   type: typeEnum.optional(),
   priority: priorityEnum.optional(),
   due: z
@@ -61,7 +67,10 @@ export async function buildFilters(ctx: McpContext, group: IGroup, args: ListArg
     ...(args.search ? { search: args.search } : {}),
   };
 
-  const openOnly = (!args.status && !args.category && !args.includeClosed) || args.due === 'overdue';
+  // A parent's subtasks are listed whatever their status (it's a checklist), unless a status filter is given.
+  const listsSubtasks = typeof args.parent === 'number';
+  const openOnly =
+    (!args.status && !args.category && !args.includeClosed && !listsSubtasks) || args.due === 'overdue';
   const statuses = resolveStatusFilter({ status: args.status, category: args.category, open: openOnly });
   if (statuses) filters.statuses = statuses;
   if (args.due)
@@ -78,6 +87,11 @@ export async function buildFilters(ctx: McpContext, group: IGroup, args: ListArg
         ? null
         : ((await resolveEpic(group, args.epic))._id as mongoose.Types.ObjectId);
   }
+  if (args.parent === 'none') {
+    filters.parentTaskId = null;
+  } else if (listsSubtasks) {
+    filters.parentTaskId = (await resolveTask(group, args.parent as number))._id as mongoose.Types.ObjectId;
+  }
   return filters;
 }
 
@@ -85,7 +99,8 @@ export const listTasksTool = defineTool({
   name: 'list_tasks',
   title: 'List tasks',
   description:
-    'Lists tasks of a group, newest first, with filters (status, category, assignee, epic, type, priority, due, search). ' +
+    'Lists tasks of a group, newest first, with filters (status, category, assignee, epic, parent, type, priority, due, search). ' +
+    'Subtasks are listed too (marked "subtask of #N"); pass parent "none" to hide them, or a task number for its subtasks. ' +
     'By default only OPEN tasks are listed. Paginated: check `hasMore` and ask for the next `page`.',
   inputSchema,
   annotations: READ_ONLY,
@@ -93,7 +108,7 @@ export const listTasksTool = defineTool({
     const group = await requireGroup(ctx, args.group);
     const filters = await buildFilters(ctx, group, args);
     const { tasks, total, hasMore } = await taskService.getTasksByGroup(group._id as mongoose.Types.ObjectId, filters);
-    const items = tasks.map(taskSummary);
+    const items = await summarizeTasks(tasks);
 
     const page = filters.page ?? 1;
     const lines = [

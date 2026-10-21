@@ -34,7 +34,11 @@ export interface ExplainPromptInput {
     closed: boolean;
     /** Title of the epic (group of related tasks) the task belongs to. */
     epic?: string | null;
+    /** "#42 Checkout v2" when this is a subtask (a step of that bigger task). */
+    parent?: string | null;
   };
+  /** Its subtasks (steps), oldest first: title + where it stands. */
+  subtasks?: { title: string; state: 'open' | 'done' | 'cancelled' }[];
   /** Who asked (display name without "@") — never suggested as the person to ask. */
   askedBy: string;
   /** People who could answer open questions, best first (source-message authors → creator → assignee), without "@". */
@@ -66,6 +70,8 @@ Rules for "text":
   💬 what is missing or unclear and who could answer, e.g. "Chưa có mô tả — hỏi Tú" / "No description yet — ask Tú". Pick the first fitting name from "Who could answer"; never the person who asked.
 - You may use 2 lines for 🎯 when the original discussion has important details (steps, error message, scope).
 - Status, assignee, due date and epic are shown to the user separately — don't repeat them.
+- A subtask is one step of its parent task: say in the 🎯 line what it is part of (by the parent's title, no number).
+- When the task has subtasks, the 🏁 line may say what is left by their titles (e.g. "Còn: viết UI, test").
 - If the request asks something specific about the task ("vì sao?", "ai làm?", "hạn khi nào?", "why?"), answer that on the first line.
 - If there is too little information to explain the task, say so in one 🎯 line and add the 💬 line.`;
 
@@ -89,6 +95,16 @@ export function buildExplainPrompt(input: ExplainPromptInput): string {
   lines.push(`Assignee: ${task.assignee ?? 'none'}`);
   lines.push(`Created by: ${task.creator ?? 'unknown'}${task.createdAt ? ` on ${task.createdAt}` : ''}`);
   if (task.epic) lines.push(`Epic: ${JSON.stringify(task.epic)}`);
+  if (task.parent) lines.push(`Subtask of: ${JSON.stringify(task.parent)}`);
+  if (input.subtasks?.length) {
+    const left = input.subtasks.filter((s) => s.state === 'open').map((s) => JSON.stringify(clip(s.title, 80)));
+    const done = input.subtasks.filter((s) => s.state === 'done').length;
+    const counted = input.subtasks.filter((s) => s.state !== 'cancelled').length;
+    const cancelled = input.subtasks.length - counted;
+    lines.push(
+      `Subtasks: ${done}/${counted} done${cancelled ? ` (${cancelled} cancelled, not counted)` : ''}${left.length ? `; still open: ${left.slice(0, 8).join(', ')}` : ''}`,
+    );
+  }
   lines.push(`Due date: ${task.dueDate ?? 'none'}`);
   lines.push(
     `Description: ${task.description?.trim() ? JSON.stringify(task.description.trim().slice(0, DESCRIPTION_MAX)) : 'none'}`,

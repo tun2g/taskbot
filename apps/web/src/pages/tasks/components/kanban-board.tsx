@@ -186,7 +186,7 @@ export function KanbanColumnView({ column }: { column: KanbanColumn }) {
               <button
                 type="button"
                 onClick={column.onRetry}
-                className="focus-ring min-h-11 rounded-md px-3 text-sm font-medium text-tg-link"
+                className="focus-ring min-h-11 rounded-md px-3 text-sm font-medium text-tg-link transition-colors hover:bg-tg-bg/60 active:bg-tg-bg/60"
               >
                 Retry
               </button>

@@ -11,6 +11,7 @@ interface GroupCardProps {
 /** Group summary. Every number opens the board filtered to exactly those tasks. */
 export function GroupCard({ group, onOpen }: GroupCardProps) {
   const { counts, mine } = group;
+  const overdue = group.overdue ?? 0;
   const name = group.groupName || 'Untitled group';
   return (
     <section className="flex w-full flex-col rounded-lg border border-tg-separator bg-tg-section" aria-label={name}>
@@ -44,6 +45,15 @@ export function GroupCard({ group, onOpen }: GroupCardProps) {
           onClick={() => onOpen(group._id, { view: 'list', category: TaskStatusCategory.DONE })}
         />
       </div>
+      {overdue > 0 && (
+        <button
+          type="button"
+          onClick={() => onOpen(group._id, { view: 'list', due: 'overdue', sort: 'due', dir: 'asc' })}
+          className="mx-2 mt-2 flex min-h-11 items-center gap-1 rounded-md px-2 text-left text-sm font-medium text-tg-destructive transition-colors hover:bg-tg-secondary/60"
+        >
+          <span aria-hidden>⚠️</span> {overdue} overdue <span aria-hidden>›</span>
+        </button>
+      )}
       {mine > 0 ? (
         <button
           type="button"

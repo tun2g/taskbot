@@ -12,6 +12,9 @@ export function serverInstructions(scopeGroup: IGroup | null): string {
       'and may ask a clarifying question — answer it by calling ask_taskbot again with the same conversationId.',
     'Use the structured tools (list_tasks, get_task, create_tasks, update_task, delete_task, list_epics, create_epic, update_epic) when you already know the exact fields.',
     'Refer to tasks by their number within the group (#12 → taskNumber 12). Assign people by @username or name from list_members, or "me".',
+    'Subtasks break one task into smaller pieces, each with its own number, assignee and status: create them with create_tasks `parent`, ' +
+      'move or detach them with update_task `parent`. They are one level deep (a subtask has no subtasks) and always share the parent\'s epic; ' +
+      'deleting a parent keeps its subtasks as regular tasks.',
     'Write task titles as clean, short work items ("Fix login redirect on iOS"), with details in the description — never paste a whole conversation as a title.',
     'Every change is visible to the team: the group gets a short message and assignees get a DM. Created tasks can be undone for 10 minutes with undo_last.',
   ].join('\n');

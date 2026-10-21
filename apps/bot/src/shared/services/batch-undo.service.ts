@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { ITask } from 'src/database/models/task.model';
+import { IUser } from 'src/database/models/user.model';
+import logger from 'src/shared/logger/logger';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { taskService } from 'src/database/services/task.service';
 import { escapeHtml, shorten, typeIcon } from 'src/shared/services/ai-command/format';
@@ -30,7 +32,20 @@ export async function undoBatch(params: {
       via: params.via,
     });
   }
+  if (removed) await cleanUpSubtasks(tasks, params.actor, params.via);
   return { removed, tasks };
+}
+
+/** Undone subtasks leave their parent's log / card; an undone parent keeps its subtasks as regular tasks. */
+async function cleanUpSubtasks(tasks: ITask[], actor: mongoose.Types.ObjectId | null, via: 'bot' | 'app' | 'mcp') {
+  try {
+    // Lazy: the subtask rules load task-sync, which loads the bot (whose undo button imports this file).
+    const { afterTaskDeleted } = await import('src/shared/services/task-mutation/subtasks');
+    const actorRef = { _id: actor } as unknown as IUser;
+    for (const task of tasks) await afterTaskDeleted(task, actorRef, { activity: via });
+  } catch (error) {
+    logger.warn(`Subtask cleanup after undo failed: ${error}`);
+  }
 }
 
 export type UndoneTask = Pick<ITask, 'taskNumber' | 'title' | 'type'>;

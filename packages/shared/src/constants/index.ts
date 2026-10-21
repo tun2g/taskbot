@@ -23,6 +23,7 @@ export {
   getStatusCategory,
   isClosedStatus,
   statusesInCategory,
+  SUBTASKS_MAX,
 } from './task.js';
 export {
   EpicColor,

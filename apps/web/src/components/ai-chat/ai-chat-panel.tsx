@@ -1,16 +1,12 @@
-import type { ITask } from '@tbot/shared';
-import { isClosedStatus } from '@tbot/shared';
+import type { AiChatResponse, ITask } from '@tbot/shared';
 import { useNavigate } from '@tanstack/react-router';
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { useAiChat, useUndoBatch } from '@/api/ai';
-import { useMe } from '@/api/auth';
+import { useAcceptPreview, useAiChat, useCancelPreview, useUndoBatch } from '@/api/ai';
 import { useGroup } from '@/api/groups';
-import type { BoardSearch } from '@/pages/tasks/board-search';
 import { getErrorMessage } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
-import { getUserId } from '@/lib/user';
 
 import {
   type AssistantMessage,
@@ -25,6 +21,7 @@ import {
   type UserMessage,
 } from './ai-chat-store';
 import { AiAvatar, AssistantBubble, SuggestionChips, ThinkingBubble, UserBubble } from './ai-message';
+import { boardSearchFromAi } from './board-link';
 
 const MAX_LENGTH = 2000;
 const COUNTER_FROM = 1800;
@@ -36,22 +33,6 @@ interface AiChatPanelProps {
   onClose: () => void;
   /** Opened from a task's page: the chat is "about" this task until the chip is removed. */
   contextTask?: ITask | null;
-}
-
-/** Board filters for "View all on board" — only what every shown task obviously has in common. */
-function deriveBoardSearch(tasks: ITask[], meId?: string | null): BoardSearch {
-  const search: BoardSearch = {};
-  if (tasks.length < 2) return search;
-  const assignees = new Set(tasks.map((t) => getUserId(t.assigneeId) ?? 'none'));
-  if (assignees.size === 1) {
-    const only = [...assignees][0];
-    search.assignee = meId && only === meId ? 'me' : only;
-  }
-  if (tasks.every((t) => !isClosedStatus(t.status))) {
-    search.view = 'list';
-    search.category = 'open';
-  }
-  return search;
 }
 
 function shortTitle(title: string, max = 24): string {
@@ -75,9 +56,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
 function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPanelProps) {
   const navigate = useNavigate();
   const { data: group } = useGroup(groupId);
-  const { data: me } = useMe();
   const chat = useAiChat(groupId);
   const undo = useUndoBatch();
+  const acceptPreview = useAcceptPreview();
+  const cancelPreview = useCancelPreview();
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadConversation(groupId));
   const [input, setInput] = useState('');
@@ -193,6 +175,33 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
     }
   };
 
+  /** Accepting a proposal turns the bubble into the usual "created" result (with Undo). */
+  const handleAcceptPreview = async (message: AssistantMessage): Promise<string | null> => {
+    const previewId = message.response.preview?.previewId;
+    if (!previewId) return null;
+    try {
+      const created = await acceptPreview.mutateAsync(previewId);
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, response: created } : m)));
+      haptic('success');
+      return null;
+    } catch (err) {
+      haptic('error');
+      return getErrorMessage(err, "Couldn't add the subtasks.");
+    }
+  };
+
+  const handleCancelPreview = async (message: AssistantMessage): Promise<string | null> => {
+    const previewId = message.response.preview?.previewId;
+    if (!previewId) return null;
+    try {
+      await cancelPreview.mutateAsync(previewId);
+    } catch {
+      // Already gone on the server (expired / used) — either way nothing will be created.
+    }
+    setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, previewCancelled: true } : m)));
+    return null;
+  };
+
   const leavePanelFor = (go: () => void) => {
     if (isDesktop) requestReopen();
     else onClose();
@@ -207,8 +216,8 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
     leavePanelFor(() => navigate({ to: '/$groupId/tasks/$taskId', params: { groupId, taskId: task._id } }));
   };
 
-  const viewAll = (tasks: ITask[]) => {
-    const search = deriveBoardSearch(tasks, me?._id);
+  const viewAll = (response: AiChatResponse) => {
+    const search = boardSearchFromAi(response.boardFilters) ?? {};
     leavePanelFor(() => navigate({ to: '/$groupId/tasks', params: { groupId }, search }));
   };
 
@@ -306,7 +315,7 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
             type="button"
             onClick={newChat}
             disabled={chat.isPending}
-            className="min-h-11 rounded-lg px-3 text-sm font-medium text-tg-link hover:bg-tg-secondary disabled:opacity-50"
+            className="min-h-11 rounded-lg px-3 text-sm font-medium text-tg-link enabled:hover:bg-tg-secondary disabled:opacity-50"
           >
             New chat
           </button>
@@ -355,6 +364,8 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
                   onOpenTask={openTask}
                   onViewAll={viewAll}
                   onUndo={handleUndo}
+                  onAcceptPreview={handleAcceptPreview}
+                  onCancelPreview={handleCancelPreview}
                 />
               ),
             )}
@@ -412,7 +423,8 @@ function AiChatPanelInner({ groupId, isDesktop, onClose, contextTask }: AiChatPa
             type="submit"
             disabled={!input.trim() || chat.isPending}
             aria-label="Send"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tg-button text-lg text-tg-button-text transition-opacity active:opacity-80 disabled:opacity-40"
+            aria-busy={chat.isPending || undefined}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tg-button text-lg text-tg-button-text transition-opacity enabled:hover:opacity-90 enabled:active:opacity-80 disabled:opacity-40"
           >
             ➤
           </button>

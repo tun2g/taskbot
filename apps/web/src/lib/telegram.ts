@@ -55,6 +55,8 @@ interface TelegramWebApp {
   /** Bot API 7.7+ */
   enableVerticalSwipes?: () => void;
   close: () => void;
+  /** Opens a t.me link inside Telegram (jumps to the chat / message) and closes nothing. Bot API 6.1+ */
+  openTelegramLink?: (url: string) => void;
   // Handlers get `this` = WebApp; `fullscreenFailed` receives `{ error: 'UNSUPPORTED' | 'ALREADY_FULLSCREEN' }`.
   onEvent?: (event: TelegramEvent, cb: (payload?: unknown) => void) => void;
   offEvent?: (event: TelegramEvent, cb: (payload?: unknown) => void) => void;
@@ -179,6 +181,23 @@ export function consumeStartParam(): { groupId: string; taskId?: string } | null
   if (!groupId) return null;
   if (taskId) landedTaskPath = `/${groupId}/tasks/${taskId}`;
   return { groupId, taskId: taskId || undefined };
+}
+
+/**
+ * Opens a t.me link the Telegram way — straight to the chat / message — instead of an in-app browser page.
+ * Returns false outside Telegram or for other URLs (let the plain link do its job).
+ */
+export function openTelegramLink(url: string): boolean {
+  const webApp = getTelegramWebApp();
+  if (!webApp?.openTelegramLink || !isInTelegram()) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== 'https:' || hostname !== 't.me') return false;
+  } catch {
+    return false;
+  }
+  webApp.openTelegramLink(url);
+  return true;
 }
 
 export function haptic(type: 'success' | 'error' | 'light') {

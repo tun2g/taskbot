@@ -7,9 +7,11 @@ import { FormattedText } from '@/components/ui/formatted-text';
 import { DueChip } from '@/pages/tasks/components/due-chip';
 
 import type { AssistantMessage, UserMessage } from './ai-chat-store';
+import { boardSearchFromAi } from './board-link';
+import { SubtaskPreview } from './subtask-preview';
 
 const chipClass =
-  'inline-flex min-h-11 items-center rounded-full border border-tg-separator bg-tg-section px-3.5 text-left text-sm text-tg-link transition-colors hover:bg-tg-secondary active:bg-tg-secondary disabled:opacity-50';
+  'inline-flex min-h-11 items-center rounded-full border border-tg-separator bg-tg-section px-3.5 text-left text-sm text-tg-link transition-colors enabled:hover:bg-tg-secondary enabled:active:bg-tg-secondary disabled:opacity-50';
 
 export function AiAvatar() {
   return (
@@ -71,7 +73,7 @@ export function UserBubble({
             type="button"
             onClick={onRetry}
             disabled={retryDisabled}
-            className="min-h-11 shrink-0 rounded-lg px-3 font-semibold active:opacity-70 disabled:opacity-50"
+            className="focus-ring min-h-11 shrink-0 rounded-lg px-3 font-semibold transition-opacity enabled:hover:opacity-80 enabled:active:opacity-70 disabled:opacity-50"
           >
             Retry
           </button>
@@ -101,12 +103,23 @@ interface AssistantBubbleProps {
   message: AssistantMessage;
   timeZone?: string | null;
   onOpenTask: (task: ITask) => void;
-  /** Rendered when more tasks matched than were returned. */
-  onViewAll: (tasks: ITask[]) => void;
+  /** Rendered when more tasks matched than were returned: the board with the answer's filters, or just the board. */
+  onViewAll: (response: AiChatResponse) => void;
   onUndo: (message: AssistantMessage) => Promise<string | null>;
+  /** `kind: 'preview'`: create the suggested subtasks / drop them. Resolve to null, or an error message. */
+  onAcceptPreview: (message: AssistantMessage) => Promise<string | null>;
+  onCancelPreview: (message: AssistantMessage) => Promise<string | null>;
 }
 
-export function AssistantBubble({ message, timeZone, onOpenTask, onViewAll, onUndo }: AssistantBubbleProps) {
+export function AssistantBubble({
+  message,
+  timeZone,
+  onOpenTask,
+  onViewAll,
+  onUndo,
+  onAcceptPreview,
+  onCancelPreview,
+}: AssistantBubbleProps) {
   const r: AiChatResponse = message.response;
   const note = KIND_NOTES[r.kind];
   const tasks = r.tasks ?? [];
@@ -155,6 +168,15 @@ export function AssistantBubble({ message, timeZone, onOpenTask, onViewAll, onUn
           </ul>
         )}
 
+        {r.kind === 'preview' && r.preview && (
+          <SubtaskPreview
+            preview={r.preview}
+            cancelled={message.previewCancelled}
+            onAccept={() => onAcceptPreview(message)}
+            onCancel={() => onCancelPreview(message)}
+          />
+        )}
+
         {r.kind === 'created' && tasks.length > 0 ? (
           <CreatedBlock message={message} onOpenTask={onOpenTask} onUndo={onUndo} />
         ) : (
@@ -170,10 +192,11 @@ export function AssistantBubble({ message, timeZone, onOpenTask, onViewAll, onUn
               {(r.totalMatches ?? 0) > tasks.length && (
                 <button
                   type="button"
-                  onClick={() => onViewAll(tasks)}
+                  onClick={() => onViewAll(r)}
                   className="flex min-h-11 w-full items-center justify-center gap-1 border-t border-tg-separator text-sm font-medium text-tg-link hover:bg-tg-secondary"
                 >
-                  View all {r.totalMatches} on board →
+                  {/* Only promise "all N" when the board can show exactly those N. */}
+                  {boardSearchFromAi(r.boardFilters) ? `View all ${r.totalMatches} on board →` : 'Open board →'}
                 </button>
               )}
             </div>
@@ -301,7 +324,8 @@ function CreatedBlock({
               type="button"
               onClick={handleUndo}
               disabled={busy}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-tg-separator px-3 text-sm font-medium text-tg-text hover:bg-tg-secondary active:bg-tg-secondary disabled:opacity-50"
+              aria-busy={busy || undefined}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-tg-separator px-3 text-sm font-medium text-tg-text enabled:hover:bg-tg-secondary enabled:active:bg-tg-secondary disabled:opacity-50"
             >
               <span aria-hidden>↩️</span>
               {busy ? 'Undoing…' : 'Undo'}

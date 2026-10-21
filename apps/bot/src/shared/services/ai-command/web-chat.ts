@@ -82,7 +82,7 @@ async function populate(tasks: ITask[] | undefined) {
   );
 }
 
-async function populateResponse(data: AiChatResponse) {
+export async function populateResponse(data: AiChatResponse) {
   await populate(data.tasks as unknown as ITask[] | undefined);
   await populate(data.changed?.map((c) => c.task) as unknown as ITask[] | undefined);
 }
@@ -147,6 +147,12 @@ export async function handleWebChat(input: WebChatInput): Promise<WebChatOutcome
       taskSyncService
         .postChangeSummary(update.task, requester._id, update.fieldChanges, ...viaArg(input.channel))
         .catch(() => undefined);
+    }
+    // New subtasks: ONE group post, like tasks created from the chat (undo marks it "↩️ Undone").
+    for (const section of result.sections) {
+      if (section.type !== 'subtasks' || !section.subtasks.batchId) continue;
+      const post = await taskSyncService.postCreatedFromApp(group, requester, section.subtasks.created, ...viaArg(input.channel));
+      if (post) await rememberAppBatchPost(section.subtasks.batchId, post);
     }
   }
 

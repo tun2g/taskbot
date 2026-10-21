@@ -18,6 +18,15 @@ import { redisService } from 'src/shared/services/redis.service';
 import { checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService } from 'src/shared/services/task-sync.service';
 
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/epic.service', () => ({
   ...jest.requireActual('src/database/services/epic.service'),
   epicService: {

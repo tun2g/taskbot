@@ -39,6 +39,10 @@ export class SetUpBotCommand {
         description: 'Finish a task: /done 12 or reply to its card',
       },
       {
+        command: 'sub',
+        description: 'Add subtasks: /sub 12 Write tests @an, or reply /sub to a card',
+      },
+      {
         command: 'members',
         description: 'Who I can assign tasks to — tap ✋ to join',
       },

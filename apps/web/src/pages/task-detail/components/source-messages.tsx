@@ -3,6 +3,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { SectionHeading } from '@/components/ui/card';
+import { openTelegramLink } from '@/lib/telegram';
 
 const LONG = 240;
 
@@ -49,7 +50,10 @@ function SourceQuote({ message }: { message: ISourceMessage }) {
             href={message.link}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex min-h-11 items-center text-sm font-medium text-tg-link"
+            onClick={(e) => {
+              if (openTelegramLink(message.link)) e.preventDefault();
+            }}
+            className="focus-ring inline-flex min-h-11 items-center rounded-md text-sm font-medium text-tg-link hover:underline"
           >
             Open in chat ↗
           </a>

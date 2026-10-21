@@ -129,11 +129,34 @@ describe('notification DMs', () => {
     expect(sent().rows).toEqual([[{ text: '👤 Assign on card', url: 'https://t.me/c/100/77' }]]);
   });
 
-  it('creator reminder with no link at all points to the card', async () => {
+  it('creator reminder with no link at all points to the card, or to /ai when it has no card', async () => {
     (taskButton as jest.Mock).mockReturnValue(null);
-    await notificationService.notifyDueReminder(task({ assigneeId: null }), bob, 'creator');
+    await notificationService.notifyDueReminder(task({ assigneeId: null, taskCardMessageId: 77 }), bob, 'creator');
     const { text, rows } = sent();
     expect(text).toContain('Use 👤 Assign on its card in the group.');
     expect(rows).toBeUndefined();
+
+    await notificationService.notifyDueReminder(task({ assigneeId: null, taskCardMessageId: null }), bob, 'creator');
+    expect((bot.telegram.sendMessage as jest.Mock).mock.calls[1][1]).toContain(
+      'Assign it in the group with `/ai giao #12 cho @name`.',
+    );
+  });
+
+  it('all subtasks done: one DM to the owner with ✅ Done #N', async () => {
+    (taskButton as jest.Mock).mockReturnValue({ text: '📱 Open #12', url: 'https://t.me/x' });
+    await notificationService.notifyAllSubtasksDone(task(), bob, 3);
+    const { text, rows } = sent();
+    expect(text.split('\n')[0]).toBe('🧩 *All 3 subtasks of #12 are done*');
+    expect(text).toContain('close #12 too?');
+    expect(rows![0].map((b: any) => b.text)).toEqual(['✅ Done #12', '📱 Open #12']);
+    expect(rows![0][0].callback_data).toMatch(/^tdm:close:/);
+  });
+
+  it('DMs about a subtask name its parent like the card does', async () => {
+    const parent = { _id: new mongoose.Types.ObjectId(), taskNumber: 40, title: 'Login_revamp', status: 'todo' };
+    await notificationService.notifyAssignment(task({ _id: new mongoose.Types.ObjectId(), parentTaskId: parent }), an, bob);
+    const lines = sent().text.split('\n');
+    expect(lines[1]).toBe('🐞 Bug — Fix login');
+    expect(lines[2]).toBe('↳ Subtask of *#40* · Login\\_revamp');
   });
 });

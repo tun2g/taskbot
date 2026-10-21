@@ -97,8 +97,8 @@ export function EpicsContent(props: EpicsContentProps) {
         title="Couldn't load epics"
         body={error}
         action={
-          <Button variant="primary" onClick={onRetry} disabled={isRetrying}>
-            {isRetrying ? 'Retrying…' : 'Retry'}
+          <Button variant="primary" onClick={onRetry} loading={isRetrying} loadingText="Retrying…">
+            Retry
           </Button>
         }
       />

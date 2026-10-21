@@ -63,7 +63,11 @@ export function SettingsTokensContent(props: SettingsTokensContentProps) {
             ) : mcpError ? (
               <ErrorBox>
                 Couldn't load the server address. {mcpError}{' '}
-                <button type="button" className="font-semibold underline" onClick={props.onRetryMcp}>
+                <button
+                  type="button"
+                  className="focus-ring inline-flex min-h-11 items-center rounded-md px-1 font-semibold underline hover:opacity-80"
+                  onClick={props.onRetryMcp}
+                >
                   Retry
                 </button>
               </ErrorBox>

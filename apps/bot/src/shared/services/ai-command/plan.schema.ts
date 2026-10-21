@@ -5,6 +5,8 @@ import { z } from 'zod';
 export const MAX_AI_MUTATIONS = 5;
 /** Most tasks one request may explain (each explanation is a second AI call; read-only, not a mutation). */
 export const MAX_AI_EXPLAINS = 3;
+/** Most subtasks one /ai request may add (listed by the user or proposed by the AI). */
+export const MAX_AI_SUBTASKS = 8;
 /** Hard cap on parsed actions (bigger plans are still parsed so we can refuse them politely). */
 const MAX_PARSED_ACTIONS = 20;
 
@@ -66,6 +68,35 @@ const dueDateSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)), 'Invalid date');
 
+/** "#42" / "42" / 42 → 42 (a parent task number the user wrote). */
+const taskNumberSchema = z.preprocess((v) => {
+  if (typeof v !== 'string') return v;
+  const m = v.trim().match(/^#?(\d+)$/);
+  return m ? parseInt(m[1], 10) : v;
+}, z.number().int().positive());
+
+/** One subtask the user listed: a clean title, optionally who does it and when. */
+const subtaskItemSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  assignee: z.string().trim().min(1).max(100).nullish(),
+  dueDate: z.preprocess((v) => (v === '' ? null : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish()),
+});
+
+/**
+ * "/ai chia #42 thành subtask: API, UI cho @an" — subtasks of an existing task. `items` = what the user listed;
+ * omitted when they asked for a breakdown without listing them (a second AI call proposes them).
+ */
+export const createSubtasksActionSchema = z.object({
+  action: z.literal('create_subtasks'),
+  taskRef: taskRefSchema,
+  // Extra items are parsed and cut by the executor, which says so.
+  items: z.array(subtaskItemSchema).max(MAX_PARSED_ACTIONS).nullish(),
+  /** No items listed: the people the user named for the split ("cho @an @binh"), in order — one subtask each. */
+  assignees: z.array(z.string().trim().min(1).max(100)).max(MAX_PARSED_ACTIONS).nullish(),
+  /** No items listed: how many subtasks the user asked for ("chia #42 thành 3 subtask"). */
+  count: z.number().int().positive().max(MAX_PARSED_ACTIONS).nullish(),
+});
+
 export const createTasksActionSchema = z.object({
   action: z.literal('create_tasks'),
   /** True when the replied (non-card) message is the material for the tasks. */
@@ -86,6 +117,8 @@ export const updateTaskActionSchema = z.object({
       description: z.string().trim().max(2000).nullable().optional(),
       /** Epic title as written, or null to take the task out of its epic. */
       epic: epicTitleSchema.nullable().optional(),
+      /** Parent task number (make it a subtask of #N), or null to turn a subtask back into a regular task. */
+      parent: taskNumberSchema.nullable().optional(),
     })
     .refine((c) => Object.values(c).some((v) => v !== undefined), 'No changes'),
   /** True only when the user explicitly asked for a NEW epic ("epic mới", "new epic") — then a missing one is created. */
@@ -141,6 +174,7 @@ export const clarifyActionSchema = z.object({
 
 export const aiActionSchema = z.discriminatedUnion('action', [
   createTasksActionSchema,
+  createSubtasksActionSchema,
   updateTaskActionSchema,
   createEpicActionSchema,
   deleteTaskActionSchema,
@@ -165,3 +199,5 @@ export type UpdateChanges = UpdateTaskAction['changes'];
 export type ExplainTaskAction = z.infer<typeof explainTaskActionSchema>;
 export type CreateEpicAction = z.infer<typeof createEpicActionSchema>;
 export type QueryAction = z.infer<typeof queryActionSchema>;
+export type CreateSubtasksAction = z.infer<typeof createSubtasksActionSchema>;
+export type SubtaskItem = z.infer<typeof subtaskItemSchema>;

@@ -28,6 +28,7 @@ import {
   TargetMiss,
   UpdateOutcome,
 } from 'src/shared/services/ai-command/result';
+import { webSubtasksResponse } from 'src/shared/services/ai-command/subtasks.render';
 import type { CreatedTask } from 'src/shared/services/task-creation.service';
 
 // Web "Ask AI" replies: PLAIN text only (no HTML/Markdown) in short lines; the web app renders
@@ -153,7 +154,7 @@ function explainText(e: ExplainOutcome, today: string): string {
         '🤖 AI can’t explain it right now — here’s what the task says:',
         t.description?.trim() ? `📝 ${shorten(t.description, 300)}` : '📝 No description yet.',
       ];
-  const state = e.fromReply ? [] : ['', ...taskStateLines(t, e.assignee, today)];
+  const state = e.fromReply ? [] : ['', ...taskStateLines(t, e.assignee, today, e.subtasks)];
   return [`💡 #${t.taskNumber} ${shorten(t.title)}`, ...body, ...state].join('\n');
 }
 
@@ -180,6 +181,7 @@ function sectionText(s: AiSection, today: string): string {
   if (s.type === 'explain') return explainText(s.explain, today);
   if (s.type === 'epic_created') return epicCreatedText(s.epic);
   if (s.type === 'note') return s.lines.join('\n');
+  if (s.type === 'subtasks') return '';
   return s.text;
 }
 
@@ -209,6 +211,9 @@ export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind:
 
   const { sections } = result;
   if (sections.length === 0) return { kind: 'clarify', text: WHICH_TASK_TEXT, suggestions: [] };
+  // "Chia #42 thành subtask" stands alone (the planner refuses mixing it with other changes).
+  const subtasks = sections.find((s) => s.type === 'subtasks');
+  if (subtasks?.type === 'subtasks') return webSubtasksResponse(subtasks.subtasks, c.request, c.today);
 
   const text = sections.map((s) => sectionText(s, c.today)).join('\n\n');
   const changed = changedUpdates(sections);
@@ -221,6 +226,7 @@ export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind:
   if (list) {
     response.tasks = list.tasks.slice(0, WEB_QUERY_LIMIT).map(asShared);
     if (list.tasks.length > WEB_QUERY_LIMIT) response.totalMatches = list.tasks.length;
+    response.boardFilters = list.boardFilters;
   }
 
   const explained = sections.flatMap((s) => (s.type === 'explain' ? [s.explain.task] : []));

@@ -24,6 +24,15 @@ jest.mock('src/database/services/group-member.service', () => ({
 jest.mock('src/database/services/task.service', () => ({
   taskService: { getTasksByGroup: jest.fn(), getTaskByNumber: jest.fn() },
 }));
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { getForTask: jest.fn() } }));
 jest.mock('src/database/services/epic.service', () => ({
   ...jest.requireActual('src/database/services/epic.service'),
@@ -121,6 +130,8 @@ describe('list_tasks', () => {
         assignee: '@an',
         dueDate: '2026-10-24',
         epic: null,
+        parent: null,
+        subtasks: null,
         url: null,
       },
     ]);

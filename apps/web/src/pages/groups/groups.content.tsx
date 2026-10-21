@@ -64,8 +64,8 @@ export function GroupsContent({
           title="Couldn't load your groups"
           body={error}
           action={
-            <Button variant="primary" onClick={onRetry} disabled={isRetrying}>
-              {isRetrying ? 'Retrying…' : 'Retry'}
+            <Button variant="primary" onClick={onRetry} loading={isRetrying} loadingText="Retrying…">
+              Retry
             </Button>
           }
         />

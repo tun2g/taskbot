@@ -52,7 +52,7 @@ export function LoadMore({ onLoadMore, isLoading, remaining, auto = true, paused
       onClick={onLoadMore}
       disabled={isLoading}
       aria-busy={isLoading || undefined}
-      className={`focus-ring flex min-h-11 w-full items-center justify-center gap-2 rounded-md text-sm font-medium text-tg-link transition-colors hover:bg-tg-bg/60 active:bg-tg-bg/60 disabled:text-tg-hint ${className}`}
+      className={`focus-ring flex min-h-11 w-full items-center justify-center gap-2 rounded-md text-sm font-medium text-tg-link transition-colors enabled:hover:bg-tg-bg/60 enabled:active:bg-tg-bg/60 disabled:text-tg-hint ${className}`}
     >
       {isLoading ? (
         <>

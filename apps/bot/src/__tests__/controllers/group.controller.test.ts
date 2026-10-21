@@ -6,7 +6,9 @@ import mongoose from 'mongoose';
 
 jest.mock('src/database/services/group-member.service');
 jest.mock('src/database/models/group.model', () => ({ Group: { find: jest.fn() } }));
-jest.mock('src/database/models/task.model', () => ({ Task: { aggregate: jest.fn() } }));
+jest.mock('src/database/models/task.model', () => ({
+  Task: { aggregate: jest.fn(), countDocuments: jest.fn().mockResolvedValue(0) },
+}));
 jest.mock('src/shared/logger/logger', () => ({
   info: jest.fn(),
   error: jest.fn(),
@@ -58,8 +60,8 @@ describe('GroupController', () => {
       expect(groupMemberService.getUserGroups).toHaveBeenCalledWith(mockUserId);
       expect(res.json).toHaveBeenCalledWith({
         data: [
-          { _id: mockGroupId, groupName: 'Team A', counts: { todo: 5, in_progress: 5, done: 3 }, mine: 3 },
-          { _id: otherGroupId, groupName: 'Team B', counts: { todo: 0, in_progress: 0, done: 0 }, mine: 0 },
+          { _id: mockGroupId, groupName: 'Team A', counts: { todo: 5, in_progress: 5, done: 3 }, mine: 3, overdue: 0 },
+          { _id: otherGroupId, groupName: 'Team B', counts: { todo: 0, in_progress: 0, done: 0 }, mine: 0, overdue: 0 },
         ],
       });
     });

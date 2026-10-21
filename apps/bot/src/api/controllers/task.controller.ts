@@ -15,6 +15,7 @@ import { createTaskSchema, TaskDueFilter, taskQuerySchema, updateTaskSchema } fr
 import { IGroup } from 'src/database/models/group.model';
 import { Task } from 'src/database/models/task.model';
 import { groupService } from 'src/database/services/group.service';
+import { subtaskService } from 'src/database/services/subtask.service';
 import { taskActivityService } from 'src/database/services/task-activity.service';
 import { TASK_POPULATE_FULL } from 'src/database/services/task-populate';
 import { taskService, TaskFilters } from 'src/database/services/task.service';
@@ -34,6 +35,7 @@ const SIGN_IN_MESSAGE = 'Please sign in to continue.';
 const MUTATION_ERROR_STATUS: Record<TaskMutationErrorCode, number> = {
   assignee_not_member: 400,
   epic_not_in_group: 400,
+  invalid_parent: 400,
   forbidden: 403,
   not_found: 404,
 };
@@ -46,13 +48,24 @@ function sendMutationError(res: Response, error: unknown): boolean {
   return true;
 }
 
-/** Populate user + epic refs for API responses (no-op for plain objects). */
+/** Populate user + epic + parent refs for API responses (no-op for plain objects). */
 async function populateTask<T>(task: T): Promise<T> {
   const doc = task as unknown as { populate?: (paths: unknown) => Promise<unknown> };
   if (doc && typeof doc.populate === 'function') {
     await doc.populate(TASK_POPULATE_FULL);
   }
   return task;
+}
+
+type TaskLike = { _id: unknown; toJSON?: () => Record<string, unknown> };
+
+/** Tasks as JSON with `subtaskProgress` ({ total, done }, or null without subtasks) — one query for the whole page. */
+async function withSubtaskProgress<T extends TaskLike>(tasks: T[]): Promise<Record<string, unknown>[]> {
+  const progress = await subtaskService.progress(tasks.map((t) => String(t._id)));
+  return tasks.map((t) => ({
+    ...(typeof t.toJSON === 'function' ? t.toJSON() : (t as unknown as Record<string, unknown>)),
+    subtaskProgress: progress.get(String(t._id)) ?? null,
+  }));
 }
 
 /**
@@ -108,8 +121,13 @@ export class TaskController {
       return null;
     }
 
-    const { assigneeId, epicId, status, category, open, due, ...rest } = queryResult.data;
+    const { assigneeId, epicId, parentTaskId, status, category, open, due, ...rest } = queryResult.data;
     const filters: TaskFilters = { ...rest };
+    if (parentTaskId === 'none') {
+      filters.parentTaskId = null;
+    } else if (parentTaskId) {
+      filters.parentTaskId = new mongoose.Types.ObjectId(parentTaskId);
+    }
     if (epicId === 'none') {
       filters.epicId = null;
     } else if (epicId) {
@@ -154,24 +172,25 @@ export class TaskController {
     );
 
     res.json({
-      data: tasks,
+      data: await withSubtaskProgress(tasks),
       meta: { page: filters.page, limit: filters.limit, total, hasMore },
     });
   }
 
   /**
    * GET /api/groups/:groupId/tasks/counts — how many tasks match the same filters as the list,
-   * per status (board column headers, hidden-column hint) and in total. page/limit/sort are ignored.
+   * per status (board column headers, hidden-column hint), per assignee (assignee board) and in total.
+   * page/limit/sort are ignored.
    */
   async countTasks(req: Request, res: Response) {
     const filters = await this.parseListFilters(req, res);
     if (!filters) return;
 
-    const { byStatus, total } = await taskService.countTasksByStatus(
+    const counts = await taskService.countTasksByStatus(
       new mongoose.Types.ObjectId(req.params.groupId as string),
       filters,
     );
-    res.json({ data: { byStatus, total } });
+    res.json({ data: counts });
   }
 
   /** POST /api/groups/:groupId/tasks */
@@ -200,7 +219,7 @@ export class TaskController {
 
     try {
       const { task } = await taskMutationService.createTask(group, user, bodyResult.data);
-      res.status(201).json({ data: await populateTask(task) });
+      res.status(201).json({ data: (await withSubtaskProgress([await populateTask(task)]))[0] });
     } catch (error) {
       if (!sendMutationError(res, error)) throw error;
     }
@@ -215,7 +234,13 @@ export class TaskController {
       return;
     }
 
-    res.json({ data: await populateTask(task) });
+    res.json({ data: (await withSubtaskProgress([await populateTask(task)]))[0] });
+  }
+
+  /** GET /api/tasks/:taskId/subtasks — the task's subtasks, oldest first (empty for a subtask). */
+  async getSubtasks(req: Request, res: Response) {
+    const subtasks = await subtaskService.list(req.params.taskId as string);
+    res.json({ data: subtasks });
   }
 
   /** GET /api/tasks/:taskId/activity */
@@ -250,7 +275,7 @@ export class TaskController {
 
     try {
       const { task } = await taskMutationService.updateTask(before, user, bodyResult.data);
-      res.json({ data: await populateTask(task) });
+      res.json({ data: (await withSubtaskProgress([await populateTask(task)]))[0] });
     } catch (error) {
       if (!sendMutationError(res, error)) throw error;
     }
@@ -274,8 +299,9 @@ export class TaskController {
     }
 
     try {
-      await taskMutationService.deleteTask(task, user, { group: authReq.group });
-      res.json({ data: { deleted: true } });
+      const { detached } = await taskMutationService.deleteTask(task, user, { group: authReq.group });
+      // Subtasks of a deleted parent are kept as regular tasks.
+      res.json({ data: { deleted: true, detachedSubtasks: detached.length } });
     } catch (error) {
       if (!sendMutationError(res, error)) throw error;
     }

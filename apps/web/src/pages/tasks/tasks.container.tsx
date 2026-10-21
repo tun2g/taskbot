@@ -6,7 +6,7 @@ import { useCreateEpic, useEpics } from '@/api/epics';
 import { useGroup, useGroupMembers } from '@/api/groups';
 import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
 import { flattenTaskPages, matchesTaskFilters } from '@/api/task-cache';
-import { type ApiTaskFilters, useCreateTask, useTaskCounts, useTaskPages, useTaskStats } from '@/api/tasks';
+import { type ApiTaskFilters, useCreateTask, useTaskCounts, useTaskPages } from '@/api/tasks';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
@@ -38,8 +38,9 @@ export function TasksContainer() {
       epicId: search.epic,
       due: search.due,
       search: search.q,
+      parentTaskId: search.subtasks === 'hide' ? 'none' : undefined,
     }),
-    [search.type, search.assignee, search.priority, search.epic, search.due, search.q],
+    [search.type, search.assignee, search.priority, search.epic, search.due, search.q, search.subtasks],
   );
 
   const filters = useMemo<ApiTaskFilters>(() => {
@@ -64,14 +65,16 @@ export function TasksContainer() {
     filters.status ||
     filters.category ||
     filters.open ||
-    filters.search
+    filters.search ||
+    filters.parentTaskId
   );
 
   const group = useGroup(groupId);
   const { data: members = [] } = useGroupMembers(groupId);
   // List view / assignee board page through one list; the status board counts here and pages per column.
   const pages = useTaskPages(groupId, filters, { enabled: !isStatusBoard });
-  const counts = useTaskCounts(groupId, boardFilters, { enabled: isStatusBoard });
+  // Status board: column totals. Assignee board: per-person totals (the loaded pages are only a part).
+  const counts = useTaskCounts(groupId, boardFilters, { enabled: view === 'board' });
   const loadedTasks = useMemo(() => flattenTaskPages(pages.data), [pages.data]);
   const primary = isStatusBoard ? counts : pages;
   const total = isStatusBoard ? (counts.data?.total ?? 0) : (pages.data?.pages.at(-1)?.meta.total ?? 0);
@@ -79,7 +82,9 @@ export function TasksContainer() {
   const epicsQuery = useEpics(groupId);
   const epics = useMemo(() => epicsQuery.data ?? [], [epicsQuery.data]);
   const createEpic = useCreateEpic(groupId);
-  const stats = useTaskStats(groupId);
+  // "⚠️ N overdue" counts with the filters in use, so the shortcut opens exactly N tasks.
+  const { sort: _sort, dir: _dir, due: _due, ...withoutDue } = filters;
+  const overdue = useTaskCounts(groupId, { ...withoutDue, due: 'overdue' }, { enabled: search.due !== 'overdue' });
   const { changeStatus, changeAssignee } = useUndoableTaskChange(groupId, members);
 
   const setSearch = useCallback(
@@ -113,6 +118,7 @@ export function TasksContainer() {
       status: undefined,
       category: undefined,
       q: undefined,
+      subtasks: undefined,
     });
   }, [setSearch]);
 
@@ -188,8 +194,9 @@ export function TasksContainer() {
       }}
       boardFilters={boardFilters}
       statusCounts={counts.data ?? null}
+      assigneeCounts={counts.data?.byAssignee ?? null}
       hasActiveFilters={hasActiveFilters}
-      overdueCount={stats.data?.overdue ?? 0}
+      overdueCount={overdue.data?.total ?? 0}
       onSearchChange={setSearch}
       onClearFilters={clearFilters}
       onBack={() => navigate({ to: '/' })}

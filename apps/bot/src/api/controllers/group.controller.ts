@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { sendError } from 'src/api/http-error';
 import { AuthenticatedRequest } from 'src/api/middlewares/auth.middleware';
+import { overdueCutoff, resolveGroupTimezone } from 'src/api/timezone';
 import { Group } from 'src/database/models/group.model';
 import { Task } from 'src/database/models/task.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
@@ -48,6 +49,24 @@ export class GroupController {
       ]),
     ]);
 
+    // Overdue = open with a due day before today, where "today" is each group's own local date.
+    const openStatuses = { $nin: statusesInCategory(TaskStatusCategory.DONE) };
+    const overdue = new Map<string, number>(
+      await Promise.all(
+        groups.map(
+          async (group) =>
+            [
+              String(group._id),
+              await Task.countDocuments({
+                groupId: group._id,
+                status: openStatuses,
+                dueDate: { $ne: null, $lt: overdueCutoff(resolveGroupTimezone(group.timezone)) },
+              }),
+            ] as [string, number],
+        ),
+      ),
+    );
+
     const counts = new Map<string, StatusCounts>();
     for (const row of statusRows || []) {
       const key = String(row._id.groupId);
@@ -65,6 +84,7 @@ export class GroupController {
         ...plain,
         counts: counts.get(key) ?? { todo: 0, in_progress: 0, done: 0 },
         mine: mine.get(key) ?? 0,
+        overdue: overdue.get(key) ?? 0,
       };
     });
 

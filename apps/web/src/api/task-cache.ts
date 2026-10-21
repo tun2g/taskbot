@@ -2,6 +2,8 @@ import type { ITask, PaginatedResponse, TaskCounts, TaskFilters } from '@tbot/sh
 import { getStatusCategory, isClosedStatus } from '@tbot/shared';
 import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
 
+import { getUserId } from '@/lib/user';
+
 /**
  * Cache helpers for the paged task lists. Every list query lives under
  * `taskKeys.groupLists(groupId)`:
@@ -52,6 +54,10 @@ export function matchesTaskFilters(task: ITask, filters: TaskFilters): boolean |
   if (filters.epicId) {
     const epic = idOf(task.epicId);
     if (filters.epicId === 'none' ? epic !== null : epic !== filters.epicId) return false;
+  }
+  if (filters.parentTaskId) {
+    const parent = idOf(task.parentTaskId);
+    if (filters.parentTaskId === 'none' ? parent !== null : parent !== filters.parentTaskId) return false;
   }
   if (filters.search) {
     const q = filters.search.trim().toLocaleLowerCase();
@@ -150,10 +156,14 @@ export function findCachedTask(queryClient: QueryClient, groupId: string, taskId
   return undefined;
 }
 
-function adjustCounts(counts: TaskCounts, status: string, delta: number): TaskCounts {
+/** Moves one task in / out of the per-status and per-assignee (`"none"` = unassigned) counts. */
+function adjustCounts(counts: TaskCounts, task: ITask, delta: number): TaskCounts {
   const byStatus = { ...counts.byStatus } as Record<string, number>;
-  byStatus[status] = Math.max(0, (byStatus[status] ?? 0) + delta);
-  return { byStatus, total: Math.max(0, counts.total + delta) };
+  byStatus[task.status] = Math.max(0, (byStatus[task.status] ?? 0) + delta);
+  const byAssignee = { ...(counts.byAssignee ?? {}) };
+  const who = getUserId(task.assigneeId) ?? 'none';
+  byAssignee[who] = Math.max(0, (byAssignee[who] ?? 0) + delta);
+  return { byStatus, byAssignee, total: Math.max(0, counts.total + delta) };
 }
 
 /**
@@ -208,8 +218,8 @@ export function applyTaskChange(
       const isCounted = after ? matchesTaskFilters(after, cFilters) : false;
       // Unknown either side → leave it to the refetch.
       if (wasCounted === undefined || isCounted === undefined) continue;
-      if (wasCounted && before) counts = adjustCounts(counts, before.status, -1);
-      if (isCounted && after) counts = adjustCounts(counts, after.status, 1);
+      if (wasCounted && before) counts = adjustCounts(counts, before, -1);
+      if (isCounted && after) counts = adjustCounts(counts, after, 1);
       if (counts !== data) queryClient.setQueryData<TaskCounts>(key, counts);
     }
   }

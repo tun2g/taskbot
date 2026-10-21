@@ -32,6 +32,13 @@ export interface ITask {
   taskNumber: number;
   /** Epic the task belongs to — populated as `{ _id, title, color, status }` by the API, a bare id otherwise. */
   epicId?: string | Pick<IEpic, '_id' | 'title' | 'color' | 'status'> | null;
+  /**
+   * Parent task when this is a subtask — populated as `{ _id, taskNumber, title, status }` by the API, a bare id
+   * otherwise. Subtasks are one level deep: a subtask never has subtasks, and it always shares its parent's epic.
+   */
+  parentTaskId?: string | TaskParentRef | null;
+  /** Subtask counts (`done` of `total`, cancelled apart). Set by the API on list/detail/create/update reads; null = no subtasks. */
+  subtaskProgress?: SubtaskProgress | null;
   /** All messages the task was generated from (AI extraction can use several). */
   sourceMessages?: ISourceMessage[];
   /** @deprecated kept for tasks created before multi-message extraction; read `sourceMessages` first. */
@@ -47,6 +54,18 @@ export interface ITask {
   updatedAt: string;
 }
 
+/** A subtask's parent as the API populates it. */
+export type TaskParentRef = Pick<ITask, '_id' | 'taskNumber' | 'title' | 'status'>;
+
+/** Cancelled subtasks are left out of `total` / `done` ("2/4 done") and counted on their own. */
+export interface SubtaskProgress {
+  /** Subtasks that still count: every status except cancelled. */
+  total: number;
+  /** Of those, how many are done. */
+  done: number;
+  cancelled: number;
+}
+
 export interface CreateTaskInput {
   title: string;
   description?: string;
@@ -55,7 +74,10 @@ export interface CreateTaskInput {
   assigneeId?: string;
   /** Calendar date `YYYY-MM-DD` — a due *day*, interpreted in the group's timezone. */
   dueDate?: string;
+  /** Ignored for subtasks — a subtask always takes its parent's epic. */
   epicId?: string;
+  /** Create it as a subtask of this task (same group; the parent must not be a subtask itself). */
+  parentTaskId?: string;
 }
 
 export interface UpdateTaskInput {
@@ -67,8 +89,10 @@ export interface UpdateTaskInput {
   assigneeId?: string | null;
   /** Calendar date `YYYY-MM-DD`, or null to clear. */
   dueDate?: string | null;
-  /** Epic `_id`, or null to remove the task from its epic. */
+  /** Epic `_id`, or null to remove the task from its epic. Not allowed on a subtask (it follows its parent). */
   epicId?: string | null;
+  /** Parent task `_id` to make it (or move it as) a subtask, or null to turn it back into a regular task. */
+  parentTaskId?: string | null;
 }
 
 export type TaskDueFilter = 'overdue' | 'today' | 'week' | 'none';
@@ -85,6 +109,8 @@ export interface TaskFilters {
   priority?: TaskPriority;
   /** An epic `_id`, or `"none"` for tasks without an epic. */
   epicId?: string;
+  /** A task `_id` → only its subtasks; `"none"` → only top-level tasks (hides subtasks). */
+  parentTaskId?: string;
   /**
    * Due-date window, by calendar day in the group's timezone:
    * `overdue` = before today and not closed · `today` · `week` = today … today+6 · `none` = no due date.
@@ -104,6 +130,8 @@ export type TaskSortKey = 'type' | 'key' | 'summary' | 'status' | 'priority' | '
 /** GET /groups/:groupId/tasks/counts — tasks matching the list filters, per status and in total. */
 export interface TaskCounts {
   byStatus: Partial<Record<TaskStatus, number>>;
+  /** Per assignee user `_id`, plus `"none"` for unassigned (assignee board column headers). */
+  byAssignee: Record<string, number>;
   total: number;
 }
 
@@ -111,7 +139,11 @@ export interface ITaskActivity {
   _id: string;
   taskId: string;
   actor?: UserRef | null;
-  /** created | status | assignee | priority | type | title | description | due_date | epic | deleted */
+  /**
+   * created | status | assignee | priority | type | title | description | due_date | epic | deleted
+   * | parent (this task became / stopped being a subtask; values are "#12 Title")
+   * | subtask_added | subtask_removed (on the parent; values are "#13 Title")
+   */
   action: string;
   /** Human-readable values, already formatted for display. */
   from?: string | null;

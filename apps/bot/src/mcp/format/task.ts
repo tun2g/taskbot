@@ -1,3 +1,4 @@
+import { subtaskProgressText } from 'src/shared/services/ai-command/format';
 import {
   EPIC_COLOR_EMOJI,
   EpicColor,
@@ -54,6 +55,19 @@ export function epicDot(color: string | undefined | null): string {
   return (color && EPIC_COLOR_EMOJI[color as EpicColor]) || '';
 }
 
+/** Cancelled subtasks are left out of `total` / `done` and counted on their own. */
+export interface SubtaskCounts {
+  total: number;
+  done: number;
+  cancelled: number;
+}
+
+/** The parent's number when the task is a subtask (needs `parentTaskId` populated), else null. */
+export function parentNumberOf(ref: unknown): number | null {
+  if (!ref || typeof ref !== 'object' || !('taskNumber' in (ref as object))) return null;
+  return (ref as { taskNumber: number }).taskNumber;
+}
+
 /** The compact, ObjectId-free shape of a task every tool returns. */
 export interface TaskSummary {
   number: number;
@@ -64,10 +78,14 @@ export interface TaskSummary {
   assignee: string | null;
   dueDate: string | null;
   epic: EpicSummary | null;
+  /** Number of the parent task when this is a subtask. */
+  parent: number | null;
+  /** Its subtasks' progress; null when it has none (or it wasn't counted). */
+  subtasks: SubtaskCounts | null;
   url: string | null;
 }
 
-export function taskSummary(task: ITask): TaskSummary {
+export function taskSummary(task: ITask, subtasks: SubtaskCounts | null = null): TaskSummary {
   return {
     number: task.taskNumber,
     title: task.title,
@@ -77,15 +95,22 @@ export function taskSummary(task: ITask): TaskSummary {
     assignee: personOf(task.assigneeId),
     dueDate: formatDueDate(task.dueDate),
     epic: epicSummaryOf(task.epicId),
+    parent: parentNumberOf(task.parentTaskId),
+    subtasks,
     url: buildAppLink(String(task.groupId), String(task._id)),
   };
 }
 
-/** "#12 Fix login — In progress · Bug · High · @an · due 2026-10-21 · epic Login" */
+/**
+ * "#12 Fix login — In progress · Bug · High · @an · due 2026-10-21 · epic Login · subtasks 2/4 done · 1 cancelled"
+ * (a subtask ends with "· subtask of #10").
+ */
 export function taskLine(task: TaskSummary): string {
   const parts = [statusWord(task.status), typeWord(task.type), `${priorityWord(task.priority)} priority`];
   parts.push(task.assignee ?? 'unassigned');
   if (task.dueDate) parts.push(`due ${task.dueDate}`);
   if (task.epic) parts.push(`epic ${task.epic.title}`);
+  if (task.parent) parts.push(`subtask of #${task.parent}`);
+  if (task.subtasks) parts.push(`subtasks ${subtaskProgressText(task.subtasks)}`);
   return `#${task.number} ${task.title} — ${parts.join(' · ')}`;
 }

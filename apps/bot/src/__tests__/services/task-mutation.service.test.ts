@@ -19,6 +19,15 @@ jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/group-member.service');
 jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task-activity.service');
+jest.mock('src/database/services/subtask.service', () => ({
+  subtaskService: {
+    list: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    progress: jest.fn().mockResolvedValue(new Map()),
+    detachAll: jest.fn().mockResolvedValue([]),
+    setEpic: jest.fn().mockResolvedValue(0),
+  },
+}));
 jest.mock('src/database/services/epic.service');
 jest.mock('src/database/models/epic.model', () => ({ Epic: { findById: jest.fn() } }));
 jest.mock('src/database/models/user.model', () => ({ User: { findById: jest.fn() } }));

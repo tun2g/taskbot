@@ -1,14 +1,17 @@
 import { mcpChannel, McpToolError } from 'src/mcp/context';
 import { requireGroup } from 'src/mcp/resolve/group';
-import { stripEmoji, taskLine, taskSummary } from 'src/mcp/format/task';
+import { stripEmoji, taskLine } from 'src/mcp/format/task';
+import { summarizeTask } from 'src/mcp/format/task-summaries';
 import { resolveAssignee } from 'src/mcp/resolve/assignee';
 import { resolveEpic } from 'src/mcp/resolve/epic';
+import { resolveParentTask } from 'src/mcp/resolve/parent';
 import { resolveTask } from 'src/mcp/resolve/task';
 import {
   assigneeArg,
   descriptionArg,
   dueDateArg,
   epicArg,
+  parentArg,
   priorityEnum,
   statusEnum,
   titleArg,
@@ -28,6 +31,7 @@ const FIELD_WORDS: Record<TaskChange['field'], string> = {
   description: 'description',
   due_date: 'due date',
   epic: 'epic',
+  parent: 'parent task',
 };
 
 const value = (v: string | null) => (v ? stripEmoji(v) : 'none');
@@ -53,7 +57,14 @@ export const updateTaskTool = defineTool({
     priority: priorityEnum.optional(),
     assignee: assigneeArg.nullable().optional().describe('"@username", name or "me"; null unassigns.'),
     dueDate: dueDateArg.nullable().optional().describe('YYYY-MM-DD; null clears the due date.'),
-    epic: epicArg.nullable().optional().describe('Epic title or id; null takes the task out of its epic.'),
+    epic: epicArg
+      .nullable()
+      .optional()
+      .describe("Epic title or id; null takes the task out of its epic. A subtask can't change epic on its own — change its parent's."),
+    parent: parentArg
+      .nullable()
+      .optional()
+      .describe('Parent task number to make it (or move it as) a subtask; null turns a subtask back into a regular task.'),
   },
   annotations: IDEMPOTENT_WRITE,
   handler: async (args, ctx) => {
@@ -73,9 +84,12 @@ export const updateTaskTool = defineTool({
     if (args.epic !== undefined) {
       data.epicId = args.epic === null ? null : String((await resolveEpic(group, args.epic))._id);
     }
+    if (args.parent !== undefined) {
+      data.parentTaskId = args.parent === null ? null : String((await resolveParentTask(group, args.parent))._id);
+    }
     if (Object.keys(data).length === 0) {
       throw new McpToolError(
-        'Pass at least one field to change (title, description, status, type, priority, assignee, dueDate or epic).',
+        'Pass at least one field to change (title, description, status, type, priority, assignee, dueDate, epic or parent).',
       );
     }
 
@@ -87,8 +101,17 @@ export const updateTaskTool = defineTool({
       throw error;
     }
 
-    const summary = taskSummary(result.task);
+    const summary = await summarizeTask(result.task);
     const changes = result.changes.map(changeText);
+    // Detaching keeps the epic it had as a subtask — say so, the agent may want to change it.
+    const detached = result.changes.some((c) => c.field === 'parent' && !c.to);
+    if (detached) {
+      changes.push(
+        summary.epic
+          ? `it is a regular task again and stays in epic ${summary.epic.title} — pass epic to change it`
+          : 'it is a regular task again',
+      );
+    }
     const text = changes.length
       ? [`Updated #${summary.number} ${summary.title}:`, ...changes.map((c) => `- ${c}`), '', taskLine(summary)].join(
           '\n',
