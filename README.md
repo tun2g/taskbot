@@ -1,159 +1,199 @@
-# TBot — Telegram Task Management Bot + Mini App
+<div align="center">
 
-Manage tasks straight from Telegram group chats — via bot commands **and** a Telegram Mini App (Kanban/list board). Each Telegram group is its own workspace (data is group-scoped).
+# TaskBot
 
-## Monorepo layout
+**Turn Telegram group chat messages into tracked tasks, with AI, a Kanban board Mini App, and an MCP server for your coding agent.**
 
-| Package | Description |
-|---------|-------------|
-| [`apps/bot`](apps/bot) | Telegraf bot + Express REST API (MongoDB, Redis, Bull jobs) |
-| [`apps/web`](apps/web) | React + Vite + Tailwind Mini App (TanStack Router/Query) |
-| [`packages/shared`](packages/shared) | Shared TypeScript types & constants (`@tbot/shared`) |
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![pnpm](https://img.shields.io/badge/pnpm-10-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Telegram Bot API](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-Tooling: **pnpm workspaces** + **Turborepo**. Requires **Node ≥ 20** and **pnpm 10** (`packageManager` is pinned in `package.json`).
+[Features](#features) · [Demo](#demo) · [Get started](#get-started) · [MCP](#connect-claude-code--cursor-mcp) · [Docs](#documentation)
 
-## Quick start (local dev)
+</div>
 
-```bash
-# 1. Install dependencies
-pnpm install
+---
 
-# 2. Start MongoDB + Redis (Docker)
-docker compose -f docker-compose.dev.yml up -d
-#    Already have a Redis container on :6379? Start only Mongo:
-#    docker compose -f docker-compose.dev.yml up -d mongodb
+## Demo
 
-# 3. Configure env (see "Environment" below)
-cp apps/bot/.env.example apps/bot/.env   # then set BOT_TOKEN
-cp apps/web/.env.example apps/web/.env   # optional: VITE_BOT_USERNAME for browser login
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="TaskBot demo: creating tasks from a group chat and managing them on the Mini App board" width="720">
+</p>
 
-# 4. Run everything
-pnpm dev
+<p align="center">Full video: <a href="docs/assets/demo.mp4">docs/assets/demo.mp4</a></p>
+
+## Why TaskBot
+
+Small teams already make their decisions in Telegram groups: "can you fix the login bug by Friday?", "I'll take the
+release notes". Those messages scroll away and nobody tracks them.
+
+TaskBot sits in the group and turns those messages into real tasks. It picks out the title, type, assignee and due
+date with AI, posts a task card you can act on right in the chat, and keeps a Kanban/list board in a Telegram Mini App
+in sync with it. Each Telegram group is its own workspace. Nobody needs a new account: Telegram is the login.
+
+## Features
+
+**In the chat**
+- `/new` turns text, a replied-to message, a whole thread (`/new all`) or the last N messages (`/new 10`) into one or more tasks
+- Interactive task cards: move to the next status, assign, and change status, type or priority from the card
+- `/sub` adds subtasks to a task; `/list`, `/mytasks` and `/done` cover quick daily use
+- Undo for tasks created by mistake (10 minutes)
+- Forum-topic aware: task events go to a dedicated "Task events" topic (or one you choose with `/settopic`)
+- Interactive `/help` guide with topic pages
+
+**AI assistant**
+- Extracts tasks from free text, detecting type, assignee and due date, and can split one message into several tasks
+- `/ai` and `/update` take plain-language requests: reassign, change status or priority, set due dates, explain a task, group tasks into epics, split a task into subtasks, or answer "what's left for me?"
+- Understands Vietnamese and English and replies in the user's language
+- Pluggable providers: Gemini, OpenAI, or any OpenAI-compatible endpoint (OpenRouter, Groq, vLLM, Ollama, ...)
+- Works without an AI key too: `/new` falls back to creating a basic task
+
+**Mini App board**
+- Kanban board (drag-and-drop between statuses) and a paginated, sortable list view
+- Group by status or by assignee; filter by type, assignee or "just mine"
+- Task detail page with editable fields, subtasks and progress, source chat messages and an activity timeline
+- Epics page with progress, colors, close/reopen
+- "Ask AI" chat panel, the same assistant as `/ai`
+- Runs inside Telegram (fullscreen supported) or in a normal browser via the Telegram Login Widget
+- Two-way sync: changes in the app update the task card in the group, and the other way round
+
+**Integrations (MCP)**
+- Remote MCP server at `/mcp` so Claude Code, Cursor and other MCP clients can list, create and update tasks and epics
+- `ask_taskbot` lets your agent talk to TaskBot's AI in plain words; structured tools are there for precise edits
+- Per-user access tokens, scoped to one group or all your groups, which you manage from the Mini App
+- Agent changes show up in the group as `(via Claude Code)` / `(via Cursor)`
+
+**Automation**
+- DM notifications when you're assigned or your task changes status
+- Due-date reminders by DM (the day before the task is due, from 9:00 group time)
+- Daily group digest at 9:00 in the group's timezone
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Telegram
+        G[Group chats & DMs]
+        MA[Mini App<br/>React + Vite]
+    end
+
+    subgraph Bot["apps/bot (one Node process)"]
+        TG[Telegraf bot<br/>commands, cards, callbacks]
+        API[Express REST API<br/>/api]
+        MCP[MCP server<br/>/mcp]
+        JOBS[Bull jobs<br/>reminders, digest]
+    end
+
+    AGENTS[Claude Code / Cursor<br/>MCP clients]
+    AI[(AI provider<br/>Gemini / OpenAI-compatible)]
+    DB[(MongoDB)]
+    R[(Redis)]
+
+    G <-- "webhook or polling" --> TG
+    MA <-- "initData auth" --> API
+    AGENTS <-- "Bearer token" --> MCP
+    TG --> AI
+    API --> AI
+    MCP --> AI
+    TG --> DB
+    API --> DB
+    MCP --> DB
+    TG --> R
+    JOBS --> R
+    JOBS --> DB
+    JOBS -- "DMs, digests" --> G
 ```
 
-- Bot + REST API → `http://localhost:3000` (polling mode unless `WEBHOOK_URL` is set)
-- Mini App → `http://localhost:5173`
+- **Multi-tenancy:** every query is scoped by `groupId` (one Telegram group = one workspace).
+- **Mini App auth:** Telegram `initData` is validated server-side with `@telegram-apps/init-data-node` (HMAC against the bot token). There is no separate auth system.
+- **Bidirectional sync:** task changes made in the Mini App edit the task card in the group chat, and the other way round.
+- **Scheduled jobs (Bull):** both jobs run hourly and decide per group, in the group's timezone, whether to send.
 
-Then message your bot `/start` in Telegram.
+## Command highlights
 
-## Scripts (root)
+| Command | What it does |
+|---------|--------------|
+| `/new Fix login on iOS @an` | AI turns text into one or more tasks (type, assignee, due date) |
+| reply `/new` · `/new all` · `/new 10` | Turn a message, a thread or the last N messages into tasks |
+| `/sub 12 Write tests @an` | Add a subtask to #12 |
+| `/ai move #12 to review, priority high` | Ask or change anything in plain words (Vietnamese or English) |
+| `/update #12 due Friday, assign to @an` | Change one task with AI |
+| `/list bug` · `/mytasks` · `/done #12` | Everyday task management |
+| `/mcp` | Connect Claude Code / Cursor |
 
-```bash
-pnpm dev          # run all apps (turbo)
-pnpm dev:bot      # bot only
-pnpm dev:web      # web only
-pnpm build        # build all packages
-pnpm check-types  # type-check all packages
-pnpm lint         # lint all packages (see Known issues)
-pnpm format       # prettier --write across the repo
-```
-
-## Environment
-
-Env files are **per app** (no combined root file for local dev):
-
-- **`apps/bot/.env`** — bot + REST API config (one process). Start from [`apps/bot/.env.example`](apps/bot/.env.example).
-- **`apps/web/.env`** — only `VITE_`-prefixed vars, baked in at build time. Start from [`apps/web/.env.example`](apps/web/.env.example).
-
-Each app documents its own variables in its `.env.example`; there is no root env file. The production `docker-compose.yml` reads `apps/bot/.env`.
-
-Key bot variables:
-
-| Var | Notes |
-|-----|-------|
-| `BOT_TOKEN` | from [@BotFather](https://t.me/BotFather) — **required** |
-| `MONGODB_URI` | `mongodb://localhost:27017/tbot` (local) / `mongodb://mongodb:27017/tbot` (compose) |
-| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` (local) — `redis` in compose |
-| `WEBAPP_URL` | Mini App URL — **must be HTTPS** for the menu button / deep links |
-| `WEBHOOK_URL` | if set, the bot uses webhook mode instead of polling |
-| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | `gemini` (default), `openai` or `fuse` + key; `AI_MODEL` defaults to `gemini-3.5-flash-lite` (gemini) / `gpt-5-mini` (openai). `AI_API_URL` points `openai`/`fuse` at any OpenAI-compatible base URL. Powers `/new` extraction and `/ai`. Without a key, `/new` still creates a basic task and `/ai` explains AI is unavailable |
-| `TIMEZONE` | default timezone for groups (due dates, overdue, 9:00 digest). Default `UTC`, e.g. `Asia/Ho_Chi_Minh` |
-| `WEB_AUTH_SECRET` | optional key for browser login tokens; derived from `BOT_TOKEN` if unset |
-| `MCP_PUBLIC_URL` | optional public URL of the MCP endpoint; defaults to `<WEBHOOK_URL>/mcp` |
-
-Web (`apps/web/.env`, start from [`apps/web/.env.example`](apps/web/.env.example)): `VITE_API_URL`, and `VITE_BOT_USERNAME` (bot username without `@`, for the browser Telegram login). In Docker the web image also reads **`API_URL` / `BOT_USERNAME` from the container env at startup** (written to `/config.js`), which override the build-time values — so one image works for any bot or domain without rebuilding.
-
-### BotFather setup
-
-| Setting | Why |
-|---------|-----|
-| `/setprivacy` → **Disable** (then re-add the bot to groups) | lets the bot read group messages so `/new 10` and `/new all` can turn recent messages into tasks |
-| Main Mini App (Bot Settings → Configure Mini App) | enables in-Telegram "Open board" links from groups and DMs (`t.me/<bot>?startapp=…`); without it links open the browser version |
-| `/setdomain` → your web domain | required for the Telegram Login Widget (opening the board in a normal browser) |
-| Make the bot a group **admin** (optional) | Telegram only sends member join/leave updates to admins, keeping the assignee list accurate |
-
-### Using the bot
-
-- `/new Fix login on iOS @an` — AI turns your text into one or more tasks (type, assignee, due date)
-- reply `/new` to a message · reply `/new all` (from that message to now) · `/new 10` (last 10 messages)
-- `/update #12 <plain words>` or reply `/update …` to a card — change one task with AI (incl. description)
-- `/ai <plain words>` — e.g. reply to a card with `/ai chuyển task này cho @ttt`, `/ai #12 xong rồi`, `/ai tôi còn task nào?`
-- `/list [open|review|bug|@user…]`, `/mytasks`, `/done #12`, `/members`, `/settopic`, `/help` (interactive guide)
-- `/mcp` — connect Claude Code / Cursor (see below)
-- `/task` and `/tasks` still work as hidden aliases of `/new` and `/list`
-- Statuses: Backlog · To do · In progress · In review · Pending · Done · Cancelled. Types: Bug · Feature · Improvement · Task · Chore · Research · Question
+Full reference: [docs/commands.md](docs/commands.md).
 
 ## Connect Claude Code / Cursor (MCP)
 
-The bot serves a remote MCP server at `/mcp` (same process, port 3000). Agents can talk to TaskBot's AI in plain
-words (`ask_taskbot`) or use structured tools (list/create/update tasks and epics); every change shows up in the group
-as `(via Claude Code)` / `(via Cursor)`.
-
-1. Send **`/mcp`** to the bot in a private chat → pick a group (or all) → copy the token (shown once).
-2. Claude Code: `claude mcp add --transport http taskbot <url> --header "Authorization: Bearer <token>"` — then `/mcp`
-   in Claude Code to check. Cursor: add the JSON snippet from the reply to `~/.cursor/mcp.json`.
-3. Ask: “tạo task fix login cho @an hạn thứ 6”.
-
-Manage/revoke tokens in the Mini App (`/settings/tokens`). Full guide, tool reference, scopes, proxy config and
-troubleshooting: [`docs/mcp.md`](docs/mcp.md).
-
-## Running the Mini App inside Telegram
-
-The Mini App must be served over **HTTPS** and reachable from your phone, so use a tunnel in dev:
+The bot serves a remote MCP server at `/mcp`. Send `/mcp` to the bot in a private chat to get a token, then:
 
 ```bash
-ngrok http 5173   # or: cloudflared tunnel --url http://localhost:5173
+claude mcp add --transport http taskbot <url> --header "Authorization: Bearer <token>"
 ```
 
-Then set `WEBAPP_URL` (bot) and `VITE_API_URL` (web) to the tunnel(s) and restart `pnpm dev`. See [`apps/web/README.md`](apps/web/README.md) for the API-URL details.
+Now ask your agent things like *"create a task to fix login for @an, due Friday"* or *"what's overdue in Team Alpha?"*.
+Cursor setup, token scopes, the tool reference and limits are in [docs/mcp.md](docs/mcp.md).
 
-### Telegram launch-point cheat sheet (learned the hard way)
+## Tech stack
 
-| Where | Button type | Requirement |
-|-------|-------------|-------------|
-| **Private chat** (DM with bot) | `web_app` inline button / chat menu button | HTTPS URL only — works without BotFather |
-| **Group** (task card) | `url` button → `t.me/<bot>?startapp=…` | Needs a **Main Mini App** configured in BotFather |
+| Area | Technology |
+|------|------------|
+| Bot | [Telegraf](https://telegraf.js.org) 4, Telegram Bot API (webhook or long polling) |
+| API | Express 5, Zod validation |
+| Data | MongoDB (Mongoose), Redis |
+| Jobs | Bull (Redis-backed, cron) |
+| AI | Gemini (`@google/generative-ai`), OpenAI / OpenAI-compatible, Fuse |
+| MCP | `@modelcontextprotocol/sdk`, Streamable HTTP (stateless JSON) |
+| Mini App | React 19, Vite, Tailwind CSS v4, TanStack Router + Query, React Query Kit, `@telegram-apps/sdk-react`, dnd-kit |
+| Monorepo | pnpm workspaces, Turborepo, shared types in `@tbot/shared` |
+| Tooling | TypeScript 5, Jest, Prettier, Husky, lint-staged, Commitizen |
 
-- `web_app` inline buttons are **private-chat only** — using one in a group returns `BUTTON_TYPE_INVALID`.
-- A `t.me/<bot>?startapp=` button is rejected until the bot has a Main Mini App. The bot detects this via `getMe().has_main_web_app` and only shows the group "Open in App" button when it's configured.
-- **Enable the group button:** @BotFather → `/mybots` → your bot → **Bot Settings → Configure Mini App** → set the URL to your HTTPS `WEBAPP_URL`, then restart the bot.
-- **ngrok free** shows a browser interstitial; XHR calls bypass it via the `ngrok-skip-browser-warning` header, but the top-level page load may show "Visit Site". `cloudflared` has no interstitial.
+## Get started
 
-## Docker (production-style)
-
-The root [`Dockerfile`](Dockerfile) builds and runs **the bot only**; [`docker-compose.yml`](docker-compose.yml) adds Mongo + Redis on an internal network.
+You need Node.js ≥ 20, pnpm 10, Docker (for MongoDB and Redis) and a bot token from [@BotFather](https://t.me/BotFather).
 
 ```bash
-cp apps/bot/.env.example apps/bot/.env   # set BOT_TOKEN, and use compose hostnames:
-                                         # REDIS_HOST=redis, MONGODB_URI=mongodb://mongodb:27017/tbot
-docker compose up -d --build
+git clone https://github.com/tun2g/taskbot.git && cd taskbot
+pnpm install
+docker compose -f docker-compose.dev.yml up -d   # MongoDB + Redis
+cp apps/bot/.env.example apps/bot/.env           # set BOT_TOKEN
+cp apps/web/.env.example apps/web/.env
+pnpm dev                                         # bot on :3000, Mini App on :5173
 ```
 
-## Testing
+Then see the guides below, starting with [Getting started](docs/getting-started.md) and [Configuration](docs/configuration.md).
 
-```bash
-cd apps/bot && pnpm test      # Jest (unit tests for commands, controllers, services)
-```
+## Documentation
 
-## Architecture notes
+| Guide | Contents |
+|-------|----------|
+| [Getting started](docs/getting-started.md) | Prerequisites, running locally, env files |
+| [Configuration](docs/configuration.md) | Environment variables, BotFather setup, group setup tips |
+| [Bot commands](docs/commands.md) | Full command reference, `/ai` examples, task model |
+| [Mini App in Telegram](docs/telegram-mini-app.md) | HTTPS tunnels, Telegram launch-point cheat sheet |
+| [MCP server](docs/mcp.md) | Claude Code / Cursor setup, tokens, tools, self-hosting |
+| [Deployment](docs/deployment.md) | Docker Compose, Mini App image, prebuilt GHCR images |
+| [Development](docs/development.md) | Scripts, tests, project structure, known issues |
 
-- **Multi-tenancy:** every query is scoped by `groupId` (one Telegram group = one workspace).
-- **Mini App auth:** Telegram `initData` is validated server-side via `@telegram-apps/init-data-node` (no separate auth system).
-- **Bidirectional sync:** task changes in the Mini App edit the task card in the group chat, and vice-versa.
-- **Scheduled jobs (Bull):** hourly due-date reminders, daily group digest.
+## Contributing
 
-See [`CLAUDE.md`](CLAUDE.md) for deeper conventions.
+Contributions are welcome. Bug reports, feature ideas and pull requests all help.
 
-## Known issues
+1. Fork the repo and create a branch from `main`.
+2. Make your change, and add or update tests in `apps/bot/src/__tests__` where it makes sense.
+3. Make sure `pnpm check-types` and `cd apps/bot && pnpm test` pass.
+4. Commit using [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `docs:`, ...). Run `pnpm commit` for a guided prompt.
+5. Open a pull request describing what changed and why.
 
-- **`pnpm lint` is not functional yet.** ESLint 9 is installed but the apps still use legacy `.eslintrc` files (ignored by v9), and `eslint-import-resolver-typescript` is incompatible with v9. Needs a migration to flat config (`eslint.config.js`). Type-checking (`pnpm check-types`) and tests work.
+## License
+
+[MIT](LICENSE)
+
+## Acknowledgements
+
+Built with [Telegraf](https://telegraf.js.org), [Telegram Mini Apps SDK](https://docs.telegram-mini-apps.com),
+[TanStack](https://tanstack.com), [Model Context Protocol](https://modelcontextprotocol.io) and
+[Turborepo](https://turbo.build).
