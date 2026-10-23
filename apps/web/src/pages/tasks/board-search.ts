@@ -48,8 +48,11 @@ export interface BoardSearch {
   everyone?: boolean;
   /** Status board: show a column for every status, not just the default ones. */
   allStatuses?: boolean;
-  /** `hide` = top-level tasks only (a filter like the others: "Clear filters" resets it). */
-  subtasks?: 'hide';
+  /**
+   * Like Jira, the board shows top-level tasks only (a parent card carries its subtask progress) and the list shows
+   * everything. `show` / `hide` override that per view; "Clear filters" resets `hide`.
+   */
+  subtasks?: 'show' | 'hide';
   /** List view sort (done by the API, so every page follows it). */
   sort?: ListSortKey;
   dir?: 'asc' | 'desc';
@@ -76,10 +79,15 @@ export function validateBoardSearch(search: Record<string, unknown>): BoardSearc
     q: q || undefined,
     everyone: search.everyone === true || search.everyone === 'true' ? true : undefined,
     allStatuses: search.allStatuses === true || search.allStatuses === 'true' ? true : undefined,
-    subtasks: search.subtasks === 'hide' ? 'hide' : undefined,
+    subtasks: oneOf(search.subtasks, ['show', 'hide'] as const),
     sort: oneOf(search.sort, SORT_KEYS),
     dir: oneOf(search.dir, ['asc', 'desc'] as const),
   };
+}
+
+/** Whether subtasks are left out: the board hides them unless asked to show them, the list the other way round. */
+export function subtasksHidden(search: BoardSearch, view: BoardView): boolean {
+  return search.subtasks ? search.subtasks === 'hide' : view === 'board';
 }
 
 /** Remember the last board search per group so "back" from a task restores the filters. */

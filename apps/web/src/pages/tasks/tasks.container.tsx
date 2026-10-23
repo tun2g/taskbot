@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/toast';
 import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
 
-import { type BoardSearch, rememberBoardSearch } from './board-search';
+import { type BoardSearch, rememberBoardSearch, subtasksHidden } from './board-search';
 import { TasksContent } from './tasks.content';
 import { useUndoableTaskChange } from './use-undoable-change';
 
@@ -28,6 +28,7 @@ export function TasksContainer() {
   useEffect(() => rememberBoardSearch(groupId, search), [groupId, search]);
 
   const isStatusBoard = view === 'board' && groupBy === 'status';
+  const hideSubtasks = subtasksHidden(search, view);
 
   // Filters every view shares; the status board's columns each add their own `status`.
   const boardFilters = useMemo<ApiTaskFilters>(
@@ -38,9 +39,9 @@ export function TasksContainer() {
       epicId: search.epic,
       due: search.due,
       search: search.q,
-      parentTaskId: search.subtasks === 'hide' ? 'none' : undefined,
+      parentTaskId: hideSubtasks ? 'none' : undefined,
     }),
-    [search.type, search.assignee, search.priority, search.epic, search.due, search.q, search.subtasks],
+    [search.type, search.assignee, search.priority, search.epic, search.due, search.q, hideSubtasks],
   );
 
   const filters = useMemo<ApiTaskFilters>(() => {
@@ -66,7 +67,7 @@ export function TasksContainer() {
     filters.category ||
     filters.open ||
     filters.search ||
-    filters.parentTaskId
+    search.subtasks === 'hide'
   );
 
   const group = useGroup(groupId);
@@ -118,9 +119,10 @@ export function TasksContainer() {
       status: undefined,
       category: undefined,
       q: undefined,
-      subtasks: undefined,
+      // Hiding subtasks narrows like a filter; showing them on the board is a view choice and stays.
+      subtasks: search.subtasks === 'hide' ? undefined : search.subtasks,
     });
-  }, [setSearch]);
+  }, [setSearch, search.subtasks]);
 
   const handleTaskClick = (task: ITask) => {
     navigate({ to: '/$groupId/tasks/$taskId', params: { groupId, taskId: task._id } });

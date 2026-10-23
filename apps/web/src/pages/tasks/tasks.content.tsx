@@ -12,7 +12,7 @@ import { CardSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { StateMessage } from '@/components/ui/state';
 import { Button } from '@/components/ui/button';
 
-import type { BoardGroupBy, BoardSearch, BoardView } from './board-search';
+import { type BoardGroupBy, type BoardSearch, type BoardView, subtasksHidden } from './board-search';
 import { AssigneeBoard } from './components/assignee-board';
 import { CreateTaskModal } from './components/create-task-modal';
 import { StatusBoard } from './components/status-board';
@@ -155,6 +155,7 @@ export function TasksContent(props: TasksContentProps) {
     />
   ) : null;
 
+  const hideSubtasks = subtasksHidden(search, view);
   let body: ReactNode;
   if (isLoading && !isStatusBoard) {
     body = <BoardSkeleton view={view} />;
@@ -198,21 +199,21 @@ export function TasksContent(props: TasksContentProps) {
     );
   } else if (isEmpty && epicPending) {
     body = <BoardSkeleton view={view} />;
-  } else if (isEmpty && hasActiveFilters) {
-    const onlyHidingSubtasks = search.subtasks === 'hide' && !hasOtherFilters(search) && !search.epic;
+  } else if (isEmpty && (hasActiveFilters || hideSubtasks)) {
+    const onlyHidingSubtasks = hideSubtasks && !hasOtherFilters(search) && !search.epic;
     body = (
       <StateMessage
         icon="🔍"
         title={onlyHidingSubtasks ? 'No top-level tasks here' : 'No tasks match these filters'}
         body={
-          search.subtasks === 'hide'
+          hideSubtasks
             ? 'Subtasks are hidden — the work you are looking for may be one of them.'
             : 'Try another search, or clear the filters to see every task.'
         }
         action={
           <>
-            {search.subtasks === 'hide' && (
-              <Button variant={onlyHidingSubtasks ? 'primary' : 'secondary'} onClick={() => onSearchChange({ subtasks: undefined })}>
+            {hideSubtasks && (
+              <Button variant={onlyHidingSubtasks ? 'primary' : 'secondary'} onClick={() => onSearchChange({ subtasks: 'show' })}>
                 Show subtasks
               </Button>
             )}

@@ -19,7 +19,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { formatEpicProgress } from '@/lib/epics';
 import { displayName } from '@/lib/user';
 
-import type { BoardGroupBy, BoardSearch, BoardView, StatusCategoryFilter } from '../board-search';
+import { type BoardGroupBy, type BoardSearch, type BoardView, type StatusCategoryFilter, subtasksHidden } from '../board-search';
 
 const VISIBLE_AVATARS = 5;
 
@@ -133,6 +133,7 @@ export function TaskFiltersBar({
   hasActiveFilters,
   overdueCount = 0,
 }: TaskFiltersBarProps) {
+  const hideSubtasks = subtasksHidden(search, view);
   // Search is typed locally and pushed to the URL after 300ms.
   const [text, setText] = useState(search.q ?? '');
   const lastPushed = useRef(search.q ?? '');
@@ -330,15 +331,27 @@ export function TaskFiltersBar({
             My tasks
           </Button>
 
-          <Button
-            variant={search.subtasks === 'hide' ? 'primary' : 'secondary'}
-            size="sm"
-            aria-pressed={search.subtasks === 'hide'}
-            title="Show only top-level tasks"
-            onClick={() => onChange({ subtasks: search.subtasks === 'hide' ? undefined : 'hide' })}
-          >
-            Hide subtasks
-          </Button>
+          {view === 'board' ? (
+            <Button
+              variant={!hideSubtasks ? 'primary' : 'secondary'}
+              size="sm"
+              aria-pressed={!hideSubtasks}
+              title="Show subtasks as their own cards"
+              onClick={() => onChange({ subtasks: hideSubtasks ? 'show' : undefined })}
+            >
+              Show subtasks
+            </Button>
+          ) : (
+            <Button
+              variant={hideSubtasks ? 'primary' : 'secondary'}
+              size="sm"
+              aria-pressed={hideSubtasks}
+              title="Show only top-level tasks"
+              onClick={() => onChange({ subtasks: hideSubtasks ? undefined : 'hide' })}
+            >
+              Hide subtasks
+            </Button>
+          )}
 
           {hasActiveFilters && (
             <Button variant="link" size="sm" onClick={onClear}>
