@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { AdminAuditLog } from '@tbot/db';
 import { createApp } from 'src/app';
-import { LINK_LIMIT_GLOBAL, LINK_LIMIT_PER_IP } from 'src/auth/auth.routes';
-import { createSession, resetOwnerCache, SESSION_COOKIE } from 'src/auth/auth.service';
+import { LINK_LIMIT_GLOBAL, LINK_LIMIT_PER_IP } from 'src/modules/auth/auth.routes';
+import { createSession, resetOwnerCache, SESSION_COOKIE } from 'src/modules/auth/auth.service';
 import { setKv } from 'src/shared/redis';
-import { describeUserAgent } from 'src/auth/user-agent';
+import { describeUserAgent } from 'src/modules/auth/helpers/user-agent';
 import { telegram } from 'src/shared/telegram';
 import { cookieFrom, FakeKv, startServer, TestServer } from './helpers';
 

@@ -3,7 +3,7 @@ import * as db from '@tbot/db';
 import { GroupStatus } from '@tbot/shared';
 import { Types } from 'mongoose';
 import { createApp } from 'src/app';
-import { createSession, SESSION_COOKIE } from 'src/auth/auth.service';
+import { createSession, SESSION_COOKIE } from 'src/modules/auth/auth.service';
 import { auditChanges, auditSummary } from 'src/shared/audit';
 import { setKv } from 'src/shared/redis';
 import { telegram } from 'src/shared/telegram';

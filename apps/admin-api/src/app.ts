@@ -1,14 +1,14 @@
 import express, { Express, NextFunction, Request, Response } from 'express';
-import { csrfGuard, requireOwner } from 'src/auth/auth.middleware';
-import { authRouter } from 'src/auth/auth.routes';
-import { aiRouter } from 'src/routes/ai';
-import { auditRouter } from 'src/routes/audit.routes';
-import { groupsRouter } from 'src/routes/groups.routes';
-import { mcpRouter, tokensRouter } from 'src/routes/mcp';
-import { overviewRouter } from 'src/routes/overview.routes';
-import { settingsRouter } from 'src/routes/settings.routes';
-import { systemRouter } from 'src/routes/system.routes';
-import { usersRouter } from 'src/routes/users';
+import { csrfGuard, requireOwner } from 'src/modules/auth/auth.middleware';
+import { authRouter } from 'src/modules/auth/auth.routes';
+import { aiRouter } from 'src/modules/ai/ai.routes';
+import { auditRouter } from 'src/modules/audit/audit.routes';
+import { groupsRouter } from 'src/modules/groups/groups.routes';
+import { mcpRouter, tokensRouter } from 'src/modules/mcp/mcp.routes';
+import { overviewRouter } from 'src/modules/overview/overview.routes';
+import { settingsRouter } from 'src/modules/settings/settings.routes';
+import { systemRouter } from 'src/modules/system/system.routes';
+import { usersRouter } from 'src/modules/users/users.routes';
 import { errorHandler, sendError } from 'src/shared/http';
 
 export function createApp(): Express {

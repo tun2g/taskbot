@@ -81,7 +81,7 @@ function oldestPending(docs: PendingDoc[], now: Date): AttentionInput['pending']
   return oldest && oldestAt ? { name: oldest.groupName, hours: (now.getTime() - new Date(oldestAt).getTime()) / 3_600_000 } : null;
 }
 
-/** Loads the inputs. `jobs` comes from the caller (the queue is read in system.routes). */
+/** Loads the inputs. `jobs` comes from the caller (the queue is read by readQueue in src/modules/system). */
 export async function loadAttention(opts: { now: Date; callLimit: number | null; jobs: AdminSystemStatus['jobs'] | null }): Promise<AdminAttentionItem[]> {
   const { now } = opts;
   const [aiRows, normRows, groupNorm, rateRows, pendingDocs, pendingCount, mcpRows] = await queryAll(now);

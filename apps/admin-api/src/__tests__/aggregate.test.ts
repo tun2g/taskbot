@@ -1,6 +1,6 @@
 import { GroupStatus } from '@tbot/shared';
-import { statusCounts } from 'src/routes/overview.routes';
-import { summariseJobs } from 'src/routes/system.routes';
+import { statusCounts } from 'src/modules/overview/overview.service';
+import { summariseJobs } from 'src/modules/system/system.service';
 import { auditSummary } from 'src/shared/audit';
 import {
   buildDailySeries,
