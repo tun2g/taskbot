@@ -1,4 +1,5 @@
 import type { AdminAiOverrideInput, AdminGroupDetail } from '@tbot/shared';
+import { AI_DEFAULT_GROUP_BURST } from '@tbot/shared';
 
 import { AiOverrideForm } from '@/components/actions/ai-override-form';
 import type { GroupLifecycleAction } from '@/components/actions/group-actions';
@@ -14,10 +15,13 @@ export interface AiLimits {
   perPerson: number;
 }
 
+const BURST = `${AI_DEFAULT_GROUP_BURST.limit} requests per ${AI_DEFAULT_GROUP_BURST.windowMinutes} minutes`;
+
+/** What applies with no group override: no daily cap for the group, only the bot's burst limit, plus the others. */
 function defaultLimitText(limits: AiLimits | null): string {
-  if (!limits) return 'no per-group limit — the global daily limit and each person’s limit apply';
+  if (!limits) return `no daily limit for this group, only ${BURST}; the global daily limit and each person’s limit still apply`;
   const global = limits.global == null ? 'no global daily limit' : `the global limit of ${formatNumber(limits.global)} calls/day for all groups`;
-  return `no per-group limit — ${global} and ${formatNumber(limits.perPerson)} calls per person per day apply`;
+  return `no daily limit for this group, only ${BURST}; ${global} and ${formatNumber(limits.perPerson)} calls per person per day still apply`;
 }
 
 /** "This group: 12 calls today · avg 31/day · peak 58/day (last 30 days)" — so a limit isn't set blind. */
