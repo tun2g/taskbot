@@ -14,11 +14,16 @@ import { post } from './helpers';
  */
 async function mergeEmptyDoc(telegram: Telegram, oldDoc: IGroup, newDoc: IGroup, newChatId: number): Promise<void> {
   const members = await GroupMember.find({ groupId: newDoc._id });
-  for (const m of members) {
-    await GroupMember.updateOne(
-      { groupId: oldDoc._id, userId: m.userId },
-      { $setOnInsert: { groupId: oldDoc._id, userId: m.userId, telegramUserId: m.telegramUserId, joinedAt: m.joinedAt ?? new Date() } },
-      { upsert: true },
+  if (members.length) {
+    await GroupMember.bulkWrite(
+      members.map((m) => ({
+        updateOne: {
+          filter: { groupId: oldDoc._id, userId: m.userId },
+          update: { $setOnInsert: { groupId: oldDoc._id, userId: m.userId, telegramUserId: m.telegramUserId, joinedAt: m.joinedAt ?? new Date() } },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
     );
   }
   await GroupMember.deleteMany({ groupId: newDoc._id });

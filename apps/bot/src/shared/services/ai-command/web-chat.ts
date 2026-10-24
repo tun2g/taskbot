@@ -1,6 +1,6 @@
 import type { AiChatResponse } from '@tbot/shared';
 import { refId } from 'src/bot/task-card.renderer';
-import { ITask } from 'src/database/models/task.model';
+import { ITask, Task } from 'src/database/models/task.model';
 import { TASK_POPULATE_FULL } from 'src/database/services/task-populate';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
@@ -48,15 +48,13 @@ const unavailable = (text = WEB_AI_UNAVAILABLE_TEXT): WebChatOutcome => ({
   data: { kind: 'unavailable', text, suggestions: [] },
 });
 
-/** API responses carry populated users + epic (no-op for plain objects in tests). */
+/**
+ * API responses carry populated users + epic. One batched populate for the whole list (Model.populate fills the
+ * documents in place), not one per task; plain objects (tests) are skipped.
+ */
 async function populate(tasks: ITask[] | undefined) {
-  if (!tasks) return;
-  await Promise.all(
-    tasks.map(async (task) => {
-      const doc = task as unknown as { populate?: (paths: unknown) => Promise<unknown> };
-      if (typeof doc.populate === 'function') await doc.populate(TASK_POPULATE_FULL);
-    }),
-  );
+  const docs = (tasks ?? []).filter((t) => typeof (t as unknown as { populate?: unknown }).populate === 'function');
+  if (docs.length) await Task.populate(docs, TASK_POPULATE_FULL);
 }
 
 export async function populateResponse(data: AiChatResponse) {

@@ -27,7 +27,7 @@ jest.mock('src/database/models/task.model', () => ({
 }));
 jest.mock('src/database/models/epic.model', () => ({ Epic: { countDocuments: jest.fn().mockResolvedValue(0) } }));
 jest.mock('src/database/models/group-member.model', () => ({
-  GroupMember: { find: jest.fn().mockResolvedValue([]), updateOne: jest.fn(), deleteMany: jest.fn() },
+  GroupMember: { find: jest.fn().mockResolvedValue([]), updateOne: jest.fn(), bulkWrite: jest.fn(), deleteMany: jest.fn() },
 }));
 jest.mock('src/database/models/api-token.model', () => ({ ApiToken: { updateMany: jest.fn() } }));
 const claimed = new Set<string>();
@@ -330,10 +330,17 @@ describe('migrateChat (basic group → supergroup)', () => {
     const tg = telegram();
     await groupLifecycleService.migrateChat(tg, -100, -1001);
 
-    expect(GroupMember.updateOne).toHaveBeenCalledWith(
-      { groupId: 'old', userId: 'u1' },
-      { $setOnInsert: expect.objectContaining({ groupId: 'old', userId: 'u1', telegramUserId: 7 }) },
-      { upsert: true },
+    expect(GroupMember.bulkWrite).toHaveBeenCalledWith(
+      [
+        {
+          updateOne: {
+            filter: { groupId: 'old', userId: 'u1' },
+            update: { $setOnInsert: expect.objectContaining({ groupId: 'old', userId: 'u1', telegramUserId: 7 }) },
+            upsert: true,
+          },
+        },
+      ],
+      { ordered: false },
     );
     expect(ApiToken.updateMany).toHaveBeenCalledWith({ groupId: 'new' }, { $set: { groupId: 'old' } });
     expect(Group.deleteOne).toHaveBeenCalledWith({ _id: 'new' });

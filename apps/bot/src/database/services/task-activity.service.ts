@@ -23,6 +23,16 @@ export class TaskActivityService {
     }
   }
 
+  /** Several entries in one write (e.g. every task of an undone batch). Never throws, like `record`. */
+  async recordMany(inputs: RecordActivityInput[]): Promise<void> {
+    if (!inputs.length) return;
+    try {
+      await TaskActivity.insertMany(inputs, { ordered: false });
+    } catch (error) {
+      logger.error(`Error recording ${inputs.length} task activities (${inputs[0].action}): ${error}`);
+    }
+  }
+
   async getForTask(taskId: mongoose.Types.ObjectId | string): Promise<ITaskActivity[]> {
     try {
       return await TaskActivity.find({ taskId }).populate('actor').sort({ createdAt: 1 });

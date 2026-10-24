@@ -53,14 +53,19 @@ describe('GroupController', () => {
           { _id: { groupId: mockGroupId, status: 'done' }, count: 2 },
           { _id: { groupId: mockGroupId, status: 'cancelled' }, count: 1 },
         ])
-        .mockResolvedValueOnce([{ _id: mockGroupId, count: 3 }]);
+        .mockResolvedValueOnce([{ _id: mockGroupId, count: 3 }])
+        .mockResolvedValueOnce([{ _id: mockGroupId, count: 2 }]);
 
       await controller.listGroups(req, res);
+
+      // Both groups share the default timezone: one overdue aggregate for the two, no per-group count.
+      expect(Task.aggregate).toHaveBeenCalledTimes(3);
+      expect(Task.countDocuments).not.toHaveBeenCalled();
 
       expect(groupMemberService.getUserGroups).toHaveBeenCalledWith(mockUserId);
       expect(res.json).toHaveBeenCalledWith({
         data: [
-          { _id: mockGroupId, groupName: 'Team A', counts: { todo: 5, in_progress: 5, done: 3 }, mine: 3, overdue: 0 },
+          { _id: mockGroupId, groupName: 'Team A', counts: { todo: 5, in_progress: 5, done: 3 }, mine: 3, overdue: 2 },
           { _id: otherGroupId, groupName: 'Team B', counts: { todo: 0, in_progress: 0, done: 0 }, mine: 0, overdue: 0 },
         ],
       });

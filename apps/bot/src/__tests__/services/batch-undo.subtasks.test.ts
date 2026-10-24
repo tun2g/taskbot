@@ -6,7 +6,7 @@ import { afterTaskDeleted } from 'src/shared/services/task-mutation/subtasks';
 jest.mock('src/database/services/task.service', () => ({
   taskService: { getTasksByBatch: jest.fn(), deleteTasks: jest.fn() },
 }));
-jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn() } }));
+jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn(), recordMany: jest.fn() } }));
 jest.mock('src/shared/services/task-mutation/subtasks', () => ({ afterTaskDeleted: jest.fn().mockResolvedValue([]) }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
 
