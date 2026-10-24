@@ -7,7 +7,7 @@ import { formatMoney, formatNumber, formatPercent } from '@/lib/format';
 
 function Meter({ value, max, label }: { value: number; max: number; label: string }) {
   const share = max > 0 ? value / max : 0;
-  const tone = share >= 1 ? 'bg-danger' : share >= 0.8 ? 'bg-warn' : 'bg-accent';
+  const tone = share >= 1 ? 'bg-danger' : share >= 0.8 ? 'bg-warn' : 'bg-brand';
   return (
     <div>
       <div

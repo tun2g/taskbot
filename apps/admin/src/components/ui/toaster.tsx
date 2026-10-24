@@ -8,7 +8,7 @@ const TONE: Record<ToastTone, { bar: string; icon: string }> = {
   success: { bar: 'bg-good', icon: '✓' },
   error: { bar: 'bg-danger', icon: '!' },
   warning: { bar: 'bg-warn', icon: '!' },
-  info: { bar: 'bg-accent', icon: 'i' },
+  info: { bar: 'bg-brand', icon: 'i' },
 };
 
 export function Toaster() {

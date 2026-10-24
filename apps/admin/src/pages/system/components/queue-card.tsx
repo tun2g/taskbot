@@ -71,7 +71,7 @@ function QueueCell({ cell: c }: { cell: Cell }) {
     <button
       type="button"
       onClick={c.onOpen}
-      className="block h-full w-full cursor-pointer bg-surface px-5 py-3 text-left transition-colors hover:bg-accent-soft/40"
+      className="block h-full w-full cursor-pointer bg-surface px-5 py-3 text-left transition-colors hover:bg-brand-soft/60"
     >
       {body}
     </button>

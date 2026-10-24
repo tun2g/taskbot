@@ -60,7 +60,7 @@ export function Dialog({
         className={`relative w-full ${width} max-h-[90dvh] overflow-y-auto rounded-t-2xl bg-surface shadow-[var(--shadow-lg)] outline-none sm:rounded-2xl`}
       >
         <div className="px-5 pt-5 pb-2">
-          <h2 id={titleId} className="text-lg font-semibold text-text">
+          <h2 id={titleId} className="text-lg font-black text-text">
             {title}
           </h2>
         </div>

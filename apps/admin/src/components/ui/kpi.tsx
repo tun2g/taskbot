@@ -47,19 +47,19 @@ export function KpiCard({
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[15px] font-medium text-text-2">{label}</span>
+        <span className="text-[13px] font-bold tracking-[0.06em] text-text-2 uppercase">{label}</span>
         {to && (
-          <span aria-hidden className="text-text-3 transition-transform group-hover:translate-x-0.5">
+          <span aria-hidden className="text-text-3 transition-all group-hover:translate-x-0.5 group-hover:text-brand">
             →
           </span>
         )}
       </div>
-      <div className="mt-2 text-[30px] leading-tight font-bold tracking-tight text-text tabular">{value}</div>
+      <div className="mt-2 text-[34px] leading-tight font-black tracking-tight text-text tabular">{value}</div>
       {previousMissing && current != null && (
         <div className="mt-0.5 text-[13px] text-text-3">No data for the previous period (before tracking started)</div>
       )}
       {delta && (
-        <div className={cn('mt-0.5 text-[13px] font-medium tabular', deltaTone)}>
+        <div className={cn('mt-1 text-[13px] font-bold tabular', deltaTone)}>
           {delta.text} <span className="font-normal text-text-3">vs previous period</span>
         </div>
       )}
@@ -71,7 +71,7 @@ export function KpiCard({
   const cls = 'group block rounded-2xl border border-border bg-surface p-5';
   if (!to) return <div className={cls}>{body}</div>;
   return (
-    <Link to={to} search={search} params={params} className={cn(cls, 'transition-colors hover:border-accent/50 hover:bg-accent-soft/30')}>
+    <Link to={to} search={search} params={params} className={cn(cls, 'transition-[border-color,box-shadow] hover:border-brand hover:shadow-[var(--shadow)]')}>
       {body}
     </Link>
   );

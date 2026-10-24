@@ -18,18 +18,18 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh lg:pl-60">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border bg-surface lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border bg-sidebar lg:block">
         <Sidebar />
       </aside>
       {drawer && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} aria-hidden />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface">
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar">
             <Sidebar onNavigate={() => setDrawer(false)} />
           </aside>
         </div>
       )}
-      <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur sm:px-8">
+      <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-surface/90 px-4 backdrop-blur sm:px-8">
         <button
           type="button"
           className="-ml-1 inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-text-2 hover:bg-surface-2 lg:hidden"
@@ -39,7 +39,7 @@ export function AppShell() {
           <NavIcon name="menu" className="size-5" />
         </button>
         {/* Phones and tablets have no sidebar: say where you are next to the menu button. */}
-        <span className="min-w-0 flex-1 truncate text-base font-semibold text-text lg:hidden">{section}</span>
+        <span className="min-w-0 flex-1 truncate text-base font-bold text-text lg:hidden">{section}</span>
         <div className="hidden flex-1 lg:block" />
         {ranged && <RangeSelect />}
         <ThemeToggle />

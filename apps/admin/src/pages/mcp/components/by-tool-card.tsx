@@ -25,7 +25,7 @@ export function ByToolCard({ rows, tool, onTool }: { rows: AdminMcpOverview['byT
             const info = mcpToolInfo(t.tool);
             const active = tool === t.tool;
             return (
-              <Tr key={t.tool} onOpen={() => onTool(active ? undefined : t.tool)} className={active ? 'bg-accent-soft/60' : undefined}>
+              <Tr key={t.tool} onOpen={() => onTool(active ? undefined : t.tool)} className={active ? 'bg-brand-soft' : undefined}>
                 <Td className="max-w-xs">
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-medium text-text">{info.label}</span>

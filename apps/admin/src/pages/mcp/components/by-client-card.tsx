@@ -18,7 +18,7 @@ export function ByClientCard({ rows, client, onClient }: { rows: AdminMcpOvervie
               <button
                 type="button"
                 onClick={() => onClient(active ? undefined : c.client)}
-                className={cn('block w-full cursor-pointer px-5 py-3 text-left hover:bg-surface-2/70', active && 'bg-accent-soft/60')}
+                className={cn('block w-full cursor-pointer px-5 py-3 text-left hover:bg-surface-2/70', active && 'bg-brand-soft')}
               >
                 <div className="mb-1 flex justify-between gap-3 text-sm">
                   <span className="text-text">{c.client}</span>

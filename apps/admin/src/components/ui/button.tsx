@@ -7,9 +7,9 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dang
 export type ButtonSize = 'xs' | 'sm' | 'md';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-on-accent hover:bg-accent-hover border border-transparent',
-  secondary: 'bg-surface text-text border border-border-strong hover:bg-surface-2',
-  ghost: 'bg-transparent text-text-2 border border-transparent hover:bg-surface-2 hover:text-text',
+  primary: 'bg-accent text-on-accent hover:bg-accent-hover border border-accent hover:border-accent-hover',
+  secondary: 'bg-surface text-text border border-border-strong hover:border-brand hover:text-accent-text',
+  ghost: 'bg-transparent text-text-2 border border-transparent hover:bg-brand-soft hover:text-accent-text',
   danger: 'bg-danger text-white hover:bg-danger-hover border border-transparent',
   'danger-outline': 'bg-surface text-danger border border-border-strong hover:bg-danger-soft hover:border-danger',
 };
@@ -18,12 +18,12 @@ const SIZES: Record<ButtonSize, string> = {
   /** Compact row actions inside tables. */
   xs: 'h-7 px-2.5 text-[13px] gap-1 rounded-lg',
   sm: 'h-8 px-3 text-sm gap-1.5 rounded-lg',
-  md: 'h-10 px-4 text-[15px] gap-2 rounded-xl',
+  md: 'h-10 px-4 text-[15px] gap-2 rounded-lg',
 };
 
 export function buttonClass(variant: ButtonVariant = 'secondary', size: ButtonSize = 'md', extra?: string) {
   return cn(
-    'inline-flex items-center justify-center font-medium whitespace-nowrap transition-colors select-none',
+    'inline-flex items-center justify-center font-bold whitespace-nowrap transition-colors select-none',
     'disabled:opacity-50 disabled:pointer-events-none cursor-pointer',
     VARIANTS[variant],
     SIZES[size],
@@ -80,7 +80,7 @@ const TextLinkBase = forwardRef<HTMLAnchorElement, AnchorHTMLAttributes<HTMLAnch
   return (
     <a
       ref={ref}
-      className={cn('text-accent-text underline-offset-2 hover:underline decoration-1 cursor-pointer', className)}
+      className={cn('font-bold text-accent-text underline-offset-2 hover:underline decoration-1 cursor-pointer', className)}
       {...rest}
     />
   );

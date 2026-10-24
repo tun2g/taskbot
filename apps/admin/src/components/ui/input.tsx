@@ -3,8 +3,8 @@ import { forwardRef, type InputHTMLAttributes, type ReactNode, type TextareaHTML
 import { cn } from '@/lib/cn';
 
 const CONTROL =
-  'w-full rounded-xl border border-border-strong bg-surface px-3.5 text-[15px] text-text placeholder:text-text-3 ' +
-  'focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent/20 disabled:opacity-60';
+  'w-full rounded-lg border border-border-strong bg-surface px-3.5 text-[15px] text-text placeholder:text-text-3 ' +
+  'hover:border-text-3/60 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-60';
 
 export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextInput(
   { className, ...rest },
@@ -36,7 +36,7 @@ export function Field({
 }) {
   return (
     <label className={cn('block', className)}>
-      <span className="mb-1.5 block text-[15px] font-medium text-text">{label}</span>
+      <span className="mb-1.5 block text-[15px] font-bold text-text">{label}</span>
       {children}
       {error ? (
         <span className="mt-1 block text-[13px] text-danger">{error}</span>
@@ -73,7 +73,7 @@ export function Toggle({
         onClick={() => onChange(!checked)}
         className={cn(
           'relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50',
-          checked ? 'bg-accent' : 'bg-border-strong',
+          checked ? 'bg-brand' : 'bg-border-strong',
         )}
       >
         <span
@@ -84,7 +84,7 @@ export function Toggle({
         />
       </button>
       <label htmlFor={id} className="cursor-pointer">
-        <span className="block text-[15px] font-medium text-text">{label}</span>
+        <span className="block text-[15px] font-bold text-text">{label}</span>
         {hint && <span className="mt-0.5 block text-[13px] leading-relaxed text-text-3">{hint}</span>}
       </label>
     </div>

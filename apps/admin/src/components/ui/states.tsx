@@ -37,7 +37,7 @@ export function PageSkeleton() {
 export function EmptyState({ title, body, action, compact }: { title: string; body?: ReactNode; action?: ReactNode; compact?: boolean }) {
   return (
     <div className={cn('flex flex-col items-center text-center', compact ? 'px-5 py-8' : 'px-6 py-16')}>
-      <p className="text-base font-semibold text-text">{title}</p>
+      <p className="text-base font-bold text-text">{title}</p>
       {body && <p className="mt-1.5 max-w-md text-[15px] leading-relaxed text-text-3">{body}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
@@ -73,8 +73,8 @@ export function Notice({ tone = 'info', children, action }: { tone?: 'info' | 'w
   return (
     <div
       className={cn(
-        'flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-xl border px-4 py-3 text-[15px] leading-relaxed',
-        tone === 'warn' ? 'border-warn/30 bg-warn-soft text-text' : 'border-accent/25 bg-accent-soft text-text',
+        'flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-xl border border-l-4 px-4 py-3 text-[15px] leading-relaxed',
+        tone === 'warn' ? 'border-warn/25 border-l-warn bg-warn-soft text-text' : 'border-brand/25 border-l-brand bg-brand-soft text-text',
       )}
     >
       <div className="flex min-w-0 gap-2">

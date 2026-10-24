@@ -14,7 +14,7 @@ export function Table({ children, className }: { children: ReactNode; className?
 export function THead({ children }: { children: ReactNode }) {
   return (
     <thead>
-      <tr className="border-y border-border bg-surface-2/50">{children}</tr>
+      <tr className="border-y border-border">{children}</tr>
     </thead>
   );
 }
@@ -45,7 +45,7 @@ export function Th({
       scope="col"
       aria-sort={sort?.active ? 'descending' : undefined}
       className={cn(
-        'px-3 py-3 align-bottom text-sm font-medium whitespace-nowrap text-text-2 first:pl-5 last:pr-5',
+        'px-3 py-3 align-bottom text-[13px] font-bold tracking-[0.04em] whitespace-nowrap text-text-2 uppercase first:pl-5 last:pr-5',
         align === 'right' ? 'text-right' : 'text-left',
         className,
       )}
@@ -55,7 +55,7 @@ export function Th({
           type="button"
           onClick={sort.onSort}
           title={sort.active ? 'Sorted by this column (highest first)' : 'Sort by this column (highest first)'}
-          className={cn('inline-flex cursor-pointer items-center gap-1 hover:text-text', sort.active && 'font-semibold text-accent-text')}
+          className={cn('inline-flex cursor-pointer items-center gap-1 hover:text-text', sort.active && 'text-accent-text')}
         >
           {children}
           <svg aria-hidden viewBox="0 0 16 16" className={cn('size-3.5', sort.active ? 'text-accent-text' : 'text-text-3/50')}>
@@ -68,7 +68,7 @@ export function Th({
       {hint && (
         <span
           className={cn(
-            'mt-0.5 block max-w-44 text-[13px] leading-snug font-normal whitespace-normal text-text-3',
+            'mt-0.5 block max-w-44 text-[13px] leading-snug font-normal tracking-normal whitespace-normal text-text-3 normal-case',
             hintWidth === 'min' && 'min-w-28',
             hintWidth === 'fit' && 'w-max',
             align === 'right' && 'ml-auto',
@@ -90,7 +90,7 @@ export function Tr({ children, onOpen, className }: { children: ReactNode; onOpe
       tabIndex={onOpen ? 0 : undefined}
       className={cn(
         'border-b border-border last:border-b-0',
-        onOpen && 'cursor-pointer transition-colors hover:bg-accent-soft/40 focus-visible:bg-accent-soft/50',
+        onOpen && 'cursor-pointer transition-colors hover:bg-brand-soft/60 focus-visible:bg-brand-soft',
         className,
       )}
     >
@@ -126,5 +126,5 @@ export function Td({
 }
 
 export function TotalRow({ children }: { children: ReactNode }) {
-  return <tr className="border-t-2 border-border-strong bg-surface-2/50 font-medium">{children}</tr>;
+  return <tr className="border-t-2 border-border-strong bg-surface-2/60 font-bold">{children}</tr>;
 }
