@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { InlineKeyboardMarkup, Message } from 'telegraf/types';
+import { BotCommandScope, InlineKeyboardMarkup, Message } from 'telegraf/types';
 
 export class TelegramApiService {
   private botToken: string;
@@ -58,10 +58,12 @@ export class TelegramApiService {
     });
   }
 
-  async setMyCommands(commands: { command: string; description: string }[]) {
+  /** No scope = the default list; a scope (e.g. all_group_chats) replaces it there, the narrowest scope wins. */
+  async setMyCommands(commands: { command: string; description: string }[], scope?: BotCommandScope) {
     try {
       await axios.post(`${this.botApiUrl}/setMyCommands`, {
         commands,
+        ...(scope ? { scope } : {}),
       });
     } catch (error: any) {
       logger.error(error);
