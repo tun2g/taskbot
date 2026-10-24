@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes, useId } from 'react';
+import { forwardRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useId } from 'react';
 
 import { cn } from '@/lib/cn';
 
@@ -18,17 +18,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   ref,
 ) {
   return <textarea ref={ref} className={cn(CONTROL, 'py-2 leading-relaxed', className)} {...rest} />;
-});
-
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
-  { className, children, ...rest },
-  ref,
-) {
-  return (
-    <select ref={ref} className={cn(CONTROL, 'h-10 w-auto cursor-pointer pr-9', className)} {...rest}>
-      {children}
-    </select>
-  );
 });
 
 /** A labelled control with an always-visible hint underneath. */

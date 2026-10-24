@@ -12,6 +12,7 @@ import { getErrorMessage, isMockMode } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
 import { RANGE_LABELS } from '@/lib/labels';
 import { DEFAULT_RANGE, RANGES } from '@/lib/search';
+import { getTheme, setTheme, type ThemeChoice } from '@/lib/theme';
 import { toast } from '@/lib/toast';
 
 import { NavIcon } from './icons';
@@ -95,6 +96,34 @@ function RangeSelect() {
         } as never)
       }
     />
+  );
+}
+
+const THEME_NEXT: Record<ThemeChoice, ThemeChoice> = { system: 'light', light: 'dark', dark: 'system' };
+const THEME_LABELS: Record<ThemeChoice, string> = {
+  system: 'Theme: follows your device',
+  light: 'Theme: light',
+  dark: 'Theme: dark',
+};
+const THEME_ICONS: Record<ThemeChoice, string> = { system: 'monitor', light: 'sun', dark: 'moon' };
+
+/** Cycles device → light → dark; the icon shows the current choice. */
+function ThemeToggle() {
+  const [theme, setThemeState] = useState<ThemeChoice>(getTheme);
+  const next = THEME_NEXT[theme];
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setTheme(next);
+        setThemeState(next);
+      }}
+      title={`${THEME_LABELS[theme]} — click for ${THEME_LABELS[next].replace('Theme: ', '')}`}
+      aria-label={THEME_LABELS[theme]}
+      className="inline-flex size-10 cursor-pointer items-center justify-center rounded-full text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
+    >
+      <NavIcon name={THEME_ICONS[theme]} className="size-5" />
+    </button>
   );
 }
 
@@ -211,6 +240,7 @@ export function AppShell() {
         </button>
         <div className="flex-1" />
         {ranged && <RangeSelect />}
+        <ThemeToggle />
         <UserMenu />
       </header>
       <main className="mx-auto w-full min-w-0 max-w-[1320px] px-4 py-6 sm:px-8 sm:py-8">

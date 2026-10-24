@@ -4,13 +4,13 @@ import { Fragment } from 'react';
 
 import { AiStatusBadge, Badge } from '@/components/ui/badge';
 import { Button, TextLink } from '@/components/ui/button';
-import { Select } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/nav';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Table, Td, Th, THead } from '@/components/ui/table';
 import { PersonCell, RelativeTime } from '@/components/ui/values';
 import { formatDuration, formatMoney, formatNumber } from '@/lib/format';
-import { AI_FEATURE_LABELS, AI_STATUS_LABELS, CHANNEL_LABELS, featureLabel } from '@/lib/labels';
+import { AI_FEATURE_LABELS, AI_STATUS_HINTS, AI_STATUS_LABELS, CHANNEL_LABELS, featureLabel } from '@/lib/labels';
 import type { AiSearch } from '@/lib/search';
 
 export function CallsTable({
@@ -41,35 +41,21 @@ export function CallsTable({
   return (
     <>
       <div className="flex flex-wrap items-end gap-3 px-5 pb-3">
-        <label className="text-sm text-text-2">
-          <span className="mb-1 block">Result</span>
-          <Select
-            value={status ?? ''}
-            onChange={(e) => onUpdate({ status: (e.target.value || undefined) as AiCallStatus | undefined })}
-          >
-            <option value="">All results</option>
-            {AI_CALL_STATUS_VALUES.map((s) => (
-              <option key={s} value={s}>
-                {AI_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="text-sm text-text-2">
-          <span className="mb-1 block">Feature</span>
-          <Select
-            value={feature ?? ''}
-            onChange={(e) => onUpdate({ feature: (e.target.value || undefined) as AiFeature | undefined })}
-            className="max-w-full"
-          >
-            <option value="">All features</option>
-            {AI_FEATURE_VALUES.map((f) => (
-              <option key={f} value={f}>
-                {AI_FEATURE_LABELS[f]}
-              </option>
-            ))}
-          </Select>
-        </label>
+        <Select
+          label="Result"
+          value={status ?? ''}
+          onChange={(v) => onUpdate({ status: (v || undefined) as AiCallStatus | undefined })}
+          options={[
+            { value: '', label: 'All results' },
+            ...AI_CALL_STATUS_VALUES.map((s) => ({ value: s, label: AI_STATUS_LABELS[s], hint: AI_STATUS_HINTS[s] })),
+          ]}
+        />
+        <Select
+          label="Feature"
+          value={feature ?? ''}
+          onChange={(v) => onUpdate({ feature: (v || undefined) as AiFeature | undefined })}
+          options={[{ value: '', label: 'All features' }, ...AI_FEATURE_VALUES.map((f) => ({ value: f, label: AI_FEATURE_LABELS[f] }))]}
+        />
         {(status || feature) && (
           <Button size="sm" variant="ghost" onClick={() => onUpdate({ status: undefined, feature: undefined })}>
             Clear result & feature

@@ -3,8 +3,9 @@ import type { AdminUserRow } from '@tbot/shared';
 import { AiOverrideBadge } from '@/components/ui/badge';
 import { TextLink } from '@/components/ui/button';
 import { Card, PageHeader } from '@/components/ui/card';
-import { SearchInput, Select } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/input';
 import { FilterChip, Pagination } from '@/components/ui/nav';
+import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
 import { Table, Td, Th, THead, Tr } from '@/components/ui/table';
 import { PersonCell, RelativeTime } from '@/components/ui/values';
@@ -55,16 +56,12 @@ export function UsersContent(props: {
             placeholder="Search by name or @username"
             className="w-full sm:w-72"
           />
-          <label className="flex items-center gap-2 text-sm whitespace-nowrap text-text-2">
-            Sort by
-            <Select value={props.sort} onChange={(e) => props.onSort(e.target.value as UserSort)}>
-              {(Object.keys(USER_SORT_LABELS) as UserSort[]).map((s) => (
-                <option key={s} value={s}>
-                  {USER_SORT_LABELS[s]}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <Select
+            label="Sort by"
+            value={props.sort}
+            onChange={props.onSort}
+            options={(Object.keys(USER_SORT_LABELS) as UserSort[]).map((s) => ({ value: s, label: USER_SORT_LABELS[s] }))}
+          />
           {props.activeIn && (
             <FilterChip
               label={

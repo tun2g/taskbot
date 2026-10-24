@@ -1,6 +1,8 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 
 import { cn } from '@/lib/cn';
+
+import { POPOVER_PANEL, useDismiss } from './popover';
 
 export interface MenuItem {
   label: string;
@@ -28,19 +30,8 @@ export function Menu({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(root, open, close);
 
   return (
     <div ref={root} className="relative inline-block" onClick={(e) => e.stopPropagation()}>
@@ -62,7 +53,8 @@ export function Menu({
         <div
           role="menu"
           className={cn(
-            'absolute z-40 mt-1 min-w-52 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-lg)]',
+            POPOVER_PANEL,
+            'min-w-52',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >

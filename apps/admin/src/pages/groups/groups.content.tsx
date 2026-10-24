@@ -4,7 +4,8 @@ import { GROUP_STATUS_HINTS, GROUP_STATUS_LABELS, GROUP_STATUS_VALUES, GroupStat
 import type { GroupLifecycleAction } from '@/components/actions/group-actions';
 import { Button } from '@/components/ui/button';
 import { Card, PageHeader } from '@/components/ui/card';
-import { SearchInput, Select } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { FilterChip, Pagination, type TabItem, Tabs } from '@/components/ui/nav';
 import { EmptyState, ErrorState, Notice, TableSkeleton } from '@/components/ui/states';
 import { formatNumber } from '@/lib/format';
@@ -145,16 +146,16 @@ export function GroupsContent({
         <div className="flex flex-wrap items-center gap-2 px-5 py-3">
           <SearchInput value={query} onChange={onQuery} placeholder="Search groups by name" className="w-full sm:w-72" />
           <div className="flex-1" />
-          <label className="flex items-center gap-2 text-sm whitespace-nowrap text-text-2">
-            Sort by
-            <Select value={sort} onChange={(e) => onSort(e.target.value as GroupSort)}>
-              {(Object.keys(GROUP_SORT_LABELS) as GroupSort[]).map((k) => (
-                <option key={k} value={k}>
-                  {(activeIn && PERIOD_SORT_LABELS[k]) || GROUP_SORT_LABELS[k]}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <Select
+            label="Sort by"
+            align="right"
+            value={sort}
+            onChange={onSort}
+            options={(Object.keys(GROUP_SORT_LABELS) as GroupSort[]).map((k) => ({
+              value: k,
+              label: (activeIn && PERIOD_SORT_LABELS[k]) || GROUP_SORT_LABELS[k],
+            }))}
+          />
         </div>
         {activeIn && (
           <div className="px-5 pb-3">

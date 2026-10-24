@@ -61,7 +61,7 @@ export function DailyChart({
     [rows, series],
   );
 
-  const tick = { fill: 'var(--text-3)', fontSize: 11 };
+  const tick = { fill: 'var(--text-3)', fontSize: 12 };
   const tickEvery = Math.max(0, Math.ceil(rows.length / 8) - 1);
 
   const renderTooltip = ({ active, payload, label }: TooltipProps) => {
