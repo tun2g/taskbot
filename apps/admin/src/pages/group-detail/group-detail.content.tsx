@@ -12,7 +12,8 @@ import { AiTab } from './components/ai-tab';
 import { GroupHeader } from './components/group-header';
 import { MembersTab } from './components/members-tab';
 import { OverviewTab } from './components/overview-tab';
-import { SettingsTab } from './components/settings-tab';
+import { type AiLimits, SettingsTab } from './components/settings-tab';
+import { TasksTab } from './components/tasks-tab';
 
 export function GroupDetailContent({
   group,
@@ -31,6 +32,7 @@ export function GroupDetailContent({
   busy,
   onSaveAi,
   savingAi,
+  aiLimits,
   onOpenPerson,
   onOpenFeature,
 }: {
@@ -50,6 +52,8 @@ export function GroupDetailContent({
   busy: boolean;
   onSaveAi: (input: AdminAiOverrideInput) => void;
   savingAi: boolean;
+  /** Limits that apply without an override (null while Settings load). */
+  aiLimits: AiLimits | null;
   onOpenPerson: (userId: string) => void;
   onOpenFeature: (feature: AiFeature) => void;
 }) {
@@ -80,7 +84,8 @@ export function GroupDetailContent({
 
   const tabs: TabItem<GroupTab>[] = [
     { value: 'overview', label: 'Overview', hint: 'Activity, tasks and usage in the selected range' },
-    { value: 'members', label: 'Members', count: group.members.length, hint: 'People in this group who used the bot' },
+    { value: 'tasks', label: 'Tasks', count: group.openTasks, hint: 'Open tasks, overdue, done and epics' },
+    { value: 'members', label: 'People using the bot', count: group.knownMembers, hint: 'People in this group who used the bot' },
     { value: 'ai', label: 'AI', hint: 'AI calls and estimated cost by feature' },
     { value: 'settings', label: 'Settings', hint: 'AI limits and the danger zone' },
   ];
@@ -98,10 +103,18 @@ export function GroupDetailContent({
           rangeFrom={rangeFrom}
         />
       )}
-      {tab === 'members' && <MembersTab group={group} range={range} onOpenPerson={onOpenPerson} />}
-      {tab === 'ai' && <AiTab group={group} range={range} onOpenFeature={onOpenFeature} />}
+      {tab === 'tasks' && <TasksTab group={group} />}
+      {tab === 'members' && <MembersTab range={range} onOpenPerson={onOpenPerson} />}
+      {tab === 'ai' && <AiTab group={group} range={range} globalLimit={aiLimits ? aiLimits.global : undefined} onOpenFeature={onOpenFeature} />}
       {tab === 'settings' && (
-        <SettingsTab group={group} onSaveAi={onSaveAi} savingAi={savingAi} onAction={(a) => onAction(a, group)} busy={busy} />
+        <SettingsTab
+          group={group}
+          aiLimits={aiLimits}
+          onSaveAi={onSaveAi}
+          savingAi={savingAi}
+          onAction={(a) => onAction(a, group)}
+          busy={busy}
+        />
       )}
     </div>
   );

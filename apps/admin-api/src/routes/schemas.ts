@@ -25,10 +25,11 @@ export const aiOverrideSchema = z
     dailyLimit: z
       .number({ message: 'The daily limit must be a whole number (or empty for the default).' })
       .int('The daily limit must be a whole number.')
-      .min(0, 'The daily limit can’t be negative.')
+      .min(1, 'The daily limit must be at least 1 — to stop AI completely, turn it off instead.')
       .max(100_000, 'The daily limit is too large (max 100000).')
       .nullable()
       .optional(),
+    reason: reason.optional(),
   })
   .refine((v) => v.disabled !== undefined || v.dailyLimit !== undefined, 'Nothing to change: send disabled and/or dailyLimit.');
 

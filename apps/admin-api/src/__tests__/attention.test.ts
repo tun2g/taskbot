@@ -192,7 +192,8 @@ describe('drill-downs added for MCP and people', () => {
     const toolMatches = matches.filter((m: any) => m.kind === 'mcp_tool');
     expect(toolMatches.length).toBeGreaterThan(0);
     expect(toolMatches.every((m: any) => m.name === 'list_tasks' && m.client === null)).toBe(true);
-    expect(res.body.data).toMatchObject({ byGroup: [], rateLimitedBy: [], tokens: [] });
+    expect(res.body.data).toMatchObject({ byGroup: [], rateLimitedBy: [] });
+    expect(res.body.data.tokens).toBeUndefined(); // listed by GET /mcp/tokens (paginated)
   });
 
   it('/users?hasTokens=1 keeps only people with an active MCP token', async () => {

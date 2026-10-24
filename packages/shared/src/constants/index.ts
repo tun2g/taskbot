@@ -53,7 +53,9 @@ export { GROUP_NOTICES, GROUP_REJECT_REASONS, ownerApprovalText } from './group-
 export { OPEN_BOARD_LABEL, appLink, openBoardButton, webappBase } from './app-links.js';
 export type { AppLinkConfig } from './app-links.js';
 export type { GroupRejectReasonKey, OwnerApprovalInfo } from './group-notices.js';
-export { AI_BUILT_IN_PRICING, AI_DEFAULT_USER_DAILY_LIMIT, AI_DEFAULT_ALERT_AT_PERCENT } from './ai-pricing.js';
+export { AI_BUILT_IN_PRICING, AI_DEFAULT_USER_DAILY_LIMIT, AI_DEFAULT_ALERT_AT_PERCENT, AI_DEFAULT_GROUP_BURST, AI_LIMITER } from './ai-pricing.js';
 export type { AiModelPrice } from './ai-pricing.js';
 export { BACKGROUND_JOBS, backgroundJobInfo, MCP_TOOLS, mcpToolInfo } from './admin-labels.js';
 export type { BackgroundJobInfo } from './admin-labels.js';
+export { aiSettingsChangeLines, formatPricePerMillion } from './admin-settings-diff.js';
+export type { AiSettingsValues } from './admin-settings-diff.js';

@@ -42,7 +42,7 @@ export function TopGroupsCard({
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="min-w-0 truncate text-sm text-text">{r.group.name}</span>
                   <span className="shrink-0 text-sm font-medium text-text tabular">
-                    {r.display} <span className="text-xs font-normal text-text-3">{r.detail}</span>
+                    {r.display} <span className="text-[13px] font-normal text-text-3">{r.detail}</span>
                   </span>
                 </div>
                 <div className="mt-1.5">

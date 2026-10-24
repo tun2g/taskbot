@@ -1,9 +1,12 @@
 import { getRouteApi } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
+import { useAiSettings } from '@/api/settings';
 import { useUsers } from '@/api/users';
+import { defaultLimitLabel } from '@/lib/ai-limits';
 import { getErrorMessage } from '@/lib/api-client';
 import type { UserSort } from '@/lib/labels';
+import { DEFAULT_RANGE } from '@/lib/search';
 
 import { UsersContent } from './users.content';
 
@@ -15,6 +18,8 @@ export function UsersContainer() {
   const navigate = route.useNavigate();
   const page = search.page ?? 1;
   const sort: UserSort = search.sort ?? 'lastSeen';
+  const range = search.range ?? DEFAULT_RANGE;
+  const settings = useAiSettings();
 
   // The box updates instantly; the URL (and the request) follow 300 ms after typing stops.
   const [query, setQuery] = useState(search.q ?? '');
@@ -26,11 +31,13 @@ export function UsersContainer() {
     return () => clearTimeout(t);
   }, [query, search.q, navigate]);
 
-  const users = useUsers({ activeIn: search.activeIn, hasTokens: search.hasTokens ? '1' : undefined, q: search.q, sort, page, limit: LIMIT });
+  const users = useUsers({ range, activeIn: search.activeIn, hasTokens: search.hasTokens ? '1' : undefined, q: search.q, sort, page, limit: LIMIT });
 
   return (
     <UsersContent
       rows={users.data?.data ?? []}
+      range={range}
+      defaultLabel={defaultLimitLabel(settings.data)}
       total={users.data?.meta.total ?? 0}
       page={page}
       limit={LIMIT}
@@ -48,7 +55,7 @@ export function UsersContainer() {
       sort={sort}
       onSort={(s) => navigate({ search: (prev) => ({ ...prev, sort: s === 'lastSeen' ? undefined : s, page: undefined }) })}
       onPage={(p) => navigate({ search: (prev) => ({ ...prev, page: p > 1 ? p : undefined }) })}
-      onOpen={(userId) => navigate({ to: '/users/$userId', params: { userId }, search: {} })}
+      onOpen={(userId) => navigate({ to: '/users/$userId', params: { userId }, search: { range } })}
     />
   );
 }

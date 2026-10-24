@@ -34,7 +34,7 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
         title="AI today"
         subtitle="Since midnight UTC. The call limit stops AI for the rest of the day; the budget only sends you alerts."
         action={
-          <TextLink to="/ai" search={{ range: '7d', groupBy: 'day' }} className="text-[13px]">
+          <TextLink to="/ai" search={{ range: '7d', groupBy: 'day' }} className="text-sm">
             Details →
           </TextLink>
         }
@@ -43,7 +43,7 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
         <div>
           <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
             <span className="text-2xl font-semibold text-text tabular">{formatMoney(costUsd)}</span>
-            <span className="text-xs text-text-3 tabular">
+            <span className="text-[13px] text-text-3 tabular">
               {budgetUsd != null ? `of ${formatMoney(budgetUsd)} daily budget` : 'No daily budget set'}
             </span>
           </div>
@@ -52,14 +52,14 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
               <div className="mt-2">
                 <Meter value={costUsd} max={budgetUsd} label="Today’s estimated AI cost against the daily budget" />
               </div>
-              <p className="mt-1.5 text-xs text-text-3">
+              <p className="mt-1.5 text-[13px] text-text-3">
                 {budgetShare != null && budgetShare >= 1
                   ? 'Budget reached. AI keeps working — set a daily call limit in Settings to stop spending.'
                   : `${formatPercent(budgetShare ?? 0)} of the budget used.`}
               </p>
             </>
           ) : (
-            <p className="mt-1.5 text-xs text-text-3">
+            <p className="mt-1.5 text-[13px] text-text-3">
               No budget, so you won’t get spend alerts.{' '}
               <TextLink to="/settings">Set a budget</TextLink>
             </p>
@@ -68,7 +68,7 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
         <div>
           <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
             <span className="text-base font-semibold text-text tabular">{formatNumber(calls)} calls</span>
-            <span className="text-xs text-text-3 tabular">
+            <span className="text-[13px] text-text-3 tabular">
               {callLimit != null ? `of ${formatNumber(callLimit)} daily limit` : 'No daily call limit'}
             </span>
           </div>
@@ -78,7 +78,7 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
             </div>
           )}
           {callLimit != null && calls >= callLimit ? (
-            <p className="mt-1.5 text-xs text-danger">
+            <p className="mt-1.5 text-[13px] text-danger">
               Daily limit reached — AI is stopped for everyone until midnight UTC
               {blocked > 0 ? ` (${formatNumber(blocked)} ${blocked === 1 ? 'request' : 'requests'} refused so far)` : ''}.{' '}
               <TextLink to="/ai" search={{ range: '7d', status: 'quota' }}>
@@ -88,7 +88,7 @@ export function AiTodayCard({ today }: { today: AdminOverview['aiToday'] }) {
           ) : (
             blocked > 0 && (
               // Below the global limit, refusals come from a group's / person's own limit or from AI being turned off for them.
-              <p className="mt-1.5 text-xs text-text-2">
+              <p className="mt-1.5 text-[13px] text-text-2">
                 {formatNumber(blocked)} {blocked === 1 ? 'request was' : 'requests were'} refused today by a group’s or
                 person’s own AI limit, or because you turned AI off for them. These aren’t counted above.{' '}
                 <TextLink to="/ai" search={{ range: '7d', status: 'quota' }}>

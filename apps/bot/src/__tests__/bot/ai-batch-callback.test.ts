@@ -15,7 +15,7 @@ jest.mock('src/database/services/task.service', () => ({
   taskService: { getTasksByBatch: jest.fn(), deleteTasks: jest.fn() },
 }));
 jest.mock('src/database/services/task-activity.service', () => ({
-  taskActivityService: { record: jest.fn() },
+  taskActivityService: { record: jest.fn(), recordMany: jest.fn() },
 }));
 jest.mock('src/database/services/user.service', () => ({
   userService: { findUserByTelegramId: jest.fn().mockResolvedValue({ _id: 'u1' }) },
@@ -89,8 +89,11 @@ describe('handleBatchCallback', () => {
 
     expect(taskService.getTasksByBatch).toHaveBeenCalledWith('b1');
     expect(taskService.deleteTasks).toHaveBeenCalledWith(tasks.map((t) => t._id));
-    expect(taskActivityService.record).toHaveBeenCalledTimes(2);
-    expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', from: 'A' }));
+    // One write for the whole batch, an entry per task.
+    expect(taskActivityService.recordMany).toHaveBeenCalledTimes(1);
+    const entries = (taskActivityService.recordMany as jest.Mock).mock.calls[0][0];
+    expect(entries).toHaveLength(2);
+    expect(entries).toContainEqual(expect.objectContaining({ action: 'deleted', from: 'A' }));
     // The list stays (struck through) with the board button, instead of a dead-end line.
     expect(ctx.editMessageText).toHaveBeenCalledWith(
       '↩️ <b>Undone by @req</b> · 2 tasks removed\n\n<s>#3 🐞 A</s>\n<s>#4 📌 B &lt;c&gt;</s>',

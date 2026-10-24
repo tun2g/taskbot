@@ -2,79 +2,113 @@
 
 /*
  * Design tokens. Everything in the UI reads these variables (via the Tailwind theme below), so light and
- * dark are one switch. Dark follows the OS (prefers-color-scheme).
+ * dark are one switch. Dark follows the OS unless the owner picks a theme (html[data-theme]).
+ * Palette: cool slate neutrals with an iris accent; text-3 >= 4.5:1 on surface, surface-2 and bg, and white
+ * button text on accent >= 4.5:1.
  */
 :root {
   color-scheme: light;
-  --bg: #f6f6f4;
+  --bg: #f5f6fa;
   --surface: #ffffff;
-  --surface-2: #f1f1ee;
-  --surface-3: #e8e8e4;
-  --border: #e2e1dc;
-  --border-strong: #cfcec8;
-  --text: #17171a;
-  --text-2: #52514e;
-  /* text-3 ≥ 4.5:1 on surface, surface-2 and bg (small hint text). */
-  --text-3: #67665f;
-  /* White button text on accent ≥ 4.5:1. */
-  --accent: #2670c8;
-  --accent-hover: #2163b3;
-  --accent-soft: #e6f0fc;
-  --accent-text: #1c5cab;
+  --surface-2: #f3f4f8;
+  --surface-3: #e7e9f0;
+  --border: #e4e6ee;
+  --border-strong: #cdd1dd;
+  --text: #161827;
+  --text-2: #474b5e;
+  --text-3: #5f6577;
+  --accent: #5b5bd6;
+  --accent-hover: #4f4fcb;
+  --accent-soft: #eef0ff;
+  --accent-text: #4343b8;
   --on-accent: #ffffff;
   --good: #16794c;
-  --good-soft: #e3f4ea;
-  --warn: #9a6200;
-  --warn-soft: #fdf1d6;
-  --danger: #b73534;
-  --danger-hover: #a02c2b;
-  --danger-soft: #fbe7e6;
-  --neutral-soft: #ecebe7;
-  --focus: #2a78d6;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 1px 1px rgb(0 0 0 / 0.03);
-  --shadow-lg: 0 10px 30px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
-  /* Charts — categorical slots in fixed order (validated palette), plus a recessive grid. */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #169a6b;
-  --series-muted: #c9c8c2;
-  --chart-grid: #ecebe7;
+  --good-soft: #e8f6ee;
+  --warn: #9a5800;
+  --warn-soft: #fff3df;
+  --danger: #c62a2f;
+  --danger-hover: #ad2227;
+  --danger-soft: #feebec;
+  --neutral-soft: #eceef4;
+  --focus: #5b5bd6;
+  --shadow: 0 1px 2px rgb(22 24 39 / 0.05);
+  --shadow-lg: 0 12px 32px rgb(22 24 39 / 0.12), 0 2px 6px rgb(22 24 39 / 0.06);
+  /* Charts — categorical slots in fixed order, plus a recessive grid. */
+  --series-1: #5b5bd6;
+  --series-2: #f0712c;
+  --series-3: #12a594;
+  --series-muted: #c6cad6;
+  --chart-grid: #eceef4;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     color-scheme: dark;
-    --bg: #111112;
-    --surface: #1a1a1b;
-    --surface-2: #222224;
-    --surface-3: #2c2c2f;
-    --border: #2e2e31;
-    --border-strong: #3d3d41;
-    --text: #f0efec;
-    --text-2: #c3c2b7;
-    --text-3: #8f8e88;
-    --accent: #2f76d0;
-    --accent-hover: #2a6cc0;
-    --accent-soft: #16273d;
-    --accent-text: #86b6ef;
+    --bg: #101118;
+    --surface: #181a24;
+    --surface-2: #1f2230;
+    --surface-3: #2a2d3d;
+    --border: #2a2d3b;
+    --border-strong: #3a3e51;
+    --text: #eef0f8;
+    --text-2: #c2c6d6;
+    --text-3: #8b90a7;
+    --accent: #5b5bf0;
+    --accent-hover: #6e6ef5;
+    --accent-soft: #24264a;
+    --accent-text: #a5a5ff;
     --on-accent: #ffffff;
     --good: #4cc38a;
-    --good-soft: #13291e;
-    --warn: #e5a93a;
-    --warn-soft: #2e2412;
-    --danger: #e66767;
-    --danger-hover: #ec8585;
-    --danger-soft: #331a1a;
-    --neutral-soft: #2a2a2d;
-    --focus: #5598e7;
+    --good-soft: #132a20;
+    --warn: #f1a94a;
+    --warn-soft: #2f2414;
+    --danger: #f2777b;
+    --danger-hover: #f59195;
+    --danger-soft: #361a1d;
+    --neutral-soft: #262938;
+    --focus: #8b8bff;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-lg: 0 10px 30px rgb(0 0 0 / 0.5);
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
-    --series-muted: #4a4a4e;
-    --chart-grid: #2a2a2d;
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
+    --series-1: #7c7cf5;
+    --series-2: #f0712c;
+    --series-3: #1fbfa8;
+    --series-muted: #464a5e;
+    --chart-grid: #262938;
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #101118;
+  --surface: #181a24;
+  --surface-2: #1f2230;
+  --surface-3: #2a2d3d;
+  --border: #2a2d3b;
+  --border-strong: #3a3e51;
+  --text: #eef0f8;
+  --text-2: #c2c6d6;
+  --text-3: #8b90a7;
+  --accent: #5b5bf0;
+  --accent-hover: #6e6ef5;
+  --accent-soft: #24264a;
+  --accent-text: #a5a5ff;
+  --on-accent: #ffffff;
+  --good: #4cc38a;
+  --good-soft: #132a20;
+  --warn: #f1a94a;
+  --warn-soft: #2f2414;
+  --danger: #f2777b;
+  --danger-hover: #f59195;
+  --danger-soft: #361a1d;
+  --neutral-soft: #262938;
+  --focus: #8b8bff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
+  --series-1: #7c7cf5;
+  --series-2: #f0712c;
+  --series-3: #1fbfa8;
+  --series-muted: #464a5e;
+  --chart-grid: #262938;
 }
 
 @theme inline {
@@ -109,13 +143,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
   min-height: 100dvh;
+  font-size: 15px;
 }
 
 :focus-visible {
@@ -141,7 +176,7 @@ body {
 
 .skeleton {
   background: var(--surface-3);
-  border-radius: 6px;
+  border-radius: 10px;
   animation: shimmer 1.4s ease-in-out infinite;
 }
 

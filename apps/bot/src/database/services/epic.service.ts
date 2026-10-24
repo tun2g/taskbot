@@ -1,73 +1,30 @@
-import { EPIC_AUTO_COLORS, EpicColor, EpicStatus, getStatusCategory, TaskStatus, TaskStatusCategory } from '@tbot/shared';
+import { EpicColor, EpicStatus } from '@tbot/shared';
 import mongoose from 'mongoose';
 import { Epic, IEpic } from 'src/database/models/epic.model';
 import { Task } from 'src/database/models/task.model';
+import { aggregateEpicProgress, leastUsedColor, withProgress } from 'src/database/services/epic/progress';
+import { epicTaskIds, linkEpicTasks } from 'src/database/services/epic/tasks';
+import {
+  CreateEpicData,
+  EpicProgress,
+  EpicTitleTakenError,
+  EpicWithProgress,
+  escapeRegex,
+  normalizeEpicTitle,
+  UpdateEpicData,
+} from 'src/database/services/epic/types';
 import logger from 'src/shared/logger/logger';
 
-export interface EpicProgress {
-  /** Tasks in the epic, cancelled ones excluded. */
-  total: number;
-  /** Tasks in the "done" category (cancelled excluded). */
-  done: number;
-  /** Tasks in the "in progress" category. */
-  inProgress: number;
-  /** Cancelled tasks still in the epic (not part of `total`). */
-  cancelled: number;
-}
-
-export type EpicWithProgress = Record<string, unknown> & { _id: mongoose.Types.ObjectId; progress: EpicProgress };
-
-export interface CreateEpicData {
-  groupId: mongoose.Types.ObjectId;
-  createdBy: mongoose.Types.ObjectId;
-  title: string;
-  description?: string | null;
-  color?: EpicColor;
-  /** Undo of a delete recreates a done epic as done. */
-  status?: EpicStatus;
-}
-
-export interface UpdateEpicData {
-  title?: string;
-  description?: string | null;
-  color?: EpicColor;
-  status?: EpicStatus;
-}
-
-/** Thrown when another epic in the same group already has this title (case-insensitive) → 409. */
-export class EpicTitleTakenError extends Error {
-  constructor(public readonly title: string) {
-    super(`An epic called "${title}" already exists in this group. Pick another name.`);
-    this.name = 'EpicTitleTakenError';
-  }
-}
-
-export function emptyProgress(): EpicProgress {
-  return { total: 0, done: 0, inProgress: 0, cancelled: 0 };
-}
-
-/** Collapse spaces so "Login  page" and "Login page" are the same title. */
-export function normalizeEpicTitle(title: string): string {
-  return title.replace(/\s+/g, ' ').trim();
-}
-
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Least-used color in the group; ties go to the earliest color in palette order. Red is never auto-picked. */
-export function pickLeastUsedColor(usage: Partial<Record<string, number>>): EpicColor {
-  let best = EPIC_AUTO_COLORS[0];
-  let bestCount = Infinity;
-  for (const color of EPIC_AUTO_COLORS) {
-    const count = usage[color] ?? 0;
-    if (count < bestCount) {
-      best = color;
-      bestCount = count;
-    }
-  }
-  return best;
-}
+export {
+  emptyProgress,
+  EpicTitleTakenError,
+  normalizeEpicTitle,
+  pickLeastUsedColor,
+  type CreateEpicData,
+  type EpicProgress,
+  type EpicWithProgress,
+  type UpdateEpicData,
+} from 'src/database/services/epic/types';
 
 export class EpicService {
   /** Every epic in the group (oldest first) with its task counts — one aggregation over tasks. */
@@ -83,36 +40,8 @@ export class EpicService {
    * Task counts per epic: `total` excludes cancelled tasks, `done` = done category, `inProgress` = in-progress
    * category, `cancelled` = cancelled tasks still in the epic. Optionally limited to some epics.
    */
-  async getProgress(
-    groupId: mongoose.Types.ObjectId,
-    epicIds?: mongoose.Types.ObjectId[],
-  ): Promise<Map<string, EpicProgress>> {
-    const result = new Map<string, EpicProgress>();
-    const rows: { _id: { epicId: mongoose.Types.ObjectId; status: string }; count: number }[] = await Task.aggregate([
-      {
-        $match: {
-          groupId,
-          epicId: epicIds ? { $in: epicIds } : { $ne: null },
-        },
-      },
-      { $group: { _id: { epicId: '$epicId', status: '$status' }, count: { $sum: 1 } } },
-    ]);
-
-    for (const row of rows) {
-      const key = String(row._id.epicId);
-      const progress = result.get(key) ?? emptyProgress();
-      result.set(key, progress);
-      if (row._id.status === TaskStatus.CANCELLED) {
-        progress.cancelled += row.count;
-        continue;
-      }
-      progress.total += row.count;
-      const category = getStatusCategory(row._id.status);
-      if (category === TaskStatusCategory.DONE) progress.done += row.count;
-      else if (category === TaskStatusCategory.IN_PROGRESS) progress.inProgress += row.count;
-      result.set(key, progress);
-    }
-    return result;
+  getProgress(groupId: mongoose.Types.ObjectId, epicIds?: mongoose.Types.ObjectId[]): Promise<Map<string, EpicProgress>> {
+    return aggregateEpicProgress(groupId, epicIds);
   }
 
   /** One epic with its progress (for create/update responses). */
@@ -205,49 +134,22 @@ export class EpicService {
     return taskIds;
   }
 
-  /**
-   * Ids of the tasks in an epic (e.g. to refresh their cards after a rename) — open tasks first, so a capped card
-   * refresh reaches the cards people still look at.
-   */
-  async taskIds(epic: IEpic): Promise<mongoose.Types.ObjectId[]> {
-    const tasks: { _id: mongoose.Types.ObjectId; status?: string }[] = await Task.find(
-      { groupId: epic.groupId, epicId: epic._id },
-      { _id: 1, status: 1 },
-    );
-    const isClosed = (status?: string) =>
-      status === TaskStatus.CANCELLED || getStatusCategory(status ?? '') === TaskStatusCategory.DONE;
-    return [...tasks]
-      .sort((a, b) => Number(isClosed(a.status)) - Number(isClosed(b.status)))
-      .map((t) => t._id as mongoose.Types.ObjectId);
+  /** Ids of the tasks in an epic, open tasks first. */
+  taskIds(epic: IEpic): Promise<mongoose.Types.ObjectId[]> {
+    return epicTaskIds(epic);
   }
 
-  /**
-   * Put tasks (back) into an epic — only tasks of the epic's group that are in no epic now, so an undo never steals
-   * a task someone has since moved elsewhere. Returns the ids actually linked.
-   */
-  async linkTasks(epic: IEpic, taskIds: string[]): Promise<mongoose.Types.ObjectId[]> {
-    const ids = [...new Set(taskIds)].filter((id) => mongoose.Types.ObjectId.isValid(id));
-    if (ids.length === 0) return [];
-    const filter = { _id: { $in: ids }, groupId: epic.groupId, epicId: null };
-    const tasks = await Task.find(filter, { _id: 1 });
-    const linked = tasks.map((t) => t._id as mongoose.Types.ObjectId);
-    if (linked.length === 0) return [];
-    await Task.updateMany({ ...filter, _id: { $in: linked } }, { $set: { epicId: epic._id } });
-    logger.info(`Epic "${epic.title}": ${linked.length} task(s) linked back in group ${epic.groupId}`);
-    return linked;
+  /** Put tasks (back) into an epic — only tasks of its group that are in no epic now. Returns the ids linked. */
+  linkTasks(epic: IEpic, taskIds: string[]): Promise<mongoose.Types.ObjectId[]> {
+    return linkEpicTasks(epic, taskIds);
   }
 
-  private async leastUsedColor(groupId: mongoose.Types.ObjectId): Promise<EpicColor> {
-    const rows: { _id: string; count: number }[] = await Epic.aggregate([
-      { $match: { groupId } },
-      { $group: { _id: '$color', count: { $sum: 1 } } },
-    ]);
-    return pickLeastUsedColor(Object.fromEntries(rows.map((r) => [r._id, r.count])));
+  private leastUsedColor(groupId: mongoose.Types.ObjectId): Promise<EpicColor> {
+    return leastUsedColor(groupId);
   }
 
   private withProgress(epic: IEpic, progress?: EpicProgress): EpicWithProgress {
-    const plain = typeof epic.toObject === 'function' ? epic.toObject() : (epic as unknown as Record<string, unknown>);
-    return { ...plain, _id: epic._id as mongoose.Types.ObjectId, progress: progress ?? emptyProgress() };
+    return withProgress(epic, progress);
   }
 }
 

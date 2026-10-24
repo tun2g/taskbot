@@ -22,16 +22,16 @@ export async function undoBatch(params: {
   const all = params.tasks ?? (await taskService.getTasksByBatch(params.batchId));
   const tasks = all.filter((t) => t.groupId.toString() === params.groupId);
   const removed = tasks.length ? await taskService.deleteTasks(tasks.map((t) => t._id)) : 0;
-  for (const task of tasks) {
-    await taskActivityService.record({
+  await taskActivityService.recordMany(
+    tasks.map((task) => ({
       taskId: task._id,
       groupId: task.groupId,
       actor: params.actor,
-      action: 'deleted',
+      action: 'deleted' as const,
       from: task.title,
       via: params.via,
-    });
-  }
+    })),
+  );
   if (removed) await cleanUpSubtasks(tasks, params.actor, params.via);
   return { removed, tasks };
 }

@@ -28,6 +28,7 @@ export function DailyChart({
   kind = 'bar',
   stacked = false,
   format = (v) => formatNumber(v),
+  axisFormat,
   height = 200,
   trackedFrom,
   ariaLabel,
@@ -37,6 +38,8 @@ export function DailyChart({
   kind?: 'bar' | 'line';
   stacked?: boolean;
   format?: (value: number) => string;
+  /** Y-axis ticks, when they should be shorter than `format` (e.g. money without trailing zeros). */
+  axisFormat?: (value: number) => string;
   height?: number;
   /** First tracked day ("YYYY-MM-DD"); earlier days show as gaps. Omit for metrics that exist before tracking. */
   trackedFrom?: string | null;
@@ -61,7 +64,7 @@ export function DailyChart({
     [rows, series],
   );
 
-  const tick = { fill: 'var(--text-3)', fontSize: 11 };
+  const tick = { fill: 'var(--text-3)', fontSize: 12 };
   const tickEvery = Math.max(0, Math.ceil(rows.length / 8) - 1);
 
   const renderTooltip = ({ active, payload, label }: TooltipProps) => {
@@ -70,7 +73,7 @@ export function DailyChart({
     const untracked = !!row?.__untracked;
     const total = payload.reduce((s, p) => s + (typeof p.value === 'number' ? p.value : 0), 0);
     return (
-      <div className="min-w-40 rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-[var(--shadow-lg)]">
+      <div className="min-w-40 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lg)]">
         <p className="mb-1 font-medium text-text">{formatDay(String(label), { withYear: true })}</p>
         {untracked ? (
           <p className="text-text-3">Not tracked yet</p>
@@ -117,7 +120,7 @@ export function DailyChart({
         tickLine={false}
         axisLine={false}
         width={52}
-        tickFormatter={(v: number) => format(v)}
+        tickFormatter={(v: number) => (axisFormat ?? format)(v)}
         domain={[0, 'auto']}
         allowDecimals={fractional}
       />
@@ -128,7 +131,7 @@ export function DailyChart({
   return (
     <div role="img" aria-label={ariaLabel}>
       {series.length > 1 && (
-        <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-2">
+        <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-text-2">
           {series.map((s) => (
             <span key={s.key} className="flex items-center gap-1.5">
               <span className="size-2.5 rounded-sm" style={{ background: s.color }} />

@@ -51,21 +51,21 @@ export class GroupController {
 
     // Overdue = open with a due day before today, where "today" is each group's own local date.
     const openStatuses = { $nin: statusesInCategory(TaskStatusCategory.DONE) };
-    const overdue = new Map<string, number>(
-      await Promise.all(
-        groups.map(
-          async (group) =>
-            [
-              String(group._id),
-              await Task.countDocuments({
-                groupId: group._id,
-                status: openStatuses,
-                dueDate: { $ne: null, $lt: overdueCutoff(resolveGroupTimezone(group.timezone)) },
-              }),
-            ] as [string, number],
-        ),
+    // Groups sharing a timezone share the cutoff: one aggregate per timezone, not one count per group.
+    const byTimezone = new Map<string, mongoose.Types.ObjectId[]>();
+    for (const group of groups) {
+      const tz = resolveGroupTimezone(group.timezone);
+      byTimezone.set(tz, [...(byTimezone.get(tz) ?? []), group._id as mongoose.Types.ObjectId]);
+    }
+    const overdueRows = await Promise.all(
+      [...byTimezone].map(([tz, ids]) =>
+        Task.aggregate<{ _id: mongoose.Types.ObjectId; count: number }>([
+          { $match: { groupId: { $in: ids }, status: openStatuses, dueDate: { $ne: null, $lt: overdueCutoff(tz) } } },
+          { $group: { _id: '$groupId', count: { $sum: 1 } } },
+        ]),
       ),
     );
+    const overdue = new Map<string, number>(overdueRows.flat().map((row) => [String(row._id), row.count]));
 
     const counts = new Map<string, StatusCounts>();
     for (const row of statusRows || []) {

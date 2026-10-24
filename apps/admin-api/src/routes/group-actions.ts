@@ -155,3 +155,36 @@ export async function applyLeave(req: Request, id: Types.ObjectId, input: Action
   });
   return { group: await loadGroup(id), warnings };
 }
+
+/**
+ * Clears a rejection. The bot already left the chat and can't rejoin by itself, so nothing happens in Telegram:
+ * the group becomes "bot removed, never decided", and the next time someone adds the bot it waits for your approval
+ * like a new group. Members stop seeing the rejection reason. Never auto-approves.
+ */
+export async function applyReconsider(req: Request, id: Types.ObjectId): Promise<ActionOutcome> {
+  const g = await loadGroup(id);
+  const now = new Date();
+  // Conditional on the status, so a re-add racing us (rejected → pending) is never overwritten.
+  const res = await Group.updateOne(
+    { _id: id, status: GroupStatus.REJECTED },
+    { $set: { status: GroupStatus.LEFT, statusBeforeLeft: GroupStatus.PENDING, statusChangedAt: now, statusReason: null } },
+  );
+  if (!res.modifiedCount) {
+    const current = g.status === GroupStatus.REJECTED ? (await loadGroup(id)).status : g.status;
+    throw new HttpError(
+      409,
+      current === GroupStatus.REJECTED
+        ? 'This group could not be changed. Please try again.'
+        : `Only rejected groups can be reconsidered (this one is “${GROUP_STATUS_LABELS[current]}”).`,
+    );
+  }
+  await writeAudit(req, {
+    action: 'group.reconsider',
+    targetType: 'group',
+    targetId: String(id),
+    targetLabel: g.groupName,
+    reason: null,
+    details: { from: GroupStatus.REJECTED, to: GroupStatus.LEFT, clearedReason: g.statusReason ?? null, nextAdd: GroupStatus.PENDING },
+  });
+  return { group: await loadGroup(id), warnings: [] };
+}

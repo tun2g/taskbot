@@ -98,7 +98,7 @@ export const askTaskbotTool = defineTool({
     const disabledBy = aiDisabledBy(group, ctx.user);
     if (disabledBy) {
       throw new McpToolError(
-        `${aiDisabledText(disabledBy)} Retrying won't help — only the bot owner can turn it back on; tell the user. ${STRUCTURED_FALLBACK}`,
+        `${aiDisabledText(disabledBy, group, ctx.user)} Retrying won't help — only the bot owner can turn it back on; tell the user. ${STRUCTURED_FALLBACK}`,
       );
     }
 

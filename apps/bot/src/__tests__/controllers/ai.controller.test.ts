@@ -58,7 +58,7 @@ jest.mock('src/database/services/group-member.service', () => ({
   groupMemberService: { getMembers: jest.fn(), isMember: jest.fn() },
 }));
 jest.mock('src/database/services/group.service', () => ({ groupService: { findGroupById: jest.fn() } }));
-jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn() } }));
+jest.mock('src/database/services/task-activity.service', () => ({ taskActivityService: { record: jest.fn(), recordMany: jest.fn() } }));
 jest.mock('src/api/telegram-admin', () => ({ isTelegramGroupAdmin: jest.fn() }));
 jest.mock('src/shared/services/rate-limit.service', () => ({ rateLimitService: { checkRateLimit: jest.fn() } }));
 jest.mock('src/shared/services/ai/ai.service', () => {
@@ -457,7 +457,9 @@ describe('POST /api/batches/:batchId/undo', () => {
 
     expect(res.json).toHaveBeenCalledWith({ data: { removed: 2 } });
     expect(taskService.deleteTasks).toHaveBeenCalledWith(tasks.map((t) => t._id));
-    expect(taskActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', via: 'app' }));
+    expect(taskActivityService.recordMany).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ action: 'deleted', via: 'app' })]),
+    );
     expect(taskSyncService.markBatchUndone).toHaveBeenCalledWith({ chatId: -100123, messageId: 900 }, '@me', 2, tasks, expect.anything());
     expect(redisService.del).toHaveBeenCalledWith(`app_batch_post:${batchId}`);
   });

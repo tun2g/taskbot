@@ -1,210 +1,31 @@
-import { populatedUser } from 'src/bot/task-card.renderer';
 import type { AiRequestContext } from 'src/shared/services/ai-command.service';
-import {
-  createEpicCommand,
-  dueText,
-  epicLabel,
-  epicProgressLine,
-  escapeHtml,
-  MAX_EPIC_OVERVIEW,
-  personName,
-  QUERY_LIST_LIMIT,
-  shorten,
-  statusText,
-  taskStateLines,
-  typeIcon,
-} from 'src/shared/services/ai-command/format';
+import { escapeHtml } from 'src/shared/services/ai-command/format';
 import { MAX_AI_MUTATIONS } from 'src/shared/services/ai-command/plan.schema';
+import { AiResult, changedUpdates } from 'src/shared/services/ai-command/result';
+import { telegramSubtasksButtons } from 'src/shared/services/ai-command/subtasks.render';
 import {
-  AiResult,
-  AiSection,
-  changedUpdates,
-  EpicCreateOutcome,
-  EpicMiss,
-  ExplainOutcome,
-  QueryOutcome,
-  TargetMiss,
-  UpdateOutcome,
-} from 'src/shared/services/ai-command/result';
-import { telegramSubtasksButtons, telegramSubtasksText } from 'src/shared/services/ai-command/subtasks.render';
-import { boardButton, taskButton, taskNumberHtml } from 'src/shared/utils/app-links';
+  AiOutcome,
+  CLARIFY_HINT,
+  DELETE_REFUSAL_MESSAGE,
+  NOT_UNDERSTOOD_MESSAGE,
+} from 'src/shared/services/ai-command/telegram.messages';
+import { sectionText, telegramMissText } from 'src/shared/services/ai-command/telegram.sections';
+import { boardButton, taskButton } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
 
 // Telegram /ai replies: HTML parse mode; every plain string from the core goes through escapeHtml.
 
-export interface AiReply {
-  /** HTML. */
-  text: string;
-  buttons?: InlineKeyboardButton[][];
-}
-
-export type AiOutcome =
-  /** `updates`: tasks this request changed (forums also announce them in the "Task events" topic). */
-  | { kind: 'reply'; reply: AiReply; updates?: UpdateOutcome[] }
-  | { kind: 'create'; useReply: boolean };
-
-/** What still works without AI — appended when the AI says no (limit reached / turned off). */
-export const AI_STILL_WORKS = 'Card buttons and /new, /list, /done still work.';
-export const AI_UNAVAILABLE_MESSAGE = '🤖 AI is unavailable right now — use the card buttons or /new, /list, /done.';
-export const WHICH_TASK_MESSAGE = '🤔 Which task? Reply to its card or write #number.';
-/** The plan had nothing to do: show what /ai understands instead of asking "Which task?". */
-export const NOT_UNDERSTOOD_MESSAGE =
-  '🤔 I didn’t get that. Try:\n' +
-  '<code>/ai tôi còn task nào?</code> — your open tasks\n' +
-  '<code>/ai #12 xong rồi</code> — update a task\n' +
-  '<code>/ai tạo task fix login cho @an hạn thứ 6</code> — create one';
-/** Plain replies to the bot are ignored, so the answer to a question must come as a new /ai. */
-export const CLARIFY_HINT = 'Answer with <code>/ai …</code> — I don’t read plain replies.';
-/** Shown in an explanation when the second AI call failed: the task's own details follow. */
-export const EXPLAIN_UNAVAILABLE_NOTE = '🤖 AI can’t explain it right now — here’s what the task says:';
-/** Most description characters shown when the AI explanation is unavailable. */
-const EXPLAIN_FALLBACK_MAX = 300;
-/** Most characters of the source message quoted when there's no description either. */
-const EXPLAIN_SOURCE_MAX = 100;
-
-export const DELETE_REFUSAL_MESSAGE = '🗑 I don’t delete tasks from chat. To delete, use 🗑 on the task card (⋯ More → 🗑 Delete).';
-
-type GroupId = AiRequestContext['group']['_id'];
-
-/** `groupId` links each #N to the task (when an app link is configured). */
-export function telegramMissText(miss: TargetMiss, groupId?: GroupId): string {
-  switch (miss.reason) {
-    case 'missing':
-      return `❌ There's no task #${miss.number} in this group. Check the number with /list.`;
-    case 'no_match':
-      return `🤔 I couldn't find a task matching “${escapeHtml(shorten(miss.search, 40))}”. Reply to its card or write #number.`;
-    case 'ambiguous': {
-      const list = miss.candidates
-        .slice(0, 3)
-        .map((t) => `${taskNumberHtml(t.taskNumber, groupId, t._id)} ${typeIcon(t.type)} ${escapeHtml(shorten(t.title))}`)
-        .join('\n');
-      const more = miss.candidates.length > 3 ? `\n…and ${miss.candidates.length - 3} more` : '';
-      return `🤔 Which task? Several match:\n${list}${more}\n\nReply to its card or write #number.`;
-    }
-    default:
-      return WHICH_TASK_MESSAGE;
-  }
-}
-
-/** The command that adds tasks to an epic (shown after creating one). */
-export function addToEpicCommand(title: string): string {
-  return `/ai thêm #N vào epic ${shorten(title, 30)}`;
-}
-
-/**
- * ⚠️ There's no epic “Login” yet.
- * Open epics: 🔵 Auth · 🟢 Payments
- * ➕ Create it: /ai tạo epic Login
- */
-export function epicMissLines(miss: EpicMiss): string[] {
-  const lines = [`⚠️ There's no epic “${escapeHtml(shorten(miss.title, 30))}” yet.`];
-  if (miss.suggestions.length) {
-    const more = miss.more ? ` · +${miss.more} more` : '';
-    lines.push(`Open epics: ${miss.suggestions.map((e) => escapeHtml(epicLabel(e, 24))).join(' · ')}${more}`);
-  } else {
-    lines.push('This group has no epics yet.');
-  }
-  lines.push(`➕ Create it: <code>${escapeHtml(createEpicCommand(miss.title))}</code>`);
-  return lines;
-}
-
-function epicCreatedText(o: EpicCreateOutcome): string {
-  const label = `<b>${escapeHtml(epicLabel(o.epic))}</b>`;
-  return [
-    o.duplicate ? `ℹ️ Epic ${label} already exists.` : `✅ Epic ${label} created`,
-    `➕ Add tasks: <code>${escapeHtml(addToEpicCommand(o.epic.title))}</code>`,
-  ].join('\n');
-}
-
-function updateText(u: UpdateOutcome, groupId: GroupId): string {
-  if (u.failed) {
-    return [
-      `❌ ${taskNumberHtml(u.original.taskNumber, groupId, u.original._id)} couldn't be fully updated. Please try again or use the buttons on its card.`,
-      ...u.changes.map(escapeHtml),
-    ].join('\n');
-  }
-  const header = `${taskNumberHtml(u.task.taskNumber, groupId, u.task._id)} <b>${escapeHtml(shorten(u.task.title))}</b>`;
-  return [
-    `${u.changes.length ? '✅' : 'ℹ️'} ${header}`,
-    ...u.changes.map(escapeHtml),
-    ...u.notes.map(escapeHtml),
-    ...(u.epicMiss ? epicMissLines(u.epicMiss) : []),
-  ].join('\n');
-}
-
-/**
- * Without the AI: the description, else what the task was created from ("💬 Tú: “…”"), else a plain
- * "No description yet."
- */
-function fallbackDetail(t: ExplainOutcome['task']): string {
-  if (t.description?.trim()) return `📝 ${escapeHtml(shorten(t.description, EXPLAIN_FALLBACK_MAX))}`;
-  const source = t.sourceMessages?.find((m) => m?.text?.trim()) ?? (t.sourceMessage?.text?.trim() ? t.sourceMessage : null);
-  if (source) {
-    const name = source.fromName?.replace(/^@/, '').trim();
-    const quote = `“${escapeHtml(shorten(source.text, EXPLAIN_SOURCE_MAX))}”`;
-    return `💬 ${name ? `${escapeHtml(name)}: ` : ''}${quote}`;
-  }
-  return '📝 No description yet.';
-}
-
-/**
- * 💡 #5 <b>Title</b>
- * <explanation, ≤ 6 short lines>
- *
- * 🐞 Bug · 🔄 In progress · ⬆️ High
- * 👤 @an · 📅 due tomorrow
- */
-function explainText(e: ExplainOutcome, today: string, groupId: GroupId): string {
-  const t = e.task;
-  const header = `💡 ${taskNumberHtml(t.taskNumber, groupId, t._id)} <b>${escapeHtml(shorten(t.title))}</b>`;
-  const body = e.text ? escapeHtml(e.text) : [`<i>${EXPLAIN_UNAVAILABLE_NOTE}</i>`, fallbackDetail(t)].join('\n');
-  // The replied card is right above: its state would only repeat it.
-  if (e.fromReply) return [header, body].join('\n');
-  return [header, body, '', ...taskStateLines(t, e.assignee, today, e.subtasks).map(escapeHtml)].join('\n');
-}
-
-function queryText(q: QueryOutcome, today: string, groupId: GroupId): string {
-  if (q.kind === 'unknown_person') {
-    return `⚠️ Couldn't find ${escapeHtml(q.person)} in this group — they need to send a message here first.`;
-  }
-  if (q.kind === 'unknown_epic') return epicMissLines(q.miss).join('\n');
-  if (q.kind === 'epics') {
-    const lines = [`<b>🗂 Epics · ${q.epics.length}</b>`];
-    if (q.epics.length === 0) {
-      lines.push('No epics yet.', `➕ Create one: <code>${escapeHtml(createEpicCommand('Login'))}</code>`);
-      return lines.join('\n');
-    }
-    for (const row of q.epics.slice(0, MAX_EPIC_OVERVIEW)) lines.push(escapeHtml(epicProgressLine(row)));
-    if (q.epics.length > MAX_EPIC_OVERVIEW) lines.push(`…and ${q.epics.length - MAX_EPIC_OVERVIEW} more`);
-    return lines.join('\n');
-  }
-  const lines = [`<b>${q.icon} ${escapeHtml(q.title)} · ${q.tasks.length}</b>`];
-  if (q.tasks.length === 0) {
-    lines.push(q.emptyText);
-    return lines.join('\n');
-  }
-  for (const task of q.tasks.slice(0, QUERY_LIST_LIMIT)) {
-    const parts = [`${taskNumberHtml(task.taskNumber, groupId, task._id)} ${typeIcon(task.type)} ${escapeHtml(shorten(task.title))}`];
-    if (q.showStatus) parts.push(statusText(task.status));
-    const due = dueText(task.dueDate, task.status, today);
-    if (due) parts.push(due);
-    const who = populatedUser(task.assigneeId);
-    if (q.showAssignee) parts.push(who ? escapeHtml(personName(who)) : 'unassigned');
-    lines.push(parts.join(' · '));
-  }
-  if (q.tasks.length > QUERY_LIST_LIMIT) lines.push(`…and ${q.tasks.length - QUERY_LIST_LIMIT} more`);
-  return lines.join('\n');
-}
-
-function sectionText(s: AiSection, today: string, groupId: GroupId): string {
-  if (s.type === 'update') return updateText(s.update, groupId);
-  if (s.type === 'query') return queryText(s.query, today, groupId);
-  if (s.type === 'explain') return explainText(s.explain, today, groupId);
-  if (s.type === 'epic_created') return epicCreatedText(s.epic);
-  if (s.type === 'note') return s.lines.map(escapeHtml).join('\n');
-  if (s.type === 'subtasks') return telegramSubtasksText(s.subtasks, today, groupId);
-  return `🤖 ${escapeHtml(s.text)}`;
-}
+export type { AiOutcome, AiReply } from 'src/shared/services/ai-command/telegram.messages';
+export {
+  AI_STILL_WORKS,
+  AI_UNAVAILABLE_MESSAGE,
+  CLARIFY_HINT,
+  DELETE_REFUSAL_MESSAGE,
+  EXPLAIN_UNAVAILABLE_NOTE,
+  NOT_UNDERSTOOD_MESSAGE,
+  WHICH_TASK_MESSAGE,
+} from 'src/shared/services/ai-command/telegram.messages';
+export { addToEpicCommand, epicMissLines, telegramMissText } from 'src/shared/services/ai-command/telegram.sections';
 
 /** Exactly today's /ai HTML replies and buttons. */
 export function renderTelegram(c: AiRequestContext, result: AiResult): AiOutcome {

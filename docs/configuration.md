@@ -27,7 +27,7 @@ Env files are **per app**:
 | `AI_API_KEY` | Provider API key. Without a key, `/new` still creates a basic task and `/ai` explains that AI is unavailable |
 | `AI_MODEL` | Model id. Defaults to `gemini-3.5-flash-lite` (gemini) or `gpt-5-mini` (openai) |
 | `AI_API_URL` | For `openai` / `fuse`: base URL of any OpenAI-compatible endpoint (OpenRouter, Groq, vLLM, Ollama, ...). Empty means the provider default (`https://api.openai.com/v1`, `https://api.fuseapi.app/v1`). Ignored by `gemini` |
-| `AI_DAILY_LIMIT` | Optional bot-wide cap on AI calls per day (a cost circuit breaker). Beyond it AI features fall back as if AI were unavailable. Empty or `0` = no cap. The admin app's **daily call limit** setting overrides it. Per-user limits always apply: 6 `/ai` requests per minute per group and 100 AI requests per day across all groups, the app and MCP |
+| `AI_DAILY_LIMIT` | Fallback bot-wide cap on AI calls per day, for installs without the admin app. With the admin app, set limits on its **Settings** page instead (its daily call limit replaces this). Beyond the cap AI features fall back as if AI were unavailable. Empty or `0` = no cap. Per-user limits always apply: 6 `/ai` requests per minute per group and 100 AI requests per day across all groups, the app and MCP |
 | `BOT_OWNER_TELEGRAM_ID` | Your numeric Telegram user id. The bot DMs you AI budget and usage-spike alerts (and admin notices) |
 | `TIMEZONE` | Default group timezone for due dates, "overdue", reminders and the 9:00 daily digest. Default `UTC`, for example `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | Optional key for browser-login tokens (Telegram Login Widget). Derived from `BOT_TOKEN` if unset; set it to rotate web sessions without changing the bot token |
@@ -44,7 +44,8 @@ MCP-specific settings and the reverse-proxy setup for `/mcp` are covered in [mcp
   are placeholders: verify them against your provider's pricing page and override or add models in the admin app
   (Settings → AI → pricing). A model with no price is logged with cost 0 and shown as "unknown", not free.
   Dated snapshots (`gpt-5-mini-2025-08-07`) use their family's price.
-- **Runtime AI settings** (admin app, cached by the bot for 30 s): daily call limit (overrides `AI_DAILY_LIMIT`),
+- **Runtime AI settings** (admin app, cached by the bot for 30 s) — the place to set limits: daily call limit
+  (replaces the `AI_DAILY_LIMIT` fallback),
   per-person daily limit (default 100), daily budget in USD and the alert threshold (default 80%). Per group or
   person the owner can turn AI off (people get "AI is turned off for this group by the bot owner.") or set a
   daily limit, which replaces the group's 10-minute window (20 requests) or the person's daily default.

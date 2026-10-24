@@ -1,22 +1,32 @@
-import type { AdminAiBreakdownRow, AdminAiUsage } from '@tbot/shared';
+import type { AdminAiBreakdownRow, AdminAiUsage, AdminRange } from '@tbot/shared';
+import { Link } from '@tanstack/react-router';
 
+import { Cost } from '@/components/ui/cost';
 import { EmptyState, TableSkeleton } from '@/components/ui/states';
 import { Table, Td, Th, THead, TotalRow, Tr } from '@/components/ui/table';
-import { formatDay, formatMoney, formatNumber } from '@/lib/format';
+import { formatDay, formatNumber } from '@/lib/format';
 import { featureLabel, GROUP_BY_LABELS } from '@/lib/labels';
 
-function RowLabel({ row, groupBy }: { row: AdminAiBreakdownRow; groupBy: AdminAiUsage['groupBy'] }) {
+const linkCls = 'font-medium text-text underline-offset-2 hover:text-accent-text hover:underline';
+
+function RowLabel({ row, groupBy, range }: { row: AdminAiBreakdownRow; groupBy: AdminAiUsage['groupBy']; range: AdminRange }) {
   switch (groupBy) {
     case 'day':
       return <span className="whitespace-nowrap">{formatDay(row.key, { withYear: true })}</span>;
     case 'feature':
       return <span>{featureLabel(row.key)}</span>;
     case 'model':
-      return <span className="font-mono text-[13px]">{row.label}</span>;
+      return <span className="font-mono text-sm">{row.label}</span>;
     case 'group':
-      return row.key === 'none' ? <span className="text-text-3">Not in a group (e.g. direct messages)</span> : <span className="font-medium">{row.label}</span>;
+      return row.key === 'none' ? <span className="text-text-2">No group — private chat, Mini App home or MCP</span> : <span className="font-medium">{row.label}</span>;
     case 'user':
-      return row.key === 'none' ? <span className="text-text-3">Unknown person</span> : <span className="font-medium">{row.label}</span>;
+      return row.key === 'none' ? (
+        <span className="text-text-3">No person</span>
+      ) : (
+        <Link to="/users/$userId" params={{ userId: row.key }} search={{ range }} className={linkCls} onClick={(e) => e.stopPropagation()}>
+          {row.label}
+        </Link>
+      );
   }
 }
 
@@ -27,11 +37,13 @@ export function BreakdownTable({
   usage,
   loading,
   groupBy,
+  range,
   onDrill,
 }: {
   usage: AdminAiUsage | undefined;
   loading: boolean;
   groupBy: AdminAiUsage['groupBy'];
+  range: AdminRange;
   onDrill: (row: AdminAiBreakdownRow) => void;
 }) {
   if (loading || !usage) return <TableSkeleton rows={5} />;
@@ -45,8 +57,8 @@ export function BreakdownTable({
     <Table>
       <THead>
         <Th>{GROUP_BY_LABELS[groupBy]}</Th>
-        <Th align="right">Calls</Th>
-        <Th align="right" hint="error or bad reply">
+        <Th align="right">AI calls</Th>
+        <Th align="right" hint="error or unusable reply">
           Failed
         </Th>
         <Th align="right" hint="sent to the model">
@@ -55,37 +67,27 @@ export function BreakdownTable({
         <Th align="right" hint="written by the model">
           Output tokens
         </Th>
-        <Th align="right" hint="estimated">
-          Cost
-        </Th>
-        <Th align="right" hint="model has no price">
-          Unpriced
+        <Th align="right" hint="token counts × your prices">
+          Est. AI cost
         </Th>
       </THead>
       <tbody>
-        {rows.map((row) => {
-          const canDrill = drillable(groupBy, row);
-          return (
-            <Tr key={row.key} onOpen={canDrill ? () => onDrill(row) : undefined}>
-              <Td>
-                <RowLabel row={row} groupBy={groupBy} />
-              </Td>
-              <Td align="right">{formatNumber(row.calls)}</Td>
-              <Td align="right" className={row.failed > 0 ? 'text-text' : 'text-text-3'}>
-                {row.failed > 0 ? formatNumber(row.failed) : '—'}
-              </Td>
-              <Td align="right">{formatNumber(row.inputTokens)}</Td>
-              <Td align="right">{formatNumber(row.outputTokens)}</Td>
-              <Td align="right" className="font-medium">
-                {formatMoney(row.costUsd)}
-                {row.unpriced > 0 && <span title="Some calls have no price, so this is a lower bound."> +</span>}
-              </Td>
-              <Td align="right" className={row.unpriced > 0 ? 'text-warn' : 'text-text-3'}>
-                {row.unpriced > 0 ? formatNumber(row.unpriced) : '—'}
-              </Td>
-            </Tr>
-          );
-        })}
+        {rows.map((row) => (
+          <Tr key={row.key} onOpen={drillable(groupBy, row) ? () => onDrill(row) : undefined}>
+            <Td>
+              <RowLabel row={row} groupBy={groupBy} range={range} />
+            </Td>
+            <Td align="right">{formatNumber(row.calls)}</Td>
+            <Td align="right" className={row.failed > 0 ? 'text-text' : 'text-text-3'}>
+              {row.failed > 0 ? formatNumber(row.failed) : '—'}
+            </Td>
+            <Td align="right">{formatNumber(row.inputTokens)}</Td>
+            <Td align="right">{formatNumber(row.outputTokens)}</Td>
+            <Td align="right" className="font-medium">
+              <Cost usd={row.costUsd} unpriced={row.unpriced} />
+            </Td>
+          </Tr>
+        ))}
       </tbody>
       <tfoot>
         <TotalRow>
@@ -94,9 +96,8 @@ export function BreakdownTable({
           <Td align="right">{t.failed > 0 ? formatNumber(t.failed) : '—'}</Td>
           <Td align="right">{formatNumber(t.inputTokens)}</Td>
           <Td align="right">{formatNumber(t.outputTokens)}</Td>
-          <Td align="right">{formatMoney(t.costUsd)}</Td>
-          <Td align="right" className={t.unpriced > 0 ? 'text-warn' : 'text-text-3'}>
-            {t.unpriced > 0 ? formatNumber(t.unpriced) : '—'}
+          <Td align="right">
+            <Cost usd={t.costUsd} unpriced={t.unpriced} />
           </Td>
         </TotalRow>
       </tfoot>

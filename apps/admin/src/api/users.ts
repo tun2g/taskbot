@@ -1,5 +1,6 @@
 import type {
   AdminAiOverrideInput,
+  AdminAiOverrideResult,
   AdminRange,
   AdminUserDetail,
   AdminUserRow,
@@ -10,10 +11,13 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { apiClient } from '@/lib/api-client';
 import type { UserSort } from '@/lib/labels';
+import { toast } from '@/lib/toast';
 
 import { useAdminMutation } from './mutation';
 
 export interface UserListParams {
+  /** Period of the numbers on each row (same as the person page). */
+  range?: AdminRange;
   /** today | 7d | 30d — only people who used the bot in that window. */
   activeIn?: string;
   /** '1' = only people holding an active MCP token. */
@@ -30,7 +34,7 @@ export const userKeys = {
   detail: (id: string, range: AdminRange) => [...userKeys.all, 'detail', id, range] as const,
 };
 
-/** GET /users?q=&sort=&page=&limit= */
+/** GET /users?q=&sort=&range=&page=&limit= */
 export function useUsers(params: UserListParams) {
   return useQuery({
     queryKey: userKeys.list(params),
@@ -55,17 +59,23 @@ export function useUser(id: string, range: AdminRange, opts: { enabled?: boolean
   });
 }
 
-const AFTER_USER_CHANGE = [userKeys.all, ['audit'], ['mcp']];
+const AFTER_USER_CHANGE = [userKeys.all, ['audit'], ['mcp'], ['ai']];
 
-/** PATCH /users/:id/ai */
+/** "/audit-log?targetType=user&targetId=…" — where a change to this person is recorded. */
+export const auditHref = (targetType: 'user' | 'group', id: string) => `/audit-log?targetType=${targetType}&targetId=${encodeURIComponent(id)}`;
+
+/** PATCH /users/:id/ai → toast with a link to the audit entry. */
 export function useSetUserAi() {
   return useAdminMutation({
     mutationFn: async (vars: { id: string } & AdminAiOverrideInput) => {
       const { id, ...body } = vars;
-      const { data } = await apiClient.patch<ApiResponse<unknown> & { warnings?: string[] }>(`/users/${id}/ai`, body);
+      const { data } = await apiClient.patch<ApiResponse<AdminAiOverrideResult> & { warnings?: string[] }>(`/users/${id}/ai`, body);
       return data;
     },
-    successMessage: 'AI settings saved — they apply within 30 seconds',
+    onSuccess: (result, vars) => {
+      const seconds = result?.data?.appliesWithinSeconds ?? 30;
+      toast.success(`Saved — applies within ${seconds}s`, undefined, { label: 'See it in the audit log →', href: auditHref('user', vars.id) });
+    },
     invalidate: AFTER_USER_CHANGE,
   });
 }

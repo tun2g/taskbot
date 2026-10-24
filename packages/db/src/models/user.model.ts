@@ -8,7 +8,7 @@ export interface IUser extends Document {
   /** Last update/request from this person (any channel), written at most every few minutes. */
   lastSeenAt?: Date | null;
   /** Per-person AI overrides set in the admin app. dailyLimit null = default limits. */
-  ai: { disabled: boolean; dailyLimit: number | null };
+  ai: { disabled: boolean; dailyLimit: number | null; reason?: string | null };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,10 +36,15 @@ const UserSchema: Schema = new Schema(
     lastSeenAt: { type: Date, default: null, index: true },
     ai: {
       type: new Schema(
-        { disabled: { type: Boolean, default: false }, dailyLimit: { type: Number, default: null, min: 0 } },
+        {
+          disabled: { type: Boolean, default: false },
+          dailyLimit: { type: Number, default: null, min: 0 },
+          /** Why the owner turned AI off / limited it (told to the person when the bot refuses). */
+          reason: { type: String, default: null, maxlength: 500 },
+        },
         { _id: false },
       ),
-      default: () => ({ disabled: false, dailyLimit: null }),
+      default: () => ({ disabled: false, dailyLimit: null, reason: null }),
     },
   },
   {

@@ -1,8 +1,12 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type ReactNode, useEffect, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useForm, useWatch } from 'react-hook-form';
+import { z } from 'zod';
+
+import { Form, FormTextareaField, FormTextField } from '@/components/form/form';
 
 import { Button, type ButtonVariant } from './button';
-import { Field, Textarea, TextInput } from './input';
 
 export function Dialog({
   open,
@@ -75,6 +79,7 @@ export interface ConfirmOptions {
   /** What will happen, concretely. */
   body: ReactNode;
   confirmLabel: string;
+  cancelLabel?: string;
   variant?: ButtonVariant;
   /** Ask for a reason (posted in the group). */
   reason?: { required: boolean; label: string; hint: string; placeholder?: string };
@@ -98,19 +103,20 @@ export function ConfirmDialog({
   onCancel: () => void;
   onConfirm: (reason: string | undefined) => void;
 }) {
-  const [reason, setReason] = useState('');
-  const [typed, setTyped] = useState('');
+  const schema = useMemo(() => confirmSchema(options), [options]);
+  const form = useForm<ConfirmValues>({ resolver: zodResolver(schema), mode: 'onChange', defaultValues: { reason: '', typed: '' } });
+  // Validity from the live values: formState.isValid isn't recomputed after reset(), which left confirm disabled.
+  const values = useWatch({ control: form.control });
+  const { reset } = form;
   useEffect(() => {
-    if (open) {
-      setReason('');
-      setTyped('');
-    }
-  }, [open]);
+    if (open) reset({ reason: '', typed: '' });
+  }, [open, reset]);
 
   if (!options) return null;
-  const reasonMissing = !!options.reason?.required && !reason.trim();
-  const typedWrong = options.typeToConfirm != null && typed.trim() !== options.typeToConfirm.trim();
-  const disabled = reasonMissing || typedWrong || !!options.loadingBody;
+  const disabled = !schema.safeParse(values).success || !!options.loadingBody;
+  const submit = form.handleSubmit(({ reason }) => {
+    if (!pending) onConfirm(reason.trim() || undefined);
+  });
 
   return (
     <Dialog
@@ -120,45 +126,56 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} disabled={pending}>
-            Cancel
+            {options.cancelLabel ?? 'Cancel'}
           </Button>
-          <Button
-            variant={options.variant ?? 'primary'}
-            disabled={disabled}
-            loading={pending}
-            onClick={() => onConfirm(reason.trim() || undefined)}
-          >
+          <Button variant={options.variant ?? 'primary'} disabled={disabled} loading={pending} onClick={() => void submit()}>
             {options.confirmLabel}
           </Button>
         </>
       }
     >
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!disabled && !pending) onConfirm(reason.trim() || undefined);
-        }}
-      >
+      <Form form={form} onSubmit={() => void submit()} className="space-y-4">
         <div className="space-y-2 leading-relaxed">{options.body}</div>
         {options.reason && (
-          <Field label={options.reason.label + (options.reason.required ? '' : ' (optional)')} hint={options.reason.hint}>
-            <Textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              maxLength={500}
-              placeholder={options.reason.placeholder}
-            />
-          </Field>
+          <FormTextareaField
+            name="reason"
+            label={options.reason.label + (options.reason.required ? '' : ' (optional)')}
+            hint={options.reason.hint}
+            rows={3}
+            maxLength={500}
+            placeholder={options.reason.placeholder}
+          />
         )}
         {options.typeToConfirm != null && (
-          <Field label={<>Type <strong className="font-semibold text-text">{options.typeToConfirm}</strong> to confirm</>}>
-            <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
-          </Field>
+          <FormTextField
+            name="typed"
+            label={
+              <>
+                Type <strong className="font-semibold text-text">{options.typeToConfirm}</strong> to confirm
+              </>
+            }
+            autoComplete="off"
+            spellCheck={false}
+          />
         )}
         <button type="submit" hidden />
-      </form>
+      </Form>
     </Dialog>
   );
+}
+
+interface ConfirmValues {
+  reason: string;
+  typed: string;
+}
+
+/** Reason required → non-blank; typeToConfirm → must match. Messages stay quiet: the button is just disabled. */
+function confirmSchema(options: ConfirmOptions | null) {
+  return z.object({
+    reason: options?.reason?.required ? z.string().refine((v) => v.trim() !== '') : z.string(),
+    typed:
+      options?.typeToConfirm != null
+        ? z.string().refine((v) => v.trim() === options.typeToConfirm!.trim())
+        : z.string(),
+  });
 }

@@ -10,7 +10,7 @@ export enum GroupStatus {
   REJECTED = 'rejected',
   /** The owner paused service; data is kept and service resumes on unsuspend. */
   SUSPENDED = 'suspended',
-  /** The bot was removed from (or left) the chat. Re-adding it restores the previous approval. */
+  /** The bot was removed from (or left) the chat. Re-adding it restores an approval / suspension; otherwise it asks again. */
   LEFT = 'left',
   /** The basic group became a supergroup; its data moved to the new chat id. */
   MIGRATED = 'migrated',
@@ -32,9 +32,9 @@ export const GROUP_STATUS_LABELS: Record<GroupStatus, string> = {
 export const GROUP_STATUS_HINTS: Record<GroupStatus, string> = {
   [GroupStatus.PENDING]: 'The bot was added but does nothing until you approve the group.',
   [GroupStatus.ACTIVE]: 'The bot, Mini App and MCP work normally.',
-  [GroupStatus.REJECTED]: 'You declined this group and the bot left. If someone adds it again, it asks again.',
+  [GroupStatus.REJECTED]: 'You declined this group and the bot left. If someone adds it again, it asks you again.',
   [GroupStatus.SUSPENDED]: 'Service is paused. Tasks are kept; unsuspend to resume.',
-  [GroupStatus.LEFT]: 'Someone removed the bot from the chat. Tasks are kept.',
+  [GroupStatus.LEFT]: 'The bot is no longer in the chat — someone removed it, or you used “Leave chat”. Tasks are kept.',
   [GroupStatus.MIGRATED]: 'Telegram upgraded this chat to a supergroup; its tasks moved to the new group.',
 };
 

@@ -1,4 +1,4 @@
-import type { AdminAiUsage, AdminRange, AiCallStatus, UsageChannel } from '@tbot/shared';
+import type { AdminAiRefusalReason, AdminAiUsage, AdminRange, AiCallStatus, UsageChannel } from '@tbot/shared';
 import { AI_FEATURE_LABELS, AiFeature, UsageKind } from '@tbot/shared';
 
 /** Plain-language names for every enum the admin API returns. Raw values never reach the screen. */
@@ -29,14 +29,14 @@ export const USAGE_KIND_LABELS: Record<UsageKind, string> = {
   [UsageKind.MENTION]: 'Mentions of the bot',
   [UsageKind.API]: 'Mini App requests',
   [UsageKind.MCP_TOOL]: 'MCP tool calls',
-  [UsageKind.RATE_LIMITED]: 'Blocked by rate limit',
+  [UsageKind.RATE_LIMITED]: 'Refused (limit)',
 };
 
 export const AI_STATUS_LABELS: Record<AiCallStatus, string> = {
   ok: 'Succeeded',
   failed: 'Failed',
   invalid: 'Unusable reply',
-  quota: 'Blocked by limit',
+  quota: 'Refused (limit)',
   disabled: 'AI turned off',
 };
 
@@ -71,11 +71,23 @@ export type GroupSort = keyof typeof GROUP_SORT_LABELS;
 
 export const USER_SORT_LABELS = {
   lastSeen: 'Last seen',
-  aiCost: 'AI cost (30 days)',
-  aiCalls: 'AI calls (30 days)',
-  events: 'Activity (30 days)',
+  aiCost: 'Est. AI cost',
+  aiCalls: 'AI calls',
+  events: 'Activity',
   tokens: 'MCP tokens',
 } as const;
+
+/** The one hint for "Activity" everywhere. */
+export const ACTIVITY_HINT = 'bot actions: commands, taps, Mini App & MCP';
+
+/** Why an AI request was refused before reaching the model. */
+export const REFUSAL_REASON_LABELS: Record<AdminAiRefusalReason, string> = {
+  person_limit: 'Their daily limit',
+  person_burst: 'Too many in a row',
+  group_limit: 'Group limit',
+  bot_limit: 'Bot-wide daily cap',
+  ai_off: 'AI turned off',
+};
 export type UserSort = keyof typeof USER_SORT_LABELS;
 
 export const AUDIT_TARGET_LABELS = {
@@ -83,6 +95,12 @@ export const AUDIT_TARGET_LABELS = {
   user: 'People',
   settings: 'Settings',
   session: 'Sign-ins',
+  system: 'System',
 } as const;
 
 export { AI_FEATURE_LABELS };
+
+// ── Groups review ──
+/** One word for an AI call that reached the model but didn't work. Requests refused by a limit are not AI calls. */
+export const AI_FAILED_LABEL = 'Failed';
+export const AI_FAILED_HINT = 'provider error or unusable reply';

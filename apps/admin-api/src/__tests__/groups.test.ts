@@ -281,7 +281,8 @@ describe('privacy', () => {
       expect(keys.has(forbidden)).toBe(false);
     }
     expect(res.body.data.daily).toHaveLength(7);
-    expect(res.body.data.members).toHaveLength(1);
+    // People are paged separately (GET /groups/:id/members).
+    expect(res.body.data.members).toBeUndefined();
     expect(res.body.data.counts).toEqual({ epics: 0, activities: 0, activeTokens: 0 });
     // Task queries only ever aggregate (no find() that could load titles).
     expect(mdb.Task.find).not.toHaveBeenCalled();

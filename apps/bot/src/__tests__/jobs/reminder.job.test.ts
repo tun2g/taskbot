@@ -4,9 +4,9 @@ import { User } from 'src/database/models/user.model';
 import { processReminderJob, REMINDER_FROM_HOUR } from 'src/jobs/reminder.job';
 import { notificationService } from 'src/shared/services/notification.service';
 
-jest.mock('src/database/models/group.model', () => ({ Group: { findById: jest.fn() } }));
+jest.mock('src/database/models/group.model', () => ({ Group: { find: jest.fn() } }));
 jest.mock('src/database/models/task.model', () => ({ Task: { find: jest.fn(), findByIdAndUpdate: jest.fn() } }));
-jest.mock('src/database/models/user.model', () => ({ User: { findById: jest.fn() } }));
+jest.mock('src/database/models/user.model', () => ({ User: { find: jest.fn() } }));
 jest.mock('src/shared/services/notification.service', () => ({ notificationService: { notifyDueReminder: jest.fn() } }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
 
@@ -26,9 +26,12 @@ describe('due reminders', () => {
   });
 
   beforeEach(() => {
+    jest.clearAllMocks();
     (Task.find as jest.Mock).mockResolvedValue([task('active'), task('pending'), task('suspended')]);
-    (Group.findById as jest.Mock).mockImplementation(async (id: string) => ({ _id: id, status: id, timezone: 'UTC' }));
-    (User.findById as jest.Mock).mockResolvedValue({ _id: 'u1' });
+    (Group.find as jest.Mock).mockImplementation(async (filter: { _id: { $in: string[] } }) =>
+      filter._id.$in.map((id) => ({ _id: id, status: id, timezone: 'UTC' })),
+    );
+    (User.find as jest.Mock).mockResolvedValue([{ _id: 'u1' }]);
   });
 
   it('only groups that get service send reminders; the others stay unmarked for later', async () => {
@@ -37,5 +40,13 @@ describe('due reminders', () => {
     expect((notificationService.notifyDueReminder as jest.Mock).mock.calls[0][0]._id).toBe('t-active');
     expect(Task.findByIdAndUpdate).toHaveBeenCalledTimes(1);
     expect(Task.findByIdAndUpdate).toHaveBeenCalledWith('t-active', { $set: { reminderSent: true } });
+  });
+
+  it('loads groups and people in one query each, however many tasks are due', async () => {
+    await processReminderJob({} as any);
+    expect(Group.find).toHaveBeenCalledTimes(1);
+    expect(Group.find).toHaveBeenCalledWith({ _id: { $in: ['active', 'pending', 'suspended'] } });
+    expect(User.find).toHaveBeenCalledTimes(1);
+    expect(User.find).toHaveBeenCalledWith({ _id: { $in: ['u1'] } });
   });
 });

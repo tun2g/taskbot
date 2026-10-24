@@ -29,33 +29,4 @@ export type {
 } from './ai.js';
 export type { IEpic, EpicWithProgress, CreateEpicInput, UpdateEpicInput, DeleteEpicResult } from './epic.js';
 export type { IApiToken, ApiTokenGroup, CreateApiTokenInput, CreateApiTokenResponse, RevokeApiTokenResponse, McpInfoResponse } from './api-token.js';
-export type {
-  AdminLoginLinkResponse,
-  AdminSession,
-  AdminRange,
-  AdminPersonRef,
-  AdminDailyPoint,
-  AdminKpi,
-  AdminOverview,
-  AdminGroupRef,
-  AdminGroupRow,
-  AdminGroupPeriodStats,
-  AdminGroupPreviousDecision,
-  AdminGroupDetail,
-  AdminGroupMemberRow,
-  AdminGroupActionInput,
-  AdminAiOverrideInput,
-  AdminGroupDeletePreview,
-  AdminUserRow,
-  AdminUserDetail,
-  AdminAiBreakdownRow,
-  AdminAiUsage,
-  AdminAiCallRow,
-  AdminAiSettings,
-  AdminMcpOverview,
-  AdminMcpTokenRow,
-  AdminAttentionItem,
-  AdminAttentionKind,
-  AdminSystemStatus,
-  AdminAuditEntry,
-} from './admin.js';
+export type * from './admin/index.js';

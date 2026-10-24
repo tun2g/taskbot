@@ -1,34 +1,12 @@
 import type { AiChatResponse, AiTaskChange, ITask as SharedTask } from '@tbot/shared';
-import { isClosedStatus } from '@tbot/shared';
-import { refId } from 'src/bot/task-card.renderer';
 import { ITask } from 'src/database/models/task.model';
 import type { AiRequestContext } from 'src/shared/services/ai-command.service';
-import { unknownPersonText } from 'src/shared/services/ai-command.service';
-import {
-  createEpicCommand,
-  detectLang,
-  epicLabel,
-  epicOf,
-  epicProgressLine,
-  type Lang,
-  MAX_EPIC_OVERVIEW,
-  shorten,
-  taskStateLines,
-  typeIcon,
-} from 'src/shared/services/ai-command/format';
+import { createEpicCommand, detectLang, epicLabel, epicOf, shorten } from 'src/shared/services/ai-command/format';
 import { MAX_AI_MUTATIONS } from 'src/shared/services/ai-command/plan.schema';
-import {
-  AiResult,
-  AiSection,
-  changedUpdates,
-  EpicCreateOutcome,
-  EpicMiss,
-  ExplainOutcome,
-  QueryOutcome,
-  TargetMiss,
-  UpdateOutcome,
-} from 'src/shared/services/ai-command/result';
+import { AiResult, changedUpdates, EpicMiss, QueryOutcome } from 'src/shared/services/ai-command/result';
 import { webSubtasksResponse } from 'src/shared/services/ai-command/subtasks.render';
+import { missText, sectionText, WHICH_TASK_TEXT } from 'src/shared/services/ai-command/web.sections';
+import { PHRASES, pick, taskFollowUps } from 'src/shared/services/ai-command/web.suggestions';
 import type { CreatedTask } from 'src/shared/services/task-creation.service';
 
 // Web "Ask AI" replies: PLAIN text only (no HTML/Markdown) in short lines; the web app renders
@@ -37,153 +15,13 @@ import type { CreatedTask } from 'src/shared/services/task-creation.service';
 export const WEB_AI_STILL_WORKS = 'You can still edit tasks on the board.';
 export const WEB_AI_UNAVAILABLE_TEXT = 'AI is unavailable right now — you can still edit tasks on the board.';
 export const WEB_SAVE_FAILED_TEXT = "❌ I couldn't save the task. Please try again in a moment.";
-const WHICH_TASK_TEXT = '🤔 Which task? Write its #number.';
 /** Most tasks a query returns to the web (the rest is counted in totalMatches). */
 export const WEB_QUERY_LIMIT = 20;
-const MAX_SUGGESTIONS = 3;
 
 /** API tasks are the shared shape (refs populated); the DB model type differs only in ref typing. */
 const asShared = (task: ITask) => task as unknown as SharedTask;
 
 export { detectLang };
-
-const PHRASES: Record<Lang, {
-  mine: string;
-  overdue: string;
-  open: string;
-  assignMe: (n: number) => string;
-  done: (n: number) => string;
-  due: (n: number) => string;
-  epics: string;
-  epicLeft: (title: string) => string;
-}> = {
-  en: {
-    mine: 'What are my open tasks?',
-    overdue: "What's overdue?",
-    open: 'What is still open?',
-    assignMe: (n) => `Assign #${n} to me`,
-    done: (n) => `Mark #${n} done`,
-    due: (n) => `Set due date for #${n}`,
-    epics: 'How are the epics going?',
-    epicLeft: (title) => `What's left in epic ${title}?`,
-  },
-  vi: {
-    mine: 'Tôi còn task nào?',
-    overdue: 'Có gì quá hạn không?',
-    open: 'Còn task nào đang mở?',
-    assignMe: (n) => `Giao #${n} cho tôi`,
-    done: (n) => `#${n} xong rồi`,
-    due: (n) => `Đặt hạn cho #${n}`,
-    epics: 'Tiến độ các epic',
-    epicLeft: (title) => `Epic ${title} còn gì?`,
-  },
-};
-
-function pick(items: (string | false | null | undefined)[]): string[] {
-  return Array.from(new Set(items.filter((s): s is string => !!s))).slice(0, MAX_SUGGESTIONS);
-}
-
-const isMine = (task: ITask, c: AiRequestContext) => refId(task.assigneeId) === c.requester._id.toString();
-
-/** Follow-ups for one task: assign it to me (unless it was just reassigned) / mark done / set a due date. */
-function taskFollowUps(task: ITask, c: AiRequestContext, lang: Lang, offerAssign = true): string[] {
-  const p = PHRASES[lang];
-  return [
-    offerAssign && !isMine(task, c) && !isClosedStatus(task.status) ? p.assignMe(task.taskNumber) : null,
-    isMine(task, c) && !isClosedStatus(task.status) ? p.done(task.taskNumber) : null,
-    !task.dueDate && !isClosedStatus(task.status) ? p.due(task.taskNumber) : null,
-  ].filter((s): s is string => !!s);
-}
-
-// ── Texts ──
-
-function missText(miss: TargetMiss): string {
-  switch (miss.reason) {
-    case 'missing':
-      return `❌ There's no task #${miss.number} in this group.`;
-    case 'no_match':
-      return `🤔 I couldn't find a task matching “${shorten(miss.search, 40)}”.\nWrite its #number.`;
-    case 'ambiguous': {
-      const list = miss.candidates.slice(0, 3).map((t) => `#${t.taskNumber} ${typeIcon(t.type)} ${shorten(t.title)}`);
-      const more = miss.candidates.length > 3 ? [`…and ${miss.candidates.length - 3} more`] : [];
-      return ['🤔 Which task? Several match:', ...list, ...more, 'Write its #number.'].join('\n');
-    }
-    case 'previous_ambiguous':
-      return `🤔 Which one? The last answer had ${miss.numbers.length} tasks.\nWrite its #number.`;
-    default:
-      return WHICH_TASK_TEXT;
-  }
-}
-
-/** "⚠️ There's no epic “Login” yet." + open epics + the exact message that creates it. */
-function epicMissLines(miss: EpicMiss): string[] {
-  const lines = [`⚠️ There's no epic “${shorten(miss.title, 30)}” yet.`];
-  if (miss.suggestions.length) {
-    const more = miss.more ? ` · +${miss.more} more` : '';
-    lines.push(`Open epics: ${miss.suggestions.map((e) => epicLabel(e, 24)).join(' · ')}${more}`);
-  } else {
-    lines.push('This group has no epics yet.');
-  }
-  lines.push(`➕ Create it: “${createEpicCommand(miss.title, 'web')}”`);
-  return lines;
-}
-
-function epicCreatedText(o: EpicCreateOutcome): string {
-  return [
-    o.duplicate ? `ℹ️ Epic ${epicLabel(o.epic)} already exists.` : `✅ Epic ${epicLabel(o.epic)} created`,
-    `➕ Add tasks: “Thêm #N vào epic ${shorten(o.epic.title, 30)}”`,
-  ].join('\n');
-}
-
-function updateText(u: UpdateOutcome): string {
-  if (u.failed) {
-    return [`❌ #${u.original.taskNumber} couldn't be fully updated. Please try again or edit it on the board.`, ...u.changes].join(
-      '\n',
-    );
-  }
-  const header = `${u.changes.length ? '✅' : 'ℹ️'} #${u.task.taskNumber} ${shorten(u.task.title)}`;
-  return [header, ...u.changes, ...u.notes, ...(u.epicMiss ? epicMissLines(u.epicMiss) : [])].join('\n');
-}
-
-/** "💡 #5 Title", the explanation, then the state lines. #5 stays in the text so "giao nó cho @an" works next. */
-function explainText(e: ExplainOutcome, today: string): string {
-  const t = e.task;
-  const body = e.text
-    ? [e.text]
-    : [
-        '🤖 AI can’t explain it right now — here’s what the task says:',
-        t.description?.trim() ? `📝 ${shorten(t.description, 300)}` : '📝 No description yet.',
-      ];
-  const state = e.fromReply ? [] : ['', ...taskStateLines(t, e.assignee, today, e.subtasks)];
-  return [`💡 #${t.taskNumber} ${shorten(t.title)}`, ...body, ...state].join('\n');
-}
-
-function queryText(q: QueryOutcome): string {
-  if (q.kind === 'unknown_person') return `⚠️ ${unknownPersonText(q.person, 'web')}`;
-  if (q.kind === 'unknown_epic') return epicMissLines(q.miss).join('\n');
-  if (q.kind === 'epics') {
-    const lines = [`🗂 Epics · ${q.epics.length}`];
-    if (q.epics.length === 0) lines.push('No epics yet.', `➕ Create one: “${createEpicCommand('Login', 'web')}”`);
-    for (const row of q.epics.slice(0, MAX_EPIC_OVERVIEW)) lines.push(epicProgressLine(row));
-    if (q.epics.length > MAX_EPIC_OVERVIEW) lines.push(`…and ${q.epics.length - MAX_EPIC_OVERVIEW} more`);
-    return lines.join('\n');
-  }
-  const lines = [`${q.icon} ${q.title} · ${q.tasks.length}`];
-  if (q.tasks.length === 0) lines.push(q.emptyText);
-  // One task is spelled out so a follow-up ("assign it to @an") can refer to it.
-  else if (q.tasks.length === 1) lines.push(`#${q.tasks[0].taskNumber} ${typeIcon(q.tasks[0].type)} ${shorten(q.tasks[0].title)}`);
-  return lines.join('\n');
-}
-
-function sectionText(s: AiSection, today: string): string {
-  if (s.type === 'update') return updateText(s.update);
-  if (s.type === 'query') return queryText(s.query);
-  if (s.type === 'explain') return explainText(s.explain, today);
-  if (s.type === 'epic_created') return epicCreatedText(s.epic);
-  if (s.type === 'note') return s.lines.join('\n');
-  if (s.type === 'subtasks') return '';
-  return s.text;
-}
 
 /** Renders a core result (anything but `create`) as the web chat response. */
 export function renderWeb(c: AiRequestContext, result: Exclude<AiResult, { kind: 'create' }>): AiChatResponse {

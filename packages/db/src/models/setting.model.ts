@@ -14,7 +14,22 @@ export interface AiSettings {
   pricing: Record<string, { input: number; cachedInput?: number; output: number }>;
 }
 
-export const SETTING_KEYS = { AI: 'ai' } as const;
+/**
+ * What the bot process runs with, published by the bot on every start (key `runtime`), so the admin API can show
+ * the model and the env fallbacks without its own copy of the bot's env vars.
+ */
+export interface BotRuntimeInfo {
+  /** AI_PROVIDER, e.g. "gemini". */
+  provider: string;
+  /** AI_MODEL (or the provider's default). */
+  model: string;
+  /** AI_DAILY_LIMIT: the bot-wide daily call cap used when Settings has none (0 = no cap). */
+  envDailyCallLimit: number;
+  /** When this bot process started (ISO). */
+  startedAt: string;
+}
+
+export const SETTING_KEYS = { AI: 'ai', RUNTIME: 'runtime' } as const;
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
 export interface ISetting extends Document {
