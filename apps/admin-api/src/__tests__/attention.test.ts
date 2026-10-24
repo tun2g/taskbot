@@ -2,8 +2,8 @@
 import * as db from '@tbot/db';
 import { GroupStatus } from '@tbot/shared';
 import { createApp } from 'src/app';
-import { createSession, SESSION_COOKIE } from 'src/auth/auth.service';
-import { setBotQueue } from 'src/routes/system.routes';
+import { createSession, SESSION_COOKIE } from 'src/modules/auth/auth.service';
+import { setBotQueue } from 'src/modules/system/system.service';
 import { setKv } from 'src/shared/redis';
 import { AttentionInput, buildAttention, findSpikes, unusualRate } from 'src/stats/attention';
 import { chain, fakeQueue, FakeKv, startServer, TestServer } from './helpers';

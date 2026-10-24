@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as db from '@tbot/db';
 import { createApp } from 'src/app';
-import { createSession, SESSION_COOKIE } from 'src/auth/auth.service';
+import { createSession, SESSION_COOKIE } from 'src/modules/auth/auth.service';
 import { auditChanges } from 'src/shared/audit';
 import { setKv } from 'src/shared/redis';
 import { aggregate } from './fake-aggregate';
