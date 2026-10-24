@@ -8,7 +8,6 @@ import type {
   AdminAiUsage,
   AdminDailyPoint,
   AdminGroupDetail,
-  AdminGroupMemberRow,
   AdminGroupRef,
   AdminGroupRow,
   AdminAttentionItem,
@@ -50,6 +49,9 @@ import {
   tokenQuery,
   tokens as mcpTokenStore,
 } from './people';
+
+import { groupDetailExtras, groupReviewRoutes, groupRowExtras, MockHttpError } from './groups-review';
+import { mockBot, mockRequestLink, mockSaveSettings, systemReviewRoutes } from './system-review';
 
 const DAY = 86_400_000;
 const RANGE_DAYS: Record<AdminRange, number> = { '7d': 7, '30d': 30, '90d': 90 };
@@ -104,6 +106,7 @@ function periodStats(g: MockGroup, range: AdminRange) {
     tasksCreated: d.reduce((s, x) => s + x.tasksCreated, 0),
     aiCalls: d.reduce((s, x) => s + x.aiCalls, 0),
     aiCostUsd: d.reduce((s, x) => s + x.aiCostUsd, 0),
+    aiUnpriced: aiCalls.filter((c) => c.group?.id === g.id && inRange(c.at, range) && !c.priced).length,
   };
 }
 
@@ -191,10 +194,11 @@ function daily(range: AdminRange, scope: { group?: MockGroup }): AdminDailyPoint
 
 function groupRow(g: MockGroup): AdminGroupRow {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { seed, timezone, approvedAt, botLeftAt, migratedToChatId, publicLink, epics, activities, activeTokens, ...row } = g;
+  const { seed, timezone, approvedAt, botLeftAt, migratedToChatId, publicLink, epics, activities, activeTokens, ...base } = g;
+  const row: AdminGroupRow = { ...base, ...groupRowExtras(g) };
   if (g.status !== GroupStatus.PENDING) return row;
-  const last = auditLog.find((e) => e.targetId === g.id && ['group.reject', 'group.suspend', 'group.leave'].includes(e.action));
-  const action = { 'group.reject': 'rejected', 'group.suspend': 'suspended', 'group.leave': 'removed' } as const;
+  const last = auditLog.find((e) => e.targetId === g.id && ['group.reject', 'group.suspend', 'group.leave', 'group.reconsider'].includes(e.action));
+  const action = { 'group.reject': 'rejected', 'group.suspend': 'suspended', 'group.leave': 'removed', 'group.reconsider': 'reconsidered' } as const;
   return {
     ...row,
     previousDecision: last ? { action: action[last.action as keyof typeof action], at: last.at, reason: last.reason } : null,
@@ -293,6 +297,7 @@ function systemStatus(): AdminSystemStatus {
     lastEventByChannel: { telegram: iso(40_000), app: iso(6 * 60_000), mcp: iso(52 * 60_000) },
     activity: { lastHour: 46, usualThisHour: 38.4 },
     versions: { adminApi: '0.1.0 (2a69084)' },
+    bot: mockBot,
   };
 }
 
@@ -357,7 +362,7 @@ const routes: [string, RegExp, Handler][] = [
     if (localStorage.getItem(SESSION_KEY)) throw new HttpError(401, 'Not logged in.');
     return { data: { owner: { telegramUserId: 50_000_000, name: 'Tung Nguyen', username: 'tun2g' }, expiresAt: iso(-7 * DAY) } };
   }],
-  ['POST', /^\/auth\/request-link$/, () => ({ data: { sentTo: '@tun2g', expiresInSeconds: 300 } })],
+  ['POST', /^\/auth\/request-link$/, () => mockRequestLink()],
   ['POST', /^\/auth\/exchange$/, ({ body }) => {
     if (body.code === 'expired') throw new HttpError(401, 'This login link has expired or was already used.');
     localStorage.removeItem(SESSION_KEY);
@@ -451,26 +456,12 @@ const routes: [string, RegExp, Handler][] = [
     const g = findGroup(params[0]!);
     return { data: { group: ref(g), tasks: g.tasks, epics: g.epics, members: g.knownMembers, activities: g.activities, tokens: g.activeTokens } };
   }],
+  ...groupReviewRoutes,
   ['GET', /^\/groups\/([^/]+)$/, ({ params, q }) => {
     const g = findGroup(params[0]!);
     const range = rangeOf(q);
     const calls = aiCalls.filter((c) => c.group?.id === g.id && inRange(c.at, range));
     const d = daily(range, { group: g });
-    const members: AdminGroupMemberRow[] = g.seed.members.map((i) => {
-      const p = people[i]!;
-      const mine = calls.filter((c) => c.person?.id === p.id);
-      return {
-        person: personRef(p),
-        joinedAt: iso((g.seed.addedDaysAgo - noise(p.id, 10) / 10) * DAY),
-        lastSeenAt: userRow(i).lastSeenAt,
-        lastActiveHereAt: g.lastActivityAt ? new Date(new Date(g.lastActivityAt).getTime() - noise(p.id + g.id, 48) * 3_600_000).toISOString() : null,
-        activeTokens: Math.min(userRow(i).activeTokens, 1 + (noise(p.id + g.id, 1))),
-        events: g.status === GroupStatus.ACTIVE ? 20 + noise(p.id + g.id, 400) : 0,
-        aiCalls: mine.length,
-        aiCostUsd: mine.reduce((s, c) => s + c.costUsd, 0),
-        tasksCreated: Math.round(g.tasks / Math.max(1, g.seed.members.length)) + noise(p.id, 5),
-      };
-    });
     const ch = (c: UsageChannel) => d.reduce((s, x) => s + (x.channels[c] ?? 0), 0);
     const usage: AdminGroupDetail['usage'] = (
       [
@@ -494,7 +485,7 @@ const routes: [string, RegExp, Handler][] = [
       counts: { epics: g.epics, activities: g.activities, activeTokens: g.activeTokens },
       daily: d,
       aiByFeature: featureRows(calls),
-      members,
+      ...groupDetailExtras(g, range),
       usage,
     };
     return { data: detail };
@@ -553,7 +544,10 @@ const routes: [string, RegExp, Handler][] = [
     const g = findGroup(params[0]!);
     if (typeof body.disabled === 'boolean') g.aiDisabled = body.disabled;
     if ('dailyLimit' in body) g.aiDailyLimit = (body.dailyLimit as number | null) ?? null;
-    return { data: groupRow(g) };
+    // Like the API: the reason belongs to the override and is cleared when back to the defaults.
+    if (!g.aiDisabled && g.aiDailyLimit == null) g.aiReason = null;
+    else if (typeof body.reason === 'string') g.aiReason = body.reason.trim() || null;
+    return { data: { ...groupRow(g), appliesWithinSeconds: 30, auditId: null } };
   }],
   ['DELETE', /^\/groups\/([^/]+)$/, ({ params, body }) => {
     const g = findGroup(params[0]!);
@@ -772,10 +766,8 @@ const routes: [string, RegExp, Handler][] = [
   }],
 
   ['GET', /^\/settings\/ai$/, () => ({ data: settings })],
-  ['PUT', /^\/settings\/ai$/, ({ body }) => {
-    Object.assign(settings, body, { defaults: settings.defaults });
-    return { data: settings };
-  }],
+  ['PUT', /^\/settings\/ai$/, ({ body }) => mockSaveSettings(body)],
+  ...systemReviewRoutes,
 ];
 
 void AiFeature;
@@ -799,7 +791,7 @@ export const mockAdapter: AxiosAdapter = async (config: InternalAxiosRequestConf
     }
     throw new HttpError(404, `Mock: no fixture for ${method} ${url.pathname}`);
   } catch (e) {
-    if (!(e instanceof HttpError)) throw e;
+    if (!(e instanceof HttpError) && !(e instanceof MockHttpError)) throw e;
     const response = respond(e.status, { error: ERROR_NAMES[e.status] ?? 'Error', message: e.message, statusCode: e.status });
     throw new AxiosError(e.message, String(e.status), config, null, response);
   }

@@ -3,7 +3,13 @@ import type {
   AdminGroupActionInput,
   AdminGroupDeletePreview,
   AdminGroupDetail,
+  AdminGroupEpicRow,
+  AdminGroupMemberRow,
+  AdminGroupMemberSort,
   AdminGroupRow,
+  AdminGroupTaskCounts,
+  AdminGroupTaskFilter,
+  AdminGroupTaskRow,
   AdminRange,
   ApiResponse,
   GroupStatus,
@@ -31,7 +37,69 @@ export const groupKeys = {
   list: (params: GroupListParams) => [...groupKeys.all, 'list', params] as const,
   detail: (id: string, range: AdminRange) => [...groupKeys.all, 'detail', id, range] as const,
   deletePreview: (id: string) => [...groupKeys.all, 'delete-preview', id] as const,
+  members: (id: string, params: GroupMembersParams) => [...groupKeys.all, 'members', id, params] as const,
+  tasks: (id: string, params: GroupTasksParams) => [...groupKeys.all, 'tasks', id, params] as const,
+  epics: (id: string, page: number) => [...groupKeys.all, 'epics', id, page] as const,
 };
+
+export interface GroupMembersParams {
+  range: AdminRange;
+  q?: string;
+  sort?: AdminGroupMemberSort;
+  page?: number;
+  limit?: number;
+}
+
+/** GET /groups/:id/members — people in the group who used the bot (paginated). */
+export function useGroupMembers(id: string, params: GroupMembersParams) {
+  return useQuery({
+    queryKey: groupKeys.members(id, params),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PaginatedResponse<AdminGroupMemberRow>>(`/groups/${id}/members`, { params });
+      return data;
+    },
+    placeholderData: keepPreviousData,
+    enabled: !!id,
+  });
+}
+
+export interface GroupTasksParams {
+  filter?: AdminGroupTaskFilter;
+  /** Only tasks created in this period. */
+  createdIn?: AdminRange;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** GET /groups/:id/tasks — read-only task list with counts per filter. */
+export function useGroupTasks(id: string, params: GroupTasksParams, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: groupKeys.tasks(id, params),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PaginatedResponse<AdminGroupTaskRow> & { counts: AdminGroupTaskCounts }>(
+        `/groups/${id}/tasks`,
+        { params },
+      );
+      return data;
+    },
+    placeholderData: keepPreviousData,
+    enabled: (opts.enabled ?? true) && !!id,
+  });
+}
+
+/** GET /groups/:id/epics — the epics behind the "Epics" count. */
+export function useGroupEpics(id: string, page: number, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: groupKeys.epics(id, page),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PaginatedResponse<AdminGroupEpicRow>>(`/groups/${id}/epics`, { params: { page, limit: 25 } });
+      return data;
+    },
+    placeholderData: keepPreviousData,
+    enabled: (opts.enabled ?? true) && !!id,
+  });
+}
 
 /** GET /groups?status=&q=&sort=&page=&limit= */
 export function useGroups(params: GroupListParams, opts: { enabled?: boolean } = {}) {
@@ -80,7 +148,7 @@ export function useGroupDeletePreview(id: string, enabled: boolean) {
 
 const AFTER_GROUP_CHANGE = [groupKeys.all, ['overview'], ['audit'], ['users']];
 
-export type GroupAction = 'approve' | 'reject' | 'suspend' | 'unsuspend' | 'leave';
+export type GroupAction = 'approve' | 'reject' | 'suspend' | 'unsuspend' | 'leave' | 'reconsider';
 
 const ACTION_DONE: Record<GroupAction, string> = {
   approve: 'approved',
@@ -88,9 +156,10 @@ const ACTION_DONE: Record<GroupAction, string> = {
   suspend: 'suspended',
   unsuspend: 'is active again',
   leave: '— the bot left the chat',
+  reconsider: '— rejection cleared',
 };
 
-/** POST /groups/:id/{approve|reject|suspend|unsuspend|leave} */
+/** POST /groups/:id/{approve|reject|suspend|unsuspend|leave|reconsider} */
 export function useGroupAction() {
   return useAdminMutation({
     mutationFn: async (vars: { group: { id: string; name: string }; action: GroupAction } & AdminGroupActionInput) => {

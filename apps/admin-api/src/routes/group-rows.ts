@@ -1,11 +1,11 @@
-import { AdminAuditLog, GroupMember, Task, User } from '@tbot/db';
-import type { AdminGroupPreviousDecision, AdminGroupRow, AdminPersonRef } from '@tbot/shared';
+import { AdminAuditLog, Group, GroupMember, Task, User } from '@tbot/db';
+import type { AdminGroupPreviousDecision, AdminGroupRef, AdminGroupRow, AdminPersonRef } from '@tbot/shared';
 import { GroupStatus } from '@tbot/shared';
 import { Types } from 'mongoose';
 import { roundUsd } from 'src/stats/aggregate';
 import { aiTotalsBy, CLOSED_STATUSES } from 'src/stats/queries';
 import { lastDays } from 'src/stats/range';
-import { personRef, statusOf, USER_REF_FIELDS, LeanUser } from 'src/shared/refs';
+import { groupRef, LeanGroupRef, personRef, statusOf, USER_REF_FIELDS, LeanUser } from 'src/shared/refs';
 
 /** The group fields the admin API reads (never task content). */
 export interface LeanGroup {
@@ -62,7 +62,28 @@ const DECISION_ACTIONS: Record<string, AdminGroupPreviousDecision['action']> = {
   'group.reject': 'rejected',
   'group.suspend': 'suspended',
   'group.leave': 'removed',
+  'group.reconsider': 'reconsidered',
 };
+
+/**
+ * Moved-to-supergroup groups → the group that continues them (looked up by the new Telegram chat id). Null when the
+ * new chat has no group (deleted, or the bot never saw it).
+ */
+export async function migratedTargets(groups: LeanGroup[]): Promise<Map<string, AdminGroupRef | null>> {
+  const moved = groups.filter((g) => statusOf(g) === GroupStatus.MIGRATED);
+  const out = new Map<string, AdminGroupRef | null>(moved.map((g) => [String(g._id), null]));
+  const chatIds = moved.map((g) => g.migratedToChatId).filter((v): v is number => typeof v === 'number');
+  if (!chatIds.length) return out;
+  const targets = await Group.find({ telegramGroupId: { $in: chatIds } })
+    .select('telegramGroupId groupName status')
+    .lean<(LeanGroupRef & { telegramGroupId: number })[]>();
+  const byChat = new Map(targets.map((t) => [t.telegramGroupId, t]));
+  for (const g of moved) {
+    const t = g.migratedToChatId != null ? byChat.get(g.migratedToChatId) : undefined;
+    if (t && String(t._id) !== String(g._id)) out.set(String(g._id), groupRef(t));
+  }
+  return out;
+}
 
 /**
  * For groups waiting for approval: the owner's latest reject / suspend / remove decision recorded in the audit log
@@ -88,12 +109,13 @@ export async function groupRows(groups: LeanGroup[], now = new Date()): Promise<
   const ids = groups.map((g) => g._id);
   const tgIds = groups.map((g) => g.addedBy?.telegramUserId).filter((v): v is number => typeof v === 'number');
   const pendingIds = groups.filter((g) => statusOf(g) === GroupStatus.PENDING).map((g) => String(g._id));
-  const [members, tasks, ai, adders, decisions] = await Promise.all([
+  const [members, tasks, ai, adders, decisions, moved] = await Promise.all([
     countBy(GroupMember, { groupId: { $in: ids } }),
     taskCountsBy({ groupId: { $in: ids } }),
     aiTotalsBy({ groupId: { $in: ids }, createdAt: { $gte: lastDays(30, now).start } }, 'groupId'),
     tgIds.length ? User.find({ telegramUserId: { $in: tgIds } }).select(USER_REF_FIELDS).lean<LeanUser[]>() : Promise.resolve([] as LeanUser[]),
     previousDecisions(pendingIds),
+    migratedTargets(groups),
   ]);
   const usersByTg = new Map(adders.map((u) => [u.telegramUserId, u]));
   return groups.map((g) => {
@@ -113,6 +135,8 @@ export async function groupRows(groups: LeanGroup[], now = new Date()): Promise<
       lastActivityAt: iso(g.lastActivityAt),
       aiCostUsd30d: roundUsd(a?.costUsd ?? 0),
       aiCalls30d: a?.calls ?? 0,
+      aiUnpriced30d: a?.unpriced ?? 0,
+      ...(moved.has(id) ? { migratedTo: moved.get(id) ?? null } : {}),
       addedBy: addedByRef(g, usersByTg),
       addedAt: iso(g.addedAt),
       statusReason: g.statusReason ?? null,

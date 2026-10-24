@@ -32,15 +32,19 @@ export function personLimitsNow(settings: AdminAiSettings | undefined, ai: { dis
   return `Right now: ${own} · ${group} · ${botWideLimitText(settings)}.`;
 }
 
-/** "Right now: 50/day (your override) · each person … · bot-wide …" for one group. */
-export function groupLimitsNow(settings: AdminAiSettings | undefined, ai: { disabled: boolean; dailyLimit: number | null }): string {
+/**
+ * "Right now: 50/day (your override) · each person … · bot-wide …" for one group. `limits` = the bot-wide cap
+ * (null = none) and the per-person default, as the group page already has them (null while loading).
+ */
+export function groupLimitsNow(limits: { global: number | null; perPerson: number | null } | null, ai: { disabled: boolean; dailyLimit: number | null }): string {
   const own = ai.disabled
     ? 'AI is off in this group (your override)'
     : ai.dailyLimit != null
       ? `${perDay(ai.dailyLimit)} (your override)`
       : `${AI_DEFAULT_GROUP_BURST.limit} per ${AI_DEFAULT_GROUP_BURST.windowMinutes} min (default)`;
-  const person = defaultPersonLimit(settings);
-  return `Right now: ${own} · each person ${person == null ? 'has their own daily limit' : `${perDay(person)} unless you set theirs`} · ${botWideLimitText(settings)}.`;
+  const person = limits?.perPerson ?? null;
+  const botWide = !limits ? 'bot-wide cap from Settings' : limits.global ? `bot-wide ${formatNumber(limits.global)} calls/day` : 'no bot-wide cap';
+  return `Right now: ${own} · each person ${person == null ? 'has their own daily limit' : `${perDay(person)} unless you set theirs`} · ${botWide}.`;
 }
 
 /** What "default" means for a person's badge: "Default (40/day)". */

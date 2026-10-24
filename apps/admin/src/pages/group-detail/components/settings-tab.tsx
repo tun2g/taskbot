@@ -1,81 +1,72 @@
 import type { AdminAiOverrideInput, AdminGroupDetail } from '@tbot/shared';
-import { GroupStatus } from '@tbot/shared';
 
 import { AiOverrideForm } from '@/components/actions/ai-override-form';
-import { ACTION_LABELS, actionsFor, type GroupLifecycleAction } from '@/components/actions/group-actions';
-import { Button } from '@/components/ui/button';
+import type { GroupLifecycleAction } from '@/components/actions/group-actions';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { groupLimitsNow } from '@/lib/ai-limits';
+import { formatNumber } from '@/lib/format';
 
-const CONSEQUENCES: Partial<Record<GroupLifecycleAction, string>> = {
-  suspend: 'The bot, Mini App and MCP stop working for this group. Tasks are kept; you can unsuspend at any time.',
-  unsuspend: 'Service resumes and the group gets a short message that the bot is back.',
-  leave: 'The bot leaves the chat. Tasks are kept, and re-adding the bot restores the approval.',
-  delete: 'Permanently deletes this group’s tasks, epics, member links and MCP tokens. Usage and cost history are kept.',
-};
+import { aiCallStats } from '../group-detail.utils';
+import { DangerZoneCard } from './danger-zone-card';
+
+export interface AiLimits {
+  global: number | null;
+  perPerson: number;
+}
+
+function defaultLimitText(limits: AiLimits | null): string {
+  if (!limits) return 'no per-group limit — the global daily limit and each person’s limit apply';
+  const global = limits.global == null ? 'no global daily limit' : `the global limit of ${formatNumber(limits.global)} calls/day for all groups`;
+  return `no per-group limit — ${global} and ${formatNumber(limits.perPerson)} calls per person per day apply`;
+}
+
+/** "This group: 12 calls today · avg 31/day · peak 58/day (last 30 days)" — so a limit isn't set blind. */
+function UsageLine({ group }: { group: AdminGroupDetail }) {
+  const s = aiCallStats(group.daily);
+  if (s.days === 0) return null;
+  return (
+    <>
+      This group: <span className="font-medium text-text tabular">{formatNumber(s.today)}</span> calls today · avg{' '}
+      <span className="tabular">{formatNumber(Math.round(s.avg))}</span>/day · peak <span className="tabular">{formatNumber(s.peak)}</span>
+      /day (last {s.days} days)
+    </>
+  );
+}
 
 export function SettingsTab({
   group,
+  aiLimits,
   onSaveAi,
   savingAi,
   onAction,
   busy,
 }: {
   group: AdminGroupDetail;
+  aiLimits: AiLimits | null;
   onSaveAi: (input: AdminAiOverrideInput) => void;
   savingAi: boolean;
   onAction: (action: GroupLifecycleAction) => void;
   busy: boolean;
 }) {
-  const { inline, more } = actionsFor(group.status);
-  const danger = [...inline, ...more].filter((a) => a in CONSEQUENCES);
-
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader
-          title="AI for this group"
-          subtitle="Override the AI limits for this group only. Other groups are not affected."
-        />
+        <CardHeader title="AI for this group" subtitle="Override the AI limits for this group only. Other groups are not affected." />
         <CardBody>
           <AiOverrideForm
             subject="group"
             disabled={group.aiDisabled}
             dailyLimit={group.aiDailyLimit}
-            defaultLimitText="no per-group limit — the global daily limit and each person’s limit apply"
+            reason={group.aiReason ?? null}
+            rightNow={groupLimitsNow(aiLimits, { disabled: group.aiDisabled, dailyLimit: group.aiDailyLimit })}
+            defaultLimitText={defaultLimitText(aiLimits)}
             pending={savingAi}
             onSave={onSaveAi}
+            usage={<UsageLine group={group} />}
           />
         </CardBody>
       </Card>
-
-      <Card className="border-danger/30">
-        <CardHeader
-          title="Danger zone"
-          subtitle={
-            group.status === GroupStatus.PENDING
-              ? 'This group is waiting for approval — approve or reject it from the top of the page.'
-              : 'Change whether the bot serves this group.'
-          }
-        />
-        <ul className="divide-y divide-border border-t border-border">
-          {danger.map((a) => (
-            <li key={a} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-text">{ACTION_LABELS[a]}</p>
-                <p className="mt-0.5 text-[13px] leading-relaxed text-text-3">{CONSEQUENCES[a]}</p>
-              </div>
-              <Button
-                size="sm"
-                variant={a === 'unsuspend' ? 'primary' : a === 'delete' ? 'danger' : 'danger-outline'}
-                disabled={busy}
-                onClick={() => onAction(a)}
-              >
-                {ACTION_LABELS[a]}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </Card>
+      <DangerZoneCard group={group} onAction={onAction} busy={busy} />
     </div>
   );
 }

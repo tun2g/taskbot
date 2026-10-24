@@ -13,6 +13,8 @@ export interface AdminLoginLinkResponse {
   sentTo: string;
   /** Seconds until the link expires. */
   expiresInSeconds: number;
+  /** Lets this browser ask whether the link was used (GET /auth/link-status) — never logs it in. */
+  requestId?: string;
 }
 
 /** POST /auth/exchange { code } → sets the session cookie. */
@@ -123,18 +125,21 @@ export interface AdminGroupPeriodStats {
   tasksCreated: number;
   aiCalls: number;
   aiCostUsd: number;
+  /** AI calls in the period whose model had no price (their cost counts as $0). */
+  aiUnpriced?: number;
 }
 
 /** The owner's last decision about a group before it asked again (from the audit log). */
 export interface AdminGroupPreviousDecision {
-  action: 'rejected' | 'suspended' | 'removed';
+  /** reconsidered = you cleared an earlier rejection (POST /groups/:id/reconsider). */
+  action: 'rejected' | 'suspended' | 'removed' | 'reconsidered';
   at: string;
   reason: string | null;
 }
 
 /**
  * GET /groups?status=&q=&sort=lastActivity|aiCost|tasks|members|added&activeIn=7d|30d|90d&page=&limit=
- * activeIn keeps only groups with activity in that period (the overview's "Active groups") and fills `inPeriod`;
+ * activeIn keeps only groups with activity in that period (the overview's "Groups with activity") and fills `inPeriod`;
  * with it, sort=tasks ranks by tasks created in the period and the default sort is requests in the period.
  */
 export interface AdminGroupRow extends AdminGroupRef {
@@ -149,6 +154,10 @@ export interface AdminGroupRow extends AdminGroupRef {
   /** Last 30 days. */
   aiCostUsd30d: number;
   aiCalls30d: number;
+  /** Last 30 days: AI calls whose model had no price, so their cost counts as $0. */
+  aiUnpriced30d?: number;
+  /** Moved-to-supergroup groups only: the group that continues it (null = not found, e.g. deleted). */
+  migratedTo?: AdminGroupRef | null;
   addedBy: AdminPersonRef | null;
   addedAt: string | null;
   statusReason: string | null;
@@ -162,18 +171,21 @@ export interface AdminGroupRow extends AdminGroupRef {
   previousDecision?: AdminGroupPreviousDecision | null;
 }
 
-/** GET /groups/:id?range=30d — numbers only, never task titles or message text. */
+/** GET /groups/:id?range=30d — numbers only, never task titles or message text. People: GET /groups/:id/members. */
 export interface AdminGroupDetail extends AdminGroupRow {
   timezone: string;
   approvedAt: string | null;
   botLeftAt: string | null;
+  /** Bot removed only: the status a re-add restores (active / suspended); anything else means it asks for approval again. */
+  statusBeforeLeft?: GroupStatus | null;
   migratedToChatId: number | null;
   /** Telegram chat link when the group is public (t.me/username), else null. */
   publicLink: string | null;
   counts: { epics: number; activities: number; activeTokens: number };
   daily: AdminDailyPoint[];
   aiByFeature: AdminAiBreakdownRow[];
-  members: AdminGroupMemberRow[];
+  /** AI requests refused in the range (a limit, or AI turned off) — never sent to the model, so not AI calls. */
+  aiRefused?: number;
   /** Usage by channel and kind in the range. */
   usage: { channel: UsageChannel; kind: UsageKind; count: number }[];
 }
@@ -194,7 +206,7 @@ export interface AdminGroupMemberRow {
   tasksCreated: number;
 }
 
-/** POST /groups/:id/approve {} | /reject { reason } | /suspend { reason } | /unsuspend {} | /leave { reason? } */
+/** POST /groups/:id/approve {} | /reject { reason } | /suspend { reason } | /unsuspend {} | /leave { reason? } | /reconsider {} */
 export interface AdminGroupActionInput {
   reason?: string;
   /** Tell the group in Telegram (default true). */
@@ -218,6 +230,54 @@ export interface AdminGroupDeletePreview {
   members: number;
   activities: number;
   tokens: number;
+}
+
+// ── Groups review ───────────────────────────────────────────────────────────
+
+/** GET /groups/:id/members?range=&q=&sort=&page=&limit= — paginated `AdminGroupMemberRow`s (q = name or @username). */
+export type AdminGroupMemberSort = 'lastActive' | 'events' | 'aiCalls' | 'aiCost' | 'tasks' | 'tokens' | 'joined';
+
+/** Which tasks GET /groups/:id/tasks lists. open = not done or cancelled; overdue = open and past the due date. */
+export type AdminGroupTaskFilter = 'open' | 'overdue' | 'done' | 'all';
+
+/** Sent next to the page of GET /groups/:id/tasks: how many tasks each filter has (same createdIn / q). */
+export type AdminGroupTaskCounts = Record<AdminGroupTaskFilter, number>;
+
+/** Where a task was created (from its activity log): chat, Mini App, AI assistant or an MCP client. null = not recorded. */
+export type AdminTaskVia = 'bot' | 'app' | 'ai' | 'mcp';
+
+/**
+ * GET /groups/:id/tasks?filter=&createdIn=7d|30d|90d&q=&page=&limit= — read-only. Titles only (never descriptions or
+ * message text), so the owner can see what a count is made of.
+ */
+export interface AdminGroupTaskRow {
+  id: string;
+  /** Group-local number (#42). */
+  number: number;
+  title: string;
+  /** TaskStatus value. */
+  status: string;
+  /** Set when this is a subtask. */
+  parentNumber: number | null;
+  epic: { id: string; title: string } | null;
+  assignee: AdminPersonRef | null;
+  dueDate: string | null;
+  /** Open and past its due date. */
+  overdue: boolean;
+  createdAt: string;
+  completedAt: string | null;
+  createdVia: AdminTaskVia | null;
+}
+
+/** GET /groups/:id/epics?page=&limit= — the epics behind the group's "Epics" count. */
+export interface AdminGroupEpicRow {
+  id: string;
+  title: string;
+  /** EpicStatus value (open / done). */
+  status: string;
+  tasks: number;
+  openTasks: number;
+  createdAt: string;
 }
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -312,11 +372,14 @@ export interface AdminAiSettings {
   alertAtPercent: number;
   userDailyLimit: number | null;
   pricing: Record<string, { input: number; cachedInput?: number; output: number }>;
+  /** When the owner last saved these settings (null = never). */
+  lastChangedAt?: string | null;
   /** Read-only context for the form. */
   defaults: {
-    provider: string;
-    model: string;
-    /** AI_DAILY_LIMIT from env (0 = none). */
+    /** What the bot reported when it last started (null = the bot hasn't reported yet). */
+    provider: string | null;
+    model: string | null;
+    /** The bot's AI_DAILY_LIMIT fallback (0 = none). */
     envDailyCallLimit: number;
     userDailyLimit: number;
     builtInPricing: Record<string, { input: number; cachedInput?: number; output: number }>;
@@ -402,6 +465,8 @@ export interface AdminSystemStatus {
   /** Requests in the last hour vs the usual for this hour of day (average over the previous 7 days). */
   activity?: { lastHour: number; usualThisHour: number };
   versions: { adminApi: string };
+  /** When the bot process last started (it reports this to the database on startup; null = never reported). */
+  bot?: { startedAt: string | null };
 }
 
 /** GET /audit-log?page=&limit=&targetType=&targetId= */
@@ -411,7 +476,7 @@ export interface AdminAuditEntry {
   action: string;
   /** Plain sentence, e.g. "Suspended group “Acme Mobile Team”". */
   summary: string;
-  targetType: 'group' | 'user' | 'settings' | 'session' | null;
+  targetType: 'group' | 'user' | 'settings' | 'session' | 'system' | null;
   targetId: string | null;
   targetLabel: string | null;
   /** The group / person no longer exists (deleted) — show the label without a link. */
@@ -496,4 +561,57 @@ export interface AdminAiOverrideResult {
 /** (merged into AdminGroupRow) Why you turned AI off / limited this group. */
 export interface AdminGroupRow {
   aiReason?: string | null;
+}
+
+// ── System/Audit/Settings review ──
+
+/** GET /auth/link-status?requestId= — whether the login link sent for this request was used (no session is given). */
+export interface AdminLoginLinkStatus {
+  status: 'unused' | 'used' | 'expired';
+}
+
+/** GET /auth/sessions — browsers signed in to the admin app, newest first. */
+export interface AdminSessionRow {
+  id: string;
+  /** "Safari on iPhone" (from the user agent at sign-in). */
+  browser: string;
+  /** Approximate: the address the sign-in came from. */
+  ip: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  expiresAt: string;
+  /** The browser making this request. */
+  current: boolean;
+}
+
+/** GET /system/jobs/failures?name=&cron= — the failed runs behind a "Failures" number (newest first). */
+export interface AdminJobFailure {
+  id: string;
+  name: string;
+  cron: string | null;
+  at: string;
+  error: string;
+  /** Which try this was (1 = first). */
+  attempt: number;
+}
+
+export interface AdminJobFailures {
+  /** Null = every job. */
+  job: { name: string; cron: string | null } | null;
+  /** When it runs again on its own (null = unknown / not scheduled). */
+  nextRunAt: string | null;
+  /** Failures in the last 24 hours. */
+  failures: AdminJobFailure[];
+  /** Older failures still kept in the queue's history (not listed). */
+  olderKept: number;
+}
+
+/** POST /system/jobs/run — queue one run of a scheduled job right now. */
+export interface AdminRunJobInput {
+  name: string;
+  cron: string | null;
+}
+
+export interface AdminRunJobResult {
+  queuedAt: string;
 }

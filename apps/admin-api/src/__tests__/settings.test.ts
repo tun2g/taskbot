@@ -33,8 +33,49 @@ describe('GET /settings/ai', () => {
   it('returns defaults when nothing is stored', async () => {
     const res = await server.req('GET', '/api/settings/ai', { cookie });
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ dailyCallLimit: null, dailyBudgetUsd: null, alertAtPercent: 80, userDailyLimit: null, pricing: {} });
-    expect(res.body.data.defaults).toMatchObject({ provider: expect.any(String), model: expect.any(String), envDailyCallLimit: 0, userDailyLimit: 100 });
+    expect(res.body.data).toMatchObject({
+      dailyCallLimit: null,
+      dailyBudgetUsd: null,
+      alertAtPercent: 80,
+      userDailyLimit: null,
+      pricing: {},
+    });
+    // The bot hasn't reported its model yet: no made-up defaults.
+    expect(res.body.data.defaults).toMatchObject({
+      provider: null,
+      model: null,
+      envDailyCallLimit: 0,
+      userDailyLimit: 100,
+    });
+    expect(res.body.data.lastChangedAt).toBeNull();
+  });
+
+  it('shows the model and env fallback the bot reported on startup (not the admin API env)', async () => {
+    process.env.AI_DAILY_LIMIT = '999';
+    mdb.Setting.findOne.mockImplementation((q: { key: string }) =>
+      chain(
+        q.key === 'runtime'
+          ? {
+              key: 'runtime',
+              value: {
+                provider: 'gemini',
+                model: 'gemini-2.5-flash',
+                envDailyCallLimit: 300,
+                startedAt: '2026-10-24T08:00:00.000Z',
+              },
+            }
+          : { key: 'ai', value: {}, updatedAt: new Date('2026-10-18T10:00:00Z') },
+      ),
+    );
+    const res = await server.req('GET', '/api/settings/ai', { cookie });
+    expect(res.body.data.defaults).toMatchObject({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      envDailyCallLimit: 300,
+    });
+    expect(res.body.data.lastChangedAt).toBe('2026-10-18T10:00:00.000Z');
+    mdb.Setting.findOne.mockImplementation(() => chain(null));
+    delete process.env.AI_DAILY_LIMIT;
   });
 
   it('merges stored values', async () => {
@@ -65,12 +106,28 @@ describe('PUT /settings/ai', () => {
   });
 
   it('saves valid settings, audits before/after and says when the bot applies them', async () => {
-    const res = await server.req('PUT', '/api/settings/ai', { body: { ...valid, defaults: { ignored: true } }, cookie });
+    const res = await server.req('PUT', '/api/settings/ai', {
+      body: { ...valid, defaults: { ignored: true } },
+      cookie,
+    });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ ...valid, appliesWithinSeconds: 30 });
     expect(mdb.Setting.updateOne).toHaveBeenCalledWith({ key: 'ai' }, { $set: { value: valid } }, { upsert: true });
     const audit = mdb.AdminAuditLog.create.mock.calls[0][0];
     expect(audit).toMatchObject({ action: 'settings.ai.update', targetType: 'settings' });
     expect(audit.details.after).toEqual(valid);
+  });
+
+  it('records a restore from an audit entry as its own action', async () => {
+    const res = await server.req('PUT', '/api/settings/ai', {
+      body: { ...valid, restoredFrom: '0123456789abcdef01234567' },
+      cookie,
+    });
+    expect(res.status).toBe(200);
+    const audit = mdb.AdminAuditLog.create.mock.calls.at(-1)[0];
+    expect(audit).toMatchObject({
+      action: 'settings.ai.restore',
+      details: { restoredFrom: '0123456789abcdef01234567' },
+    });
   });
 });

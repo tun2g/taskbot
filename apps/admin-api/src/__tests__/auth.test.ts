@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { AdminAuditLog } from '@tbot/db';
 import { createApp } from 'src/app';
 import { LINK_LIMIT_GLOBAL, LINK_LIMIT_PER_IP } from 'src/auth/auth.routes';
 import { createSession, resetOwnerCache, SESSION_COOKIE } from 'src/auth/auth.service';
 import { setKv } from 'src/shared/redis';
+import { describeUserAgent } from 'src/auth/user-agent';
 import { telegram } from 'src/shared/telegram';
 import { cookieFrom, FakeKv, startServer, TestServer } from './helpers';
 
@@ -39,7 +41,11 @@ describe('POST /auth/request-link', () => {
   it('DMs a one-time link to the owner (and only the owner) and stores only a hash of the code', async () => {
     const res = await server.req('POST', '/api/auth/request-link', { body: {} });
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ sentTo: 'your Telegram account', expiresInSeconds: 300 });
+    expect(res.body.data).toEqual({
+      sentTo: 'your Telegram account',
+      expiresInSeconds: 300,
+      requestId: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+    });
 
     const [chatId, text, markup] = (telegram.sendMessage as jest.Mock).mock.calls[0];
     expect(chatId).toBe(OWNER);
@@ -53,6 +59,7 @@ describe('POST /auth/request-link', () => {
     const keys = [...kv.store.keys()].filter((k) => k.startsWith('admin:login:'));
     expect(keys).toHaveLength(1);
     expect(keys[0]).not.toContain(code);
+    expect([...kv.store.keys()].some((k) => k.includes(res.body.data.requestId))).toBe(false);
   });
 
   it('shows the owner @username when known', async () => {
@@ -193,4 +200,104 @@ describe('owner guard', () => {
     });
     expect(res.status).toBe(415);
   });
+});
+
+describe('sign-in details, sessions and the link status', () => {
+  const SAFARI_IPHONE =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const CHROME_MAC =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+  async function signIn(ua: string, ip: string) {
+    const link = await server.req('POST', '/api/auth/request-link', { body: {}, headers: { 'x-forwarded-for': ip } });
+    const call = (telegram.sendMessage as jest.Mock).mock.calls.at(-1)!;
+    const code = new URL(call[2].inline_keyboard[0][0].url).searchParams.get('code')!;
+    const res = await server.req('POST', '/api/auth/exchange', {
+      body: { code },
+      headers: { 'user-agent': ua, 'x-forwarded-for': ip },
+    });
+    expect(res.status).toBe(200);
+    return { cookie: cookieFrom(res.headers), requestId: link.body.data.requestId as string };
+  }
+
+  it('the waiting browser learns the link was used — and gets no session from it', async () => {
+    const link = await server.req('POST', '/api/auth/request-link', { body: {} });
+    const requestId = link.body.data.requestId;
+    const status = () => server.req('GET', `/api/auth/link-status?requestId=${requestId}`);
+    expect((await status()).body.data).toEqual({ status: 'unused' });
+
+    const call = (telegram.sendMessage as jest.Mock).mock.calls.at(-1)!;
+    const code = new URL(call[2].inline_keyboard[0][0].url).searchParams.get('code')!;
+    await server.req('POST', '/api/auth/exchange', { body: { code } });
+
+    const used = await status();
+    expect(used.body.data).toEqual({ status: 'used' });
+    expect(used.headers.get('set-cookie')).toBeNull();
+    expect((await server.req('GET', '/api/auth/link-status?requestId=nope')).body.data).toEqual({ status: 'expired' });
+  });
+
+  it('records browser + address, audits them and tells the owner on Telegram', async () => {
+    await signIn(SAFARI_IPHONE, '1.2.3.4');
+    expect(AdminAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.login', details: { browser: 'Safari on iPhone', ip: '1.2.3.4' } }),
+    );
+    const [chatId, text] = (telegram.sendMessage as jest.Mock).mock.calls.at(-1)!;
+    expect(chatId).toBe(OWNER);
+    expect(text).toMatch(
+      /New sign-in to TaskBot admin:<\/b> Safari on iPhone · 1\.2\.3\.4 · \d+ \w{3} \d{4}, \d\d:\d\d UTC\./,
+    );
+    expect(text).toContain('Not you? Open admin → Log out everywhere.');
+  });
+
+  it('lists sessions, signs out another one, and audits a single logout', async () => {
+    const phone = await signIn(SAFARI_IPHONE, '1.2.3.4');
+    const laptop = await signIn(CHROME_MAC, '5.6.7.8');
+    const list = await server.req('GET', '/api/auth/sessions', { cookie: laptop.cookie });
+    expect(list.status).toBe(200);
+    expect(list.body.data).toHaveLength(2);
+    const mine = list.body.data.find((s: any) => s.current);
+    const other = list.body.data.find((s: any) => !s.current);
+    expect(mine).toMatchObject({ browser: 'Chrome on Mac', ip: '5.6.7.8' });
+    expect(other).toMatchObject({ browser: 'Safari on iPhone', ip: '1.2.3.4', lastSeenAt: expect.any(String) });
+
+    expect(
+      (await server.req('POST', `/api/auth/sessions/${mine.id}/revoke`, { body: {}, cookie: laptop.cookie })).status,
+    ).toBe(400);
+    const revoked = await server.req('POST', `/api/auth/sessions/${other.id}/revoke`, {
+      body: {},
+      cookie: laptop.cookie,
+    });
+    expect(revoked.status).toBe(200);
+    expect(AdminAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.session_revoke',
+        details: { browser: 'Safari on iPhone', ip: '1.2.3.4' },
+      }),
+    );
+    expect((await server.req('GET', '/api/auth/me', { cookie: phone.cookie })).status).toBe(401);
+    expect(
+      (await server.req('POST', `/api/auth/sessions/${other.id}/revoke`, { body: {}, cookie: laptop.cookie })).status,
+    ).toBe(404);
+
+    await server.req('POST', '/api/auth/logout', { body: {}, cookie: laptop.cookie });
+    expect(AdminAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'auth.logout', details: { browser: 'Chrome on Mac', ip: '5.6.7.8' } }),
+    );
+  });
+});
+
+describe('describeUserAgent', () => {
+  it.each([
+    [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Edg/130.0',
+      'Edge on Windows',
+    ],
+    [
+      'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36',
+      'Chrome on Android',
+    ],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 14.0; rv:131.0) Gecko/20100101 Firefox/131.0', 'Firefox on Mac'],
+    ['curl/8.4.0', 'A script'],
+    ['', 'Unknown browser'],
+  ])('%s → %s', (ua, expected) => expect(describeUserAgent(ua)).toBe(expected));
 });

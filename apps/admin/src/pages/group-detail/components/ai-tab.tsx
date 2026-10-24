@@ -1,13 +1,14 @@
 import type { AdminGroupDetail, AdminRange } from '@tbot/shared';
 import { AI_FEATURE_VALUES, AiFeature } from '@tbot/shared';
 
-import { AiOverrideBadge } from '@/components/ui/badge';
 import { TextLink } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { EmptyState, Notice } from '@/components/ui/states';
 import { Table, Td, Th, THead, TotalRow, Tr } from '@/components/ui/table';
 import { formatMoney, formatNumber, plural } from '@/lib/format';
-import { RANGE_LABELS } from '@/lib/labels';
+import { AI_FAILED_HINT, AI_FAILED_LABEL, RANGE_LABELS } from '@/lib/labels';
+
+import { GroupAiLimitText } from './group-ai-limit-text';
 
 function asFeature(key: string): AiFeature | undefined {
   return (AI_FEATURE_VALUES as string[]).includes(key) ? (key as AiFeature) : undefined;
@@ -16,10 +17,13 @@ function asFeature(key: string): AiFeature | undefined {
 export function AiTab({
   group,
   range,
+  globalLimit,
   onOpenFeature,
 }: {
   group: AdminGroupDetail;
   range: AdminRange;
+  /** Global daily call limit from Settings (null = none; undefined = still loading). */
+  globalLimit: number | null | undefined;
   onOpenFeature: (feature: AiFeature) => void;
 }) {
   const rows = group.aiByFeature;
@@ -61,11 +65,7 @@ export function AiTab({
               a row to see its calls.
             </>
           }
-          action={
-            <span className="flex items-center gap-2 text-[13px] text-text-3">
-              Limit: <AiOverrideBadge disabled={group.aiDisabled} dailyLimit={group.aiDailyLimit} />
-            </span>
-          }
+          action={<GroupAiLimitText group={group} globalLimit={globalLimit} />}
         />
         {rows.length === 0 ? (
           <EmptyState
@@ -81,8 +81,8 @@ export function AiTab({
             <THead>
               <Th>Feature</Th>
               <Th align="right">Calls</Th>
-              <Th align="right" hint="failed, unusable or blocked">
-                Not successful
+              <Th align="right" hint={AI_FAILED_HINT}>
+                {AI_FAILED_LABEL}
               </Th>
               <Th align="right" hint="sent to the model">
                 Input tokens
@@ -133,6 +133,15 @@ export function AiTab({
               </TotalRow>
             </tbody>
           </Table>
+        )}
+        {(group.aiRefused ?? 0) > 0 && (
+          <p className="border-t border-border px-5 py-3 text-sm text-text-2">
+            {plural(group.aiRefused ?? 0, 'request was', 'requests were')} refused by a daily limit or because AI is
+            turned off. They never reached the model, so they aren’t AI calls and cost nothing.{' '}
+            <TextLink to="/ai" search={{ groupId: group.id, range, status: 'quota' }}>
+              See them →
+            </TextLink>
+          </p>
         )}
         <div className="border-t border-border px-5 py-3 text-sm">
           <TextLink to="/ai" search={{ groupId: group.id, range }}>

@@ -25,9 +25,9 @@ export function AiOverrideForm({
   reason = null,
   defaultLimitText,
   rightNow,
-  usage,
   pending,
   onSave,
+  usage,
 }: {
   subject: 'group' | 'person';
   disabled: boolean;
@@ -38,10 +38,10 @@ export function AiOverrideForm({
   defaultLimitText: string;
   /** "Right now: 10/day (your override) · group limit … · bot-wide …" — what is in force before any change. */
   rightNow?: ReactNode;
-  /** How much of the limit is used today (shown next to the form). */
-  usage?: ReactNode;
   pending: boolean;
   onSave: (input: AdminAiOverrideInput) => void;
+  /** Recent usage shown under the limit field, so a limit isn't set blind. */
+  usage?: ReactNode;
 }) {
   const form = useForm<Values, unknown, z.output<typeof schema>>({
     resolver: zodResolver(schema),
@@ -56,12 +56,7 @@ export function AiOverrideForm({
   const who = subject === 'group' ? 'this group' : 'this person';
   return (
     <Form form={form} onSubmit={(v) => onSave({ disabled: v.disabled, dailyLimit: v.dailyLimit, reason: v.reason.trim() })} className="space-y-4">
-      {(rightNow || usage) && (
-        <div className="space-y-1 rounded-xl bg-surface-2/70 px-4 py-3 text-[15px] text-text-2">
-          {rightNow && <p>{rightNow}</p>}
-          {usage && <p>{usage}</p>}
-        </div>
-      )}
+      {rightNow && <p className="rounded-xl bg-surface-2/70 px-4 py-3 text-[15px] text-text-2">{rightNow}</p>}
       <FormToggleField<Values> name="disabled" label={`Turn off AI for ${who}`} hint={TURN_OFF_HINT[subject]} />
       <FormTextField
         name="dailyLimit"
@@ -72,6 +67,7 @@ export function AiOverrideForm({
         disabled={off}
         className="max-w-40"
       />
+      {usage && <div className="-mt-2 text-[13px] text-text-2">{usage}</div>}
       <p className="text-[13px] leading-relaxed text-text-3">{WHICH_LIMIT_WINS[subject]}</p>
       {overriding && (
         <FormTextareaField

@@ -1,4 +1,4 @@
-import type { AdminAiUsage, AdminRange, AiCallStatus } from '@tbot/shared';
+import type { AdminAiUsage, AdminGroupMemberSort, AdminRange, AiCallStatus } from '@tbot/shared';
 import { AI_CALL_STATUS_VALUES, AI_FEATURE_VALUES, AiFeature, GROUP_STATUS_VALUES, GroupStatus } from '@tbot/shared';
 
 import { AUDIT_TARGET_LABELS, GROUP_SORT_LABELS, type GroupSort, USER_SORT_LABELS, type UserSort } from './labels';
@@ -32,7 +32,7 @@ export function validateRange(search: Record<string, unknown>): RangeSearch {
 
 export interface GroupsSearch extends RangeSearch {
   status?: GroupStatus;
-  /** Only groups with activity in this period (the overview's "Active groups"). */
+  /** Only groups with activity in this period (the overview's "Groups with activity"). */
   activeIn?: AdminRange;
   q?: string;
   sort?: GroupSort;
@@ -50,15 +50,38 @@ export function validateGroupsSearch(search: Record<string, unknown>): GroupsSea
   };
 }
 
-export const GROUP_TABS = ['overview', 'members', 'ai', 'settings'] as const;
+export const GROUP_TABS = ['overview', 'tasks', 'members', 'ai', 'settings'] as const;
 export type GroupTab = (typeof GROUP_TABS)[number];
+
+/** Tasks tab lists: task filters, or the group's epics. */
+export const GROUP_TASK_VIEWS = ['open', 'overdue', 'done', 'all', 'epics'] as const;
+export type GroupTaskView = (typeof GROUP_TASK_VIEWS)[number];
+
+export const GROUP_MEMBER_SORTS: AdminGroupMemberSort[] = ['lastActive', 'events', 'aiCalls', 'aiCost', 'tasks', 'tokens', 'joined'];
 
 export interface GroupDetailSearch extends RangeSearch {
   tab?: GroupTab;
+  /** Tasks tab: which list (default: open tasks). */
+  view?: GroupTaskView;
+  /** Tasks tab: only tasks created in this period (from "Tasks created" numbers). */
+  createdIn?: AdminRange;
+  /** Members tab: sort column (default: activity). */
+  sort?: AdminGroupMemberSort;
+  /** Tasks / Members tab search. */
+  q?: string;
+  page?: number;
 }
 
 export function validateGroupDetailSearch(search: Record<string, unknown>): GroupDetailSearch {
-  return { ...validateRange(search), tab: oneOf(search.tab, GROUP_TABS) };
+  return {
+    ...validateRange(search),
+    tab: oneOf(search.tab, GROUP_TABS),
+    view: oneOf(search.view, GROUP_TASK_VIEWS),
+    createdIn: oneOf(search.createdIn, RANGES),
+    sort: oneOf(search.sort, GROUP_MEMBER_SORTS),
+    q: text(search.q),
+    page: page(search.page),
+  };
 }
 
 export interface McpSearch extends RangeSearch {

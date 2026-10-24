@@ -111,7 +111,12 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
 }
 
-const DECISION_VERBS = { rejected: 'you rejected it', suspended: 'you suspended it', removed: 'you removed the bot' } as const;
+const DECISION_VERBS = {
+  rejected: 'you rejected it',
+  suspended: 'you suspended it',
+  removed: 'you removed the bot',
+  reconsidered: 'you rejected it, then cleared the rejection',
+} as const;
 
 /** "Asked before — you rejected it on 20 Oct 2026: “spam”" — the earlier decision about a group that asks again. */
 export function previousDecisionText(d: { action: keyof typeof DECISION_VERBS; at: string; reason: string | null }): string {
@@ -125,4 +130,27 @@ export function plural(count: number, one: string, many = `${one}s`): string {
 export function personName(p: { name: string; username: string | null } | null | undefined): string {
   if (!p) return 'Unknown person';
   return p.name || (p.username ? `@${p.username}` : 'Unknown person');
+}
+
+/** "24 Oct 2026, 14:05 UTC" — an exact, unambiguous time (audit log, sign-ins). */
+export function formatDateTimeUtc(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  const d = parse(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${formatTimeUtc(d)}`;
+}
+
+/** "10:20 UTC" */
+export function formatTimeUtc(value: string | Date): string {
+  const d = parse(value);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+}
+
+/** "3 days" / "5 hours" / "12 min" — how long since a time, without "ago". */
+export function formatSince(value: string | Date, now: Date = new Date()): string {
+  const s = Math.max(0, (now.getTime() - parse(value).getTime()) / 1000);
+  if (s < 90) return 'a minute';
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86400) return plural(Math.round(s / 3600), 'hour');
+  return plural(Math.floor(s / 86400), 'day');
 }

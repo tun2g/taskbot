@@ -12,6 +12,9 @@ import logger from 'src/shared/logger/logger';
 import { queueService } from 'src/shared/services/queue.service';
 import { processStatsRollupJob, STATS_ROLLUP_CRON, STATS_TODAY_CRON } from 'src/jobs/stats-rollup.job';
 import { flushUsage } from 'src/shared/services/telemetry/usage-tracker';
+import { publishRuntimeInfo } from 'src/shared/services/settings.service';
+
+const STARTED_AT = new Date();
 
 // `chat_member` is not delivered unless requested explicitly (and the bot must be a group admin).
 const ALLOWED_UPDATES: ('message' | 'edited_message' | 'callback_query' | 'chat_member' | 'my_chat_member')[] = [
@@ -25,6 +28,8 @@ const ALLOWED_UPDATES: ('message' | 'edited_message' | 'callback_query' | 'chat_
 async function bootstrap() {
   await mongodbConnection.ensureConnection();
   await runMigrations();
+  // The admin app shows the model, the AI_DAILY_LIMIT fallback and "Bot started X ago" from this.
+  await publishRuntimeInfo(STARTED_AT);
 
   const botInfo = await bot.telegram.getMe();
   configService.botUsername = botInfo.username;

@@ -53,15 +53,27 @@ type TextFieldProps = Omit<ComponentProps<typeof TextInput>, 'name'> & {
   /** Something shown inside the input on the right, e.g. "%". */
   suffix?: string;
   fieldClassName?: string;
+  /** Width of the input (with its prefix/suffix), e.g. "max-w-48" — the hint keeps the field's full width. */
+  controlClassName?: string;
 };
 
 /** A text/number input registered by name, with label, hint and the schema's error message. */
-export function FormTextField({ name, label, hint, prefix, suffix, fieldClassName, className, ...rest }: TextFieldProps) {
+export function FormTextField({
+  name,
+  label,
+  hint,
+  prefix,
+  suffix,
+  fieldClassName,
+  controlClassName,
+  className,
+  ...rest
+}: TextFieldProps) {
   const { register, formState } = useFormContext();
   const error = errorOf(formState.errors, name);
   return (
     <Field label={label} hint={hint} error={error} className={fieldClassName}>
-      <span className="relative block">
+      <span className={['relative block', controlClassName].filter(Boolean).join(' ')}>
         {prefix && <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-text-3">{prefix}</span>}
         <TextInput
           {...rest}

@@ -1,4 +1,4 @@
-import type { AdminLoginLinkResponse, AdminSession } from '@tbot/shared';
+import type { AdminLoginLinkResponse, AdminLoginLinkStatus, AdminSession } from '@tbot/shared';
 import { Request, Response, Router } from 'express';
 import { z } from 'zod';
 import { requireOwner, sessionIdOf } from 'src/auth/auth.middleware';
@@ -9,13 +9,18 @@ import {
   deleteAllSessions,
   deleteSession,
   discardLoginCode,
+  getSession,
   hitRateLimit,
   LOGIN_CODE_TTL_SECONDS,
+  loginLinkStatus,
   ownerProfile,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   StoredSession,
 } from 'src/auth/auth.service';
+import { sessionsRouter } from 'src/auth/sessions.routes';
+import { loginMessage, sendSignInNotice } from 'src/auth/notify';
+import { deviceOf, describeUserAgent } from 'src/auth/user-agent';
 import { config } from 'src/config/configuration';
 import { writeAudit } from 'src/shared/audit';
 import { asyncHandler, parseOr400, sendError } from 'src/shared/http';
@@ -42,18 +47,10 @@ async function sessionBody(session: StoredSession): Promise<AdminSession> {
   return { owner: { telegramUserId: owner.telegramUserId, name: owner.name, username: owner.username }, expiresAt: session.expiresAt };
 }
 
-export function loginMessage(link: string): { text: string; buttons: boolean } {
-  const minutes = Math.round(LOGIN_CODE_TTL_SECONDS / 60);
-  const https = link.startsWith('https://');
-  const text =
-    '🔐 <b>Sign in to the TaskBot admin app</b>\n\n' +
-    `Tap <b>Open admin</b> to sign in. The link works once and expires in ${minutes} minutes.` +
-    (https ? '' : `\n\n${link}`) +
-    "\n\nIf you didn't ask for this, ignore it — nobody can sign in without this link.";
-  return { text, buttons: https };
-}
-
 export const authRouter: Router = Router();
+
+// GET /auth/sessions, POST /auth/sessions/:id/revoke
+authRouter.use(sessionsRouter);
 
 authRouter.post(
   '/request-link',
@@ -69,7 +66,7 @@ authRouter.post(
       return;
     }
 
-    const code = await createLoginCode();
+    const { code, requestId } = await createLoginCode();
     const link = `${config.publicUrl}/login/callback?code=${encodeURIComponent(code)}`;
     const { text, buttons } = loginMessage(link);
     const sent = await telegram.sendMessage(
@@ -90,7 +87,20 @@ authRouter.post(
     const body: AdminLoginLinkResponse = {
       sentTo: owner.username ? `@${owner.username}` : 'your Telegram account',
       expiresInSeconds: LOGIN_CODE_TTL_SECONDS,
+      requestId,
     };
+    res.json({ data: body });
+  }),
+);
+
+const statusSchema = z.object({ requestId: z.string().max(100) });
+
+// GET /auth/link-status?requestId= — only "was the link used?"; it never signs this browser in.
+authRouter.get(
+  '/link-status',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { requestId } = parseOr400(statusSchema, req.query);
+    const body: AdminLoginLinkStatus = { status: await loginLinkStatus(requestId) };
     res.json({ data: body });
   }),
 );
@@ -110,10 +120,17 @@ authRouter.post(
       sendError(res, 401, 'This login link is invalid, already used or expired. Request a new one.');
       return;
     }
-    const { id, session } = await createSession(config.ownerTelegramId);
+    const device = deviceOf(req);
+    const { id, session } = await createSession(config.ownerTelegramId, { userAgent: device.userAgent, ip: device.ip });
     res.cookie(SESSION_COOKIE, id, { ...cookieOptions(), maxAge: SESSION_TTL_SECONDS * 1000 });
     const owner = await ownerProfile();
-    await writeAudit(req, { action: 'auth.login', targetType: 'session', targetLabel: owner.name });
+    await writeAudit(req, {
+      action: 'auth.login',
+      targetType: 'session',
+      targetLabel: owner.name,
+      details: { browser: device.browser, ip: device.ip },
+    });
+    await sendSignInNotice(device.browser, device.ip);
     res.json({ data: await sessionBody(session) });
   }),
 );
@@ -121,8 +138,17 @@ authRouter.post(
 authRouter.post(
   '/logout',
   asyncHandler(async (req: Request, res: Response) => {
-    await deleteSession(sessionIdOf(req));
+    const id = sessionIdOf(req);
+    const session = await getSession(id);
+    await deleteSession(id);
     res.clearCookie(SESSION_COOKIE, cookieOptions());
+    if (session) {
+      await writeAudit(req, {
+        action: 'auth.logout',
+        targetType: 'session',
+        details: { browser: describeUserAgent(session.userAgent), ip: session.ip ?? null },
+      });
+    }
     res.json({ data: { ok: true } });
   }),
 );

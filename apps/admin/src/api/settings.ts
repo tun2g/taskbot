@@ -14,8 +14,9 @@ import { overviewKeys } from './overview';
 export const settingsKeys = { ai: ['settings', 'ai'] as const };
 
 /** GET /settings/ai */
-export function useAiSettings() {
+export function useAiSettings(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: settingsKeys.ai,
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<AdminAiSettings>>('/settings/ai');
@@ -24,7 +25,10 @@ export function useAiSettings() {
   });
 }
 
-export type AiSettingsInput = Omit<AdminAiSettings, 'defaults'>;
+export type AiSettingsInput = Omit<AdminAiSettings, 'defaults' | 'lastChangedAt'> & {
+  /** The audit entry whose earlier values this puts back ("Restore these values"). */
+  restoredFrom?: string;
+};
 
 /** PUT /settings/ai — `pricing` holds only your overrides; built-in prices are in `defaults`. */
 export function useSaveAiSettings() {
@@ -36,7 +40,10 @@ export function useSaveAiSettings() {
       );
       return data;
     },
-    successMessage: 'AI settings saved — they apply within 30 seconds',
+    successMessage: (input) =>
+      input.restoredFrom
+        ? 'Earlier AI settings restored — they apply within 30 seconds'
+        : 'AI settings saved — they apply within 30 seconds',
     invalidate: [settingsKeys.ai, overviewKeys.all, auditKeys.all, aiKeys.all],
   });
 }

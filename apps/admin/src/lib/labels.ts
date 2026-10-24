@@ -95,6 +95,12 @@ export const AUDIT_TARGET_LABELS = {
   user: 'People',
   settings: 'Settings',
   session: 'Sign-ins',
+  system: 'System',
 } as const;
 
 export { AI_FEATURE_LABELS };
+
+// ── Groups review ──
+/** One word for an AI call that reached the model but didn't work. Requests refused by a limit are not AI calls. */
+export const AI_FAILED_LABEL = 'Failed';
+export const AI_FAILED_HINT = 'provider error or unusable reply';

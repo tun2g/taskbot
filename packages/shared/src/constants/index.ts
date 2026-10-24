@@ -57,3 +57,5 @@ export { AI_BUILT_IN_PRICING, AI_DEFAULT_USER_DAILY_LIMIT, AI_DEFAULT_ALERT_AT_P
 export type { AiModelPrice } from './ai-pricing.js';
 export { BACKGROUND_JOBS, backgroundJobInfo, MCP_TOOLS, mcpToolInfo } from './admin-labels.js';
 export type { BackgroundJobInfo } from './admin-labels.js';
+export { aiSettingsChangeLines, formatPricePerMillion } from './admin-settings-diff.js';
+export type { AiSettingsValues } from './admin-settings-diff.js';
