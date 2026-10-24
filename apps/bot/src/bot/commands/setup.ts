@@ -1,6 +1,14 @@
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
 import { telegramApiService } from 'src/shared/services/telegram-api.service';
+import type { BotCommandScope } from 'telegraf/types';
+
+const COMMAND_SCOPES: (BotCommandScope | undefined)[] = [
+  undefined,
+  { type: 'all_private_chats' },
+  { type: 'all_group_chats' },
+  { type: 'all_chat_administrators' },
+];
 
 interface BotCommand {
   command: string;
@@ -65,8 +73,16 @@ export class SetUpBotCommand {
     ];
   }
 
+  /**
+   * The same list on every broad scope. Telegram shows a chat the narrowest scope that has commands
+   * (chat > all_chat_administrators > all_group_chats > all_private_chats > default), so a list left on a
+   * narrower scope (e.g. by BotFather or an older deploy) would hide the default one: an approved group's
+   * "/" menu came up empty. Writing each scope on startup keeps them all current.
+   */
   async process() {
-    await telegramApiService.setMyCommands(this.commands);
+    for (const scope of COMMAND_SCOPES) {
+      await telegramApiService.setMyCommands(this.commands, scope);
+    }
     await this.setupMenuButton();
   }
 
