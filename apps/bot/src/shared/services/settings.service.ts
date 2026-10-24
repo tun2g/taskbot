@@ -1,6 +1,13 @@
 import { AI_DEFAULT_ALERT_AT_PERCENT } from '@tbot/shared';
 import mongoose from 'mongoose';
-import { AiSettings, Setting, SETTING_KEYS, SETTINGS_CACHE_SECONDS } from 'src/database/models/setting.model';
+import { configService } from 'src/configs/configuration';
+import {
+  AiSettings,
+  BotRuntimeInfo,
+  Setting,
+  SETTING_KEYS,
+  SETTINGS_CACHE_SECONDS,
+} from 'src/database/models/setting.model';
 import logger from 'src/shared/logger/logger';
 
 /** What the bot uses when the owner never saved AI settings (env vars / built-ins apply). */
@@ -36,6 +43,32 @@ export function normalizeAiSettings(value: unknown): AiSettings {
     userDailyLimit: num(v.userDailyLimit),
     pricing,
   };
+}
+
+/** What this bot process runs with, as the admin app shows it (provider, model, env daily limit, start time). */
+export function runtimeInfo(startedAt = new Date()): BotRuntimeInfo {
+  return {
+    provider: configService.ai.provider,
+    model: configService.ai.model,
+    envDailyCallLimit: configService.ai.dailyLimit,
+    startedAt: startedAt.toISOString(),
+  };
+}
+
+/**
+ * Publishes runtimeInfo() to the settings collection (key `runtime`) on startup, so the admin API reads the bot's
+ * effective env defaults instead of keeping its own copy of AI_PROVIDER / AI_MODEL / AI_DAILY_LIMIT. Never throws.
+ */
+export async function publishRuntimeInfo(startedAt = new Date()): Promise<void> {
+  try {
+    await Setting.updateOne(
+      { key: SETTING_KEYS.RUNTIME },
+      { $set: { value: runtimeInfo(startedAt) } },
+      { upsert: true },
+    );
+  } catch (error) {
+    logger.warn(`[Settings] Could not publish the bot's runtime info: ${error}`);
+  }
 }
 
 /** Runtime settings from the admin app, cached for SETTINGS_CACHE_SECONDS so admin changes apply within it. */

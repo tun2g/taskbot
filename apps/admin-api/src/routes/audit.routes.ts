@@ -7,7 +7,7 @@ import { asyncHandler, paginated, pagination } from 'src/shared/http';
 
 export const auditRouter: Router = Router();
 
-const TARGET_TYPES = ['group', 'user', 'settings', 'session'];
+const TARGET_TYPES = ['group', 'user', 'settings', 'session', 'system'];
 
 interface LeanAudit {
   _id: Types.ObjectId;

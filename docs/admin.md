@@ -32,10 +32,14 @@ Docker: `docker build -f apps/admin-api/Dockerfile .` (CI publishes `ghcr.io/tun
 | `TELEGRAM_API_URL` | no | Default `https://api.telegram.org`. |
 | `WEBAPP_URL` | no | Same as the bot. Approving a group posts the same "approved" message as approving from Telegram, with an **📋 Open board** button: `t.me/<bot>?startapp=<group>` when the bot has a Main Mini App (read from `getMe`), else `<WEBAPP_URL>/<group>/tasks` (https only). Neither available = no button. |
 | `OWNER_CONTACT` | no | Same as the bot, e.g. `@yourname`. The "not approved" and "paused" notices tell the group to message you there. Unset = that line is left out. |
-| `AI_PROVIDER`, `AI_MODEL`, `AI_DAILY_LIMIT` | no | Read-only defaults shown on the AI settings page. Use the same values as the bot. |
 | `NODE_ENV` | no | `development` drops the cookie's `Secure` flag and the `Origin` check, so a Vite dev server works. |
 
 The server refuses to start, and names each missing value, if a required variable is missing or invalid.
+
+The admin API has no AI variables. AI limits are set on the **Settings** page; the bot's `AI_DAILY_LIMIT` is only a
+fallback for installs without the admin app. The bot reports its provider, model, `AI_DAILY_LIMIT` and start time to
+MongoDB on every start (`settings` document `runtime`), and the admin app reads them from there — so the Settings
+page shows the model the bot really runs, and System shows "Bot started … ago".
 
 ### Sign-in flow
 
@@ -43,14 +47,21 @@ The server refuses to start, and names each missing value, if a required variabl
    `BOT_OWNER_TELEGRAM_ID`. The API creates a random one-time code (32 bytes). It stores only an HMAC-SHA256 of the
    code in Redis, with a 5-minute TTL. Then it DMs the owner an **Open admin** button linking to `/login/callback?code=…`.
    You must have started a private chat with the bot first, or Telegram refuses the DM. The API then answers `502`.
+   The response carries a separate `requestId`. The waiting page polls `GET /api/auth/link-status?requestId=` (→
+   `unused` / `used` / `expired`) only to say "That link was used in another browser". It never signs that browser
+   in: the link logs in whichever browser opens it.
 2. The callback page calls `POST /api/auth/exchange { code }`. The code can be used once (atomic `GETDEL`). On
    success the API creates a 12-hour session in Redis and sets the cookie `tbot_admin` (`HttpOnly`, `Secure`,
-   `SameSite=Strict`, `Path=/api`).
+   `SameSite=Strict`, `Path=/api`). The session records the browser (user agent), the client IP, when it was created
+   and when it was last used. The bot DMs the owner "New sign-in to TaskBot admin: Safari on iPhone · 1.2.3.4 · …".
 3. Every other route checks for a live session whose Telegram id equals the **current** `BOT_OWNER_TELEGRAM_ID`. If
    you change the owner id, existing sessions stop working and are deleted.
 4. `POST /api/auth/logout` ends this session. `POST /api/auth/logout-all` ends every session.
+   `GET /api/auth/sessions` lists the signed-in browsers (account menu → **Active sessions**) and
+   `POST /api/auth/sessions/:id/revoke` signs out one of them.
 
-Sign-ins and "sign out everywhere" are recorded in the audit log.
+Sign-ins (with browser and IP), log-outs, signing out another browser and "sign out everywhere" are recorded in the
+audit log.
 
 ### Security notes
 
@@ -114,9 +125,11 @@ Sign-ins and "sign out everywhere" are recorded in the audit log.
 | `POST /api/users/:id/revoke-tokens` | Revokes all of the person's MCP tokens (effective immediately) → `{ revoked }` |
 | `GET /api/ai/usage?range=&groupBy=day\|feature\|model\|group\|user&groupId=&userId=` | → `AdminAiUsage` |
 | `GET /api/ai/calls?status=&feature=&groupId=&userId=&model=&range=&page=&limit=` | → paginated `AdminAiCallRow` |
-| `GET /api/settings/ai`, `PUT /api/settings/ai` | → `AdminAiSettings` |
+| `GET /api/settings/ai`, `PUT /api/settings/ai` `{ …, restoredFrom? }` | → `AdminAiSettings` (with `lastChangedAt`; `defaults` = what the bot reported on startup). `restoredFrom` = an audit entry id when restoring the values from before that change (audited as `settings.ai.restore`). |
 | `GET /api/mcp?range=&tool=&client=` | → `AdminMcpOverview`. `tool` / `client` narrow every call number (calls, failures, per person / group / day) to one tool or client (`client=Unknown client` = calls with no client name); token numbers always cover everyone. Also returns `byGroup`, `rateLimitedBy` and the active `tokens` (max 100). |
 | `GET /api/system` | → `AdminSystemStatus` (Mongo/Redis ping, Bull queue `task-management` counts and repeating jobs — one row per schedule with last success, failures in 24 h and next run; `activity` = requests in the last hour vs the average for the same hour over the previous 7 days; `lastEventByChannel`) |
+| `GET /api/system/jobs/failures?name=&cron=` | → `AdminJobFailures`: the failed runs (last 24 h) of one schedule with time, error and attempt, plus its next run. |
+| `POST /api/system/jobs/run` `{ name, cron }` | Queues one run of a job the bot has scheduled (same input as its scheduled runs); the bot runs it within seconds. Audited. |
 | `GET /api/audit-log?page=&limit=&targetType=&targetId=` | → paginated `AdminAuditEntry`, with `changes` (plain lines such as "Daily call limit: 500 → 200") and `targetMissing` when the group / person was deleted since. |
 
 ### Where the numbers come from

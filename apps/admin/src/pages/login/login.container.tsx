@@ -7,6 +7,7 @@ import { getErrorMessage, getErrorStatus, isMockMode } from '@/lib/api-client';
 import { storeRedirect } from '@/lib/redirect';
 
 import { LoginContent } from './login.content';
+import { useLinkUsedElsewhere } from './use-link-used';
 
 const route = getRouteApi('/login/');
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -35,6 +36,8 @@ export function LoginContainer() {
   };
 
   const elapsed = sent ? Math.floor((now - sent.sentAt) / 1000) : 0;
+  const expired = !!sent && elapsed >= sent.expiresInSeconds;
+  const usedElsewhere = useLinkUsedElsewhere(sent?.requestId, !!sent && !expired);
   const status = getErrorStatus(request.error);
 
   return (
@@ -49,7 +52,8 @@ export function LoginContainer() {
           : null
       }
       resendIn={sent ? Math.max(0, RESEND_COOLDOWN_SECONDS - elapsed) : 0}
-      expired={!!sent && elapsed >= sent.expiresInSeconds}
+      expired={expired}
+      usedElsewhere={usedElsewhere}
       sessionExpired={!!redirect}
       mockHint={isMockMode}
       onSend={send}

@@ -9,7 +9,7 @@ export function LoginCallbackContent({ error }: { error: string | null }) {
         {error ? (
           <>
             <h1 className="text-lg font-semibold text-text">Couldn’t log you in</h1>
-            <p className="mt-2 text-sm leading-relaxed text-text-2">{error}</p>
+            <p className="mt-2 text-[15px] leading-relaxed text-text-2">{error}</p>
             <Link to="/login" search={{}} className={buttonClass('primary', 'md', 'mt-5 w-full')}>
               Get a new login link
             </Link>
@@ -17,7 +17,7 @@ export function LoginCallbackContent({ error }: { error: string | null }) {
         ) : (
           <>
             <Spinner className="size-6 text-accent" />
-            <p className="mt-3 text-sm text-text-2">Logging you in…</p>
+            <p className="mt-3 text-[15px] text-text-2">Logging you in…</p>
           </>
         )}
       </div>

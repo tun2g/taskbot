@@ -38,6 +38,7 @@ import {
   TRACKING_SINCE_DAYS_AGO,
 } from './fixtures';
 import { groupDetailExtras, groupReviewRoutes, groupRowExtras, MockHttpError } from './groups-review';
+import { mockBot, mockRequestLink, mockSaveSettings, systemReviewRoutes } from './system-review';
 
 const DAY = 86_400_000;
 const RANGE_DAYS: Record<AdminRange, number> = { '7d': 7, '30d': 30, '90d': 90 };
@@ -304,6 +305,7 @@ function systemStatus(): AdminSystemStatus {
     lastEventByChannel: { telegram: iso(40_000), app: iso(6 * 60_000), mcp: iso(52 * 60_000) },
     activity: { lastHour: 46, usualThisHour: 38.4 },
     versions: { adminApi: '0.1.0 (2a69084)' },
+    bot: mockBot,
   };
 }
 
@@ -368,7 +370,7 @@ const routes: [string, RegExp, Handler][] = [
     if (localStorage.getItem(SESSION_KEY)) throw new HttpError(401, 'Not logged in.');
     return { data: { owner: { telegramUserId: 50_000_000, name: 'Tung Nguyen', username: 'tun2g' }, expiresAt: iso(-7 * DAY) } };
   }],
-  ['POST', /^\/auth\/request-link$/, () => ({ data: { sentTo: '@tun2g', expiresInSeconds: 300 } })],
+  ['POST', /^\/auth\/request-link$/, () => mockRequestLink()],
   ['POST', /^\/auth\/exchange$/, ({ body }) => {
     if (body.code === 'expired') throw new HttpError(401, 'This login link has expired or was already used.');
     localStorage.removeItem(SESSION_KEY);
@@ -729,10 +731,8 @@ const routes: [string, RegExp, Handler][] = [
   }],
 
   ['GET', /^\/settings\/ai$/, () => ({ data: settings })],
-  ['PUT', /^\/settings\/ai$/, ({ body }) => {
-    Object.assign(settings, body, { defaults: settings.defaults });
-    return { data: settings };
-  }],
+  ['PUT', /^\/settings\/ai$/, ({ body }) => mockSaveSettings(body)],
+  ...systemReviewRoutes,
 ];
 
 void AiFeature;

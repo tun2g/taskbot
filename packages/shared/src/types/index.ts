@@ -61,3 +61,12 @@ export type {
 } from './admin.js';
 // ── Groups review ──
 export type { AdminGroupMemberSort, AdminGroupTaskFilter, AdminGroupTaskCounts, AdminTaskVia, AdminGroupTaskRow, AdminGroupEpicRow } from './admin.js';
+// System/Audit/Settings review
+export type {
+  AdminLoginLinkStatus,
+  AdminSessionRow,
+  AdminJobFailure,
+  AdminJobFailures,
+  AdminRunJobInput,
+  AdminRunJobResult,
+} from './admin.js';

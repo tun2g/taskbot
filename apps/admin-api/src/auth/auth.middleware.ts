@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { config } from 'src/config/configuration';
-import { deleteSession, getSession, SESSION_COOKIE, StoredSession } from 'src/auth/auth.service';
+import { deleteSession, getSession, SESSION_COOKIE, StoredSession, touchSession } from 'src/auth/auth.service';
 import { asyncHandler, sendError } from 'src/shared/http';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -80,5 +80,7 @@ export const requireOwner = asyncHandler(async (req: Request, res: Response, nex
   }
   res.locals.session = session;
   res.locals.sessionId = id;
+  // "Last active" in the sessions list; never fails the request.
+  await touchSession(id!, session).catch(() => undefined);
   next();
 });

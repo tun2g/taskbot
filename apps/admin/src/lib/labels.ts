@@ -83,6 +83,7 @@ export const AUDIT_TARGET_LABELS = {
   user: 'People',
   settings: 'Settings',
   session: 'Sign-ins',
+  system: 'System',
 } as const;
 
 export { AI_FEATURE_LABELS };

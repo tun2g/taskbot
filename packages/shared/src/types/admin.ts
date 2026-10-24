@@ -13,6 +13,8 @@ export interface AdminLoginLinkResponse {
   sentTo: string;
   /** Seconds until the link expires. */
   expiresInSeconds: number;
+  /** Lets this browser ask whether the link was used (GET /auth/link-status) — never logs it in. */
+  requestId?: string;
 }
 
 /** POST /auth/exchange { code } → sets the session cookie. */
@@ -357,11 +359,14 @@ export interface AdminAiSettings {
   alertAtPercent: number;
   userDailyLimit: number | null;
   pricing: Record<string, { input: number; cachedInput?: number; output: number }>;
+  /** When the owner last saved these settings (null = never). */
+  lastChangedAt?: string | null;
   /** Read-only context for the form. */
   defaults: {
-    provider: string;
-    model: string;
-    /** AI_DAILY_LIMIT from env (0 = none). */
+    /** What the bot reported when it last started (null = the bot hasn't reported yet). */
+    provider: string | null;
+    model: string | null;
+    /** The bot's AI_DAILY_LIMIT fallback (0 = none). */
     envDailyCallLimit: number;
     userDailyLimit: number;
     builtInPricing: Record<string, { input: number; cachedInput?: number; output: number }>;
@@ -446,6 +451,8 @@ export interface AdminSystemStatus {
   /** Requests in the last hour vs the usual for this hour of day (average over the previous 7 days). */
   activity?: { lastHour: number; usualThisHour: number };
   versions: { adminApi: string };
+  /** When the bot process last started (it reports this to the database on startup; null = never reported). */
+  bot?: { startedAt: string | null };
 }
 
 /** GET /audit-log?page=&limit=&targetType=&targetId= */
@@ -455,7 +462,7 @@ export interface AdminAuditEntry {
   action: string;
   /** Plain sentence, e.g. "Suspended group “Acme Mobile Team”". */
   summary: string;
-  targetType: 'group' | 'user' | 'settings' | 'session' | null;
+  targetType: 'group' | 'user' | 'settings' | 'session' | 'system' | null;
   targetId: string | null;
   targetLabel: string | null;
   /** The group / person no longer exists (deleted) — show the label without a link. */
@@ -464,4 +471,57 @@ export interface AdminAuditEntry {
   /** Plain-language lines about what changed (e.g. "Daily call limit: 500 → 200"). */
   changes?: string[];
   details: Record<string, unknown> | null;
+}
+
+// ── System/Audit/Settings review ──
+
+/** GET /auth/link-status?requestId= — whether the login link sent for this request was used (no session is given). */
+export interface AdminLoginLinkStatus {
+  status: 'unused' | 'used' | 'expired';
+}
+
+/** GET /auth/sessions — browsers signed in to the admin app, newest first. */
+export interface AdminSessionRow {
+  id: string;
+  /** "Safari on iPhone" (from the user agent at sign-in). */
+  browser: string;
+  /** Approximate: the address the sign-in came from. */
+  ip: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  expiresAt: string;
+  /** The browser making this request. */
+  current: boolean;
+}
+
+/** GET /system/jobs/failures?name=&cron= — the failed runs behind a "Failures" number (newest first). */
+export interface AdminJobFailure {
+  id: string;
+  name: string;
+  cron: string | null;
+  at: string;
+  error: string;
+  /** Which try this was (1 = first). */
+  attempt: number;
+}
+
+export interface AdminJobFailures {
+  /** Null = every job. */
+  job: { name: string; cron: string | null } | null;
+  /** When it runs again on its own (null = unknown / not scheduled). */
+  nextRunAt: string | null;
+  /** Failures in the last 24 hours. */
+  failures: AdminJobFailure[];
+  /** Older failures still kept in the queue's history (not listed). */
+  olderKept: number;
+}
+
+/** POST /system/jobs/run — queue one run of a scheduled job right now. */
+export interface AdminRunJobInput {
+  name: string;
+  cron: string | null;
+}
+
+export interface AdminRunJobResult {
+  queuedAt: string;
 }
