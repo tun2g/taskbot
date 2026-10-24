@@ -5,7 +5,7 @@ import { buttonClass, Spinner } from '@/components/ui/button';
 export function LoginCallbackContent({ error }: { error: string | null }) {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-bg px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-6 text-center shadow-[var(--shadow)]">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-6 text-center">
         {error ? (
           <>
             <h1 className="text-lg font-semibold text-text">Couldn’t log you in</h1>

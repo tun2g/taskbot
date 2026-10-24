@@ -35,14 +35,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <nav aria-label="Main" className="flex h-full flex-col">
-      <Link to="/" onClick={onNavigate} className="flex items-center gap-2.5 px-4 pt-5 pb-4">
-        <img src="/favicon.svg" alt="" className="size-7" />
+      <Link to="/" onClick={onNavigate} className="flex items-center gap-3 px-5 pt-6 pb-5">
+        <img src="/favicon.svg" alt="" className="size-9" />
         <span className="leading-tight">
-          <span className="block text-sm font-semibold text-text">TaskBot</span>
-          <span className="block text-xs text-text-3">Owner admin</span>
+          <span className="block text-base font-semibold text-text">TaskBot</span>
+          <span className="block text-[13px] text-text-3">Owner admin</span>
         </span>
       </Link>
-      <ul className="flex-1 space-y-0.5 px-2">
+      <ul className="flex-1 space-y-1 px-3">
         {NAV.map((item) => {
           const active = 'exact' in item ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`);
           return (
@@ -51,8 +51,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 to={item.to}
                 onClick={onNavigate}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors',
-                  active ? 'bg-accent-soft font-medium text-accent-text' : 'text-text-2 hover:bg-surface-2 hover:text-text',
+                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] transition-colors',
+                  active ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-text-2 hover:bg-surface-2 hover:text-text',
                 )}
               >
                 <NavIcon name={item.icon} />
@@ -60,7 +60,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 {item.to === '/groups' && pending > 0 && (
                   <span
                     title={`${pending} group${pending === 1 ? '' : 's'} waiting for your approval`}
-                    className="rounded-full bg-warn px-1.5 text-xs font-semibold text-white tabular"
+                    className="rounded-full bg-warn px-2 py-0.5 text-[13px] leading-none font-semibold text-white tabular"
                   >
                     {pending}
                   </span>
@@ -71,7 +71,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </ul>
       {isMockMode && (
-        <p className="mx-3 mb-3 rounded-md bg-warn-soft px-2.5 py-1.5 text-xs text-warn">
+        <p className="mx-3 mb-4 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] text-warn">
           Mock mode — fixture data, nothing is saved.
         </p>
       )}
@@ -132,20 +132,20 @@ function UserMenu() {
     <>
       <Menu
         label="Account"
-        triggerClassName="h-8 gap-2 px-1.5"
+        triggerClassName="h-10 gap-2.5 rounded-full py-1 pr-3 pl-1"
         trigger={
           <>
-            <span className="flex size-7 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-text">
+            <span className="flex size-8 items-center justify-center rounded-full bg-accent text-sm text-on-accent font-semibold text-accent-text">
               {initials}
             </span>
-            <span className="hidden max-w-32 truncate text-sm text-text sm:block">{owner?.name ?? 'Owner'}</span>
+            <span className="hidden max-w-40 truncate text-[15px] font-medium text-text sm:block">{owner?.name ?? 'Owner'}</span>
           </>
         }
         header={
           owner && (
-            <div className="border-b border-border px-3 pt-1 pb-2">
-              <p className="text-sm font-medium text-text">{owner.name}</p>
-              <p className="text-xs text-text-3">{owner.username ? `@${owner.username} · ` : ''}Bot owner</p>
+            <div className="mb-1 border-b border-border px-3 pt-2 pb-2.5">
+              <p className="text-[15px] font-semibold text-text">{owner.name}</p>
+              <p className="text-[13px] text-text-3">{owner.username ? `@${owner.username} · ` : ''}Bot owner</p>
             </div>
           )
         }
@@ -195,12 +195,12 @@ export function AppShell() {
       {drawer && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} aria-hidden />
-          <aside className="absolute inset-y-0 left-0 w-64 max-w-[85vw] bg-surface shadow-[var(--shadow-lg)]">
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface">
             <Sidebar onNavigate={() => setDrawer(false)} />
           </aside>
         </div>
       )}
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-bg/90 px-4 backdrop-blur sm:px-6">
+      <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-bg/85 px-4 backdrop-blur sm:px-8">
         <button
           type="button"
           className="-ml-1 inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-text-2 hover:bg-surface-2 lg:hidden"
@@ -213,7 +213,7 @@ export function AppShell() {
         {ranged && <RangeSelect />}
         <UserMenu />
       </header>
-      <main className="mx-auto w-full min-w-0 max-w-[1280px] px-4 py-5 sm:px-6 sm:py-6">
+      <main className="mx-auto w-full min-w-0 max-w-[1320px] px-4 py-6 sm:px-8 sm:py-8">
         <Outlet />
       </main>
     </div>

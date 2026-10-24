@@ -70,7 +70,7 @@ export function DailyChart({
     const untracked = !!row?.__untracked;
     const total = payload.reduce((s, p) => s + (typeof p.value === 'number' ? p.value : 0), 0);
     return (
-      <div className="min-w-40 rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-[var(--shadow-lg)]">
+      <div className="min-w-40 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] shadow-[var(--shadow-lg)]">
         <p className="mb-1 font-medium text-text">{formatDay(String(label), { withYear: true })}</p>
         {untracked ? (
           <p className="text-text-3">Not tracked yet</p>
@@ -128,7 +128,7 @@ export function DailyChart({
   return (
     <div role="img" aria-label={ariaLabel}>
       {series.length > 1 && (
-        <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-2">
+        <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-text-2">
           {series.map((s) => (
             <span key={s.key} className="flex items-center gap-1.5">
               <span className="size-2.5 rounded-sm" style={{ background: s.color }} />

@@ -33,7 +33,7 @@ export function Badge({ tone = 'neutral', children, title, dot = true, className
   return (
     <span
       title={title}
-      className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', TONES[tone], className)}
+      className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] leading-none font-medium whitespace-nowrap', TONES[tone], className)}
     >
       {dot && <span aria-hidden className={cn('size-1.5 rounded-full', DOTS[tone])} />}
       {children}
@@ -79,7 +79,7 @@ export function AiOverrideBadge({ disabled, dailyLimit }: { disabled: boolean; d
       </Badge>
     );
   return (
-    <span className="text-xs text-text-3" title="Uses the default limits from Settings.">
+    <span className="text-[13px] text-text-3" title="Uses the default limits from Settings.">
       Default
     </span>
   );

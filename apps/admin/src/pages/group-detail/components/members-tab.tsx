@@ -95,7 +95,7 @@ export function MembersTab({
                       <>
                         <RelativeTime value={m.lastActiveHereAt} never="Not in 90 days" />
                         {m.lastSeenAt && m.lastSeenAt !== m.lastActiveHereAt && (
-                          <span className="block text-xs text-text-3">
+                          <span className="block text-[13px] text-text-3">
                             anywhere: <RelativeTime value={m.lastSeenAt} />
                           </span>
                         )}

@@ -47,31 +47,31 @@ export function KpiCard({
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-medium text-text-2">{label}</span>
+        <span className="text-[15px] font-medium text-text-2">{label}</span>
         {to && (
           <span aria-hidden className="text-text-3 transition-transform group-hover:translate-x-0.5">
             →
           </span>
         )}
       </div>
-      <div className="mt-1.5 text-2xl font-semibold tracking-tight text-text tabular">{value}</div>
+      <div className="mt-2 text-[30px] leading-tight font-bold tracking-tight text-text tabular">{value}</div>
       {previousMissing && current != null && (
-        <div className="mt-0.5 text-xs text-text-3">No data for the previous period (before tracking started)</div>
+        <div className="mt-0.5 text-[13px] text-text-3">No data for the previous period (before tracking started)</div>
       )}
       {delta && (
-        <div className={cn('mt-0.5 text-xs font-medium tabular', deltaTone)}>
+        <div className={cn('mt-0.5 text-[13px] font-medium tabular', deltaTone)}>
           {delta.text} <span className="font-normal text-text-3">vs previous period</span>
         </div>
       )}
-      <p className="mt-2 text-xs leading-relaxed text-text-3">{hint}</p>
+      <p className="mt-2.5 text-sm leading-relaxed text-text-3">{hint}</p>
       {footer}
     </>
   );
 
-  const cls = 'group block rounded-xl border border-border bg-surface p-4 shadow-[var(--shadow)]';
+  const cls = 'group block rounded-2xl border border-border bg-surface p-5';
   if (!to) return <div className={cls}>{body}</div>;
   return (
-    <Link to={to} search={search} params={params} className={cn(cls, 'transition-colors hover:border-accent/50')}>
+    <Link to={to} search={search} params={params} className={cn(cls, 'transition-colors hover:border-accent/50 hover:bg-accent-soft/30')}>
       {body}
     </Link>
   );

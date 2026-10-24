@@ -21,13 +21,13 @@ const STUCK_SECONDS = 10 * 60;
 
 function StatusCard({ title, badge, value, children }: { title: string; badge: { tone: Tone; text: string }; value: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 shadow-[var(--shadow)]">
+    <div className="rounded-2xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-medium text-text-2">{title}</span>
+        <span className="text-sm font-medium text-text-2">{title}</span>
         <Badge tone={badge.tone}>{badge.text}</Badge>
       </div>
       <div className="mt-1.5 text-xl font-semibold text-text tabular">{value}</div>
-      <div className="mt-2 space-y-1.5 text-xs leading-relaxed text-text-3">{children}</div>
+      <div className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-text-3">{children}</div>
     </div>
   );
 }
@@ -88,7 +88,7 @@ export function SystemContent(props: {
       subtitle="Is the bot healthy? Database, cache, background jobs and whether people are reaching the bot right now."
       actions={
         props.updatedAt > 0 && (
-          <span className="text-xs text-text-3">
+          <span className="text-[13px] text-text-3">
             Refreshes every 30 seconds · checked {formatRelative(new Date(props.updatedAt))}
           </span>
         )
@@ -206,10 +206,10 @@ export function SystemContent(props: {
           {q ? (
             <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-4">
               {queueCells.map((c) => (
-                <div key={c.key} className="bg-surface px-4 py-3">
-                  <div className="text-xs font-medium text-text-2">{c.label}</div>
+                <div key={c.key} className="bg-surface px-5 py-3">
+                  <div className="text-[13px] font-medium text-text-2">{c.label}</div>
                   <div className={cn('mt-0.5 text-lg font-semibold tabular', c.bad ? 'text-danger' : 'text-text')}>{formatNumber(c.value)}</div>
-                  <div className="mt-0.5 text-xs text-text-3">{c.hint}</div>
+                  <div className="mt-0.5 text-[13px] text-text-3">{c.hint}</div>
                 </div>
               ))}
             </div>
@@ -256,9 +256,9 @@ export function SystemContent(props: {
                     <Tr key={j.key ?? `${j.name}|${j.cron}`}>
                       <Td className="max-w-sm">
                         <div className="font-medium text-text">{info.label}</div>
-                        <div className="text-xs text-text-3">{info.what}</div>
+                        <div className="text-[13px] text-text-3">{info.what}</div>
                         {j.lastError && (
-                          <div className="mt-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-xs text-danger">
+                          <div className="mt-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-[13px] text-danger">
                             <span className="font-medium">Last run failed:</span> {j.lastError}
                             <div className="mt-0.5 text-text-2">{info.ifFailing}</div>
                           </div>
@@ -271,18 +271,18 @@ export function SystemContent(props: {
                           <span title={`cron: ${j.cron} (UTC)`}>{words}</span>
                         ) : (
                           <span>
-                            <code className="font-mono text-xs">{j.cron}</code> <span className="text-xs text-text-3">(cron, UTC)</span>
+                            <code className="font-mono text-[13px]">{j.cron}</code> <span className="text-[13px] text-text-3">(cron, UTC)</span>
                           </span>
                         )}
                         {j.nextRunAt && (
-                          <div className="text-xs text-text-3">
+                          <div className="text-[13px] text-text-3">
                             Next: <RelativeTime value={j.nextRunAt} />
                           </div>
                         )}
                       </Td>
                       <Td>
                         <RelativeTime value={j.lastRunAt} never="Not run yet" />
-                        <div className="text-xs">
+                        <div className="text-[13px]">
                           {j.lastError ? (
                             <span className="font-medium text-danger">Failed</span>
                           ) : j.lastRunAt ? (
@@ -310,7 +310,7 @@ export function SystemContent(props: {
           )}
         </Card>
 
-        <p className="text-xs text-text-3">Admin API version {d.versions.adminApi}</p>
+        <p className="text-[13px] text-text-3">Admin API version {d.versions.adminApi}</p>
       </div>
     </>
   );

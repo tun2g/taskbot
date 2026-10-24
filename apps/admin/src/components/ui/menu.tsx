@@ -52,8 +52,8 @@ export function Menu({
         title={label}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'inline-flex cursor-pointer items-center justify-center rounded-md text-text-2 hover:bg-surface-2 hover:text-text',
-          triggerClassName ?? 'size-7',
+          'inline-flex cursor-pointer items-center justify-center text-text-2 hover:bg-surface-2 hover:text-text',
+          triggerClassName ?? 'size-8 rounded-lg',
         )}
       >
         {trigger}
@@ -62,7 +62,7 @@ export function Menu({
         <div
           role="menu"
           className={cn(
-            'absolute z-40 mt-1 min-w-52 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-[var(--shadow-lg)]',
+            'absolute z-40 mt-1 min-w-52 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[var(--shadow-lg)]',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >
@@ -77,12 +77,12 @@ export function Menu({
                 item.onSelect();
               }}
               className={cn(
-                'block w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-surface-2',
+                'block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-[15px] hover:bg-surface-2',
                 item.danger ? 'text-danger' : 'text-text',
               )}
             >
               {item.label}
-              {item.hint && <span className="mt-0.5 block text-xs text-text-3">{item.hint}</span>}
+              {item.hint && <span className="mt-0.5 block text-[13px] text-text-3">{item.hint}</span>}
             </button>
           ))}
         </div>

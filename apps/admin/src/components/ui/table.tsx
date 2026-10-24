@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn';
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn('relative overflow-x-auto', className)}>
-      <table className="w-full border-collapse text-sm">{children}</table>
+      <table className="w-full border-collapse text-[15px]">{children}</table>
     </div>
   );
 }
@@ -14,7 +14,7 @@ export function Table({ children, className }: { children: ReactNode; className?
 export function THead({ children }: { children: ReactNode }) {
   return (
     <thead>
-      <tr className="border-y border-border bg-surface-2/60">{children}</tr>
+      <tr className="border-y border-border bg-surface-2/50">{children}</tr>
     </thead>
   );
 }
@@ -39,7 +39,7 @@ export function Th({
       scope="col"
       aria-sort={sort?.active ? 'descending' : undefined}
       className={cn(
-        'px-3 py-2 text-xs font-medium whitespace-nowrap text-text-2 first:pl-4 last:pr-4',
+        'px-3 py-3 align-bottom text-sm font-medium whitespace-nowrap text-text-2 first:pl-5 last:pr-5',
         align === 'right' ? 'text-right' : 'text-left',
         className,
       )}
@@ -49,17 +49,21 @@ export function Th({
           type="button"
           onClick={sort.onSort}
           title={sort.active ? 'Sorted by this column (highest first)' : 'Sort by this column (highest first)'}
-          className={cn('inline-flex cursor-pointer items-center gap-1 hover:text-text', sort.active && 'text-text')}
+          className={cn('inline-flex cursor-pointer items-center gap-1 hover:text-text', sort.active && 'font-semibold text-accent-text')}
         >
           {children}
-          <span aria-hidden className={cn('text-[10px]', sort.active ? 'text-accent-text' : 'text-text-3/60')}>
-            ▼
-          </span>
+          <svg aria-hidden viewBox="0 0 16 16" className={cn('size-3.5', sort.active ? 'text-accent-text' : 'text-text-3/50')}>
+            <path fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" d="M8 3.5v9M4.5 9 8 12.5 11.5 9" />
+          </svg>
         </button>
       ) : (
         children
       )}
-      {hint && <span className="block text-[11px] font-normal text-text-3">{hint}</span>}
+      {hint && (
+        <span className={cn('mt-0.5 block max-w-44 min-w-28 text-[13px] leading-snug font-normal whitespace-normal text-text-3', align === 'right' && 'ml-auto')}>
+          {hint}
+        </span>
+      )}
     </th>
   );
 }
@@ -73,7 +77,7 @@ export function Tr({ children, onOpen, className }: { children: ReactNode; onOpe
       tabIndex={onOpen ? 0 : undefined}
       className={cn(
         'border-b border-border last:border-b-0',
-        onOpen && 'cursor-pointer hover:bg-surface-2/70 focus-visible:bg-surface-2',
+        onOpen && 'cursor-pointer transition-colors hover:bg-accent-soft/40 focus-visible:bg-accent-soft/50',
         className,
       )}
     >
@@ -98,8 +102,8 @@ export function Td({
     <td
       onClick={stop ? (e) => e.stopPropagation() : undefined}
       className={cn(
-        'px-3 py-2.5 align-middle first:pl-4 last:pr-4',
-        align === 'right' ? 'text-right tabular' : 'text-left',
+        'px-3 py-3.5 align-middle first:pl-5 last:pr-5',
+        align === 'right' ? 'text-right tabular whitespace-nowrap' : 'text-left',
         className,
       )}
     >

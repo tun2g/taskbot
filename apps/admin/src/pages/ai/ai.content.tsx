@@ -95,7 +95,7 @@ export function AiContent({
       >
         {scoped && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[13px] text-text-3">Showing only:</span>
+            <span className="text-sm text-text-3">Showing only:</span>
             {filters.groupId && (
               <FilterChip
                 label={<>Group: {filters.groupLabel}</>}
@@ -125,7 +125,7 @@ export function AiContent({
             <Notice
               tone="warn"
               action={
-                <TextLink to="/settings" className="text-[13px] font-medium whitespace-nowrap">
+                <TextLink to="/settings" className="text-sm font-medium whitespace-nowrap">
                   Open price table →
                 </TextLink>
               }
@@ -237,7 +237,7 @@ export function AiContent({
         />
       </Card>
       {usage && usage.totals.calls > 0 && (
-        <p className="text-xs text-text-3">
+        <p className="text-[13px] text-text-3">
           {formatNumber(usage.totals.calls)} calls in this period cost an estimated {formatMoney(usage.totals.costUsd)}.
           Prices are set per model in <TextLink to="/settings">Settings</TextLink>.
         </p>

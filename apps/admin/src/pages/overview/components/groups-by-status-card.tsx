@@ -21,7 +21,7 @@ export function GroupsByStatusCard({ counts }: { counts: Record<GroupStatus, num
             >
               <span className="min-w-0">
                 <GroupStatusBadge status={status} />
-                <span className="mt-1 block text-xs text-text-3">{GROUP_STATUS_HINTS[status]}</span>
+                <span className="mt-1 block text-[13px] text-text-3">{GROUP_STATUS_HINTS[status]}</span>
               </span>
               <span className="pt-0.5 text-sm font-semibold text-text tabular">{formatNumber(counts[status] ?? 0)}</span>
             </Link>

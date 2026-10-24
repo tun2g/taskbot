@@ -22,7 +22,7 @@ function Failures({ failed, calls }: { failed: number; calls: number }) {
   const rate = calls > 0 ? failed / calls : 0;
   return (
     <span className={cn(rate >= 0.1 ? 'font-medium text-danger' : 'text-text')}>
-      {formatNumber(failed)} <span className="text-xs text-text-3">({formatPercent(rate, 1)})</span>
+      {formatNumber(failed)} <span className="text-[13px] text-text-3">({formatPercent(rate, 1)})</span>
     </span>
   );
 }
@@ -79,7 +79,7 @@ export function McpContent(props: {
         <TrackingNotice trackingSince={props.trackingSince} from={props.from} what="MCP calls before that day weren’t counted" />
 
         {filtered && (
-          <div className="flex flex-wrap items-center gap-2 text-[13px] text-text-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-text-2">
             Showing only
             {tool && <FilterChip label={<>Tool: {mcpToolInfo(tool).label}</>} onRemove={() => props.onFilter({ tool: undefined })} />}
             {client && <FilterChip label={<>Client: {client}</>} onRemove={() => props.onFilter({ client: undefined })} />}
@@ -93,7 +93,7 @@ export function McpContent(props: {
             value={formatNumber(data.activeTokens)}
             hint="Not revoked and not expired, right now. Each lets an AI client act as that person."
             footer={
-              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[13px]">
                 <a href="#tokens" className="text-accent-text hover:underline">
                   See the tokens ↓
                 </a>
@@ -185,9 +185,9 @@ export function McpContent(props: {
                           <Td className="max-w-xs">
                             <div className="flex flex-wrap items-baseline gap-x-2">
                               <span className="font-medium text-text">{info.label}</span>
-                              <span className={cn('text-[11px]', info.writes ? 'text-warn' : 'text-text-3')}>{info.writes ? 'changes tasks' : 'read-only'}</span>
+                              <span className={cn('text-xs', info.writes ? 'text-warn' : 'text-text-3')}>{info.writes ? 'changes tasks' : 'read-only'}</span>
                             </div>
-                            <div className="text-xs text-text-3">{info.what}</div>
+                            <div className="text-[13px] text-text-3">{info.what}</div>
                           </Td>
                           <Td align="right">{formatNumber(t.calls)}</Td>
                           <Td align="right">
@@ -211,7 +211,7 @@ export function McpContent(props: {
                           <button
                             type="button"
                             onClick={() => props.onFilter({ client: active ? undefined : c.client })}
-                            className={cn('block w-full cursor-pointer px-4 py-2.5 text-left hover:bg-surface-2/70', active && 'bg-accent-soft/60')}
+                            className={cn('block w-full cursor-pointer px-5 py-3 text-left hover:bg-surface-2/70', active && 'bg-accent-soft/60')}
                           >
                             <div className="mb-1 flex justify-between gap-3 text-sm">
                               <span className="text-text">{c.client}</span>
@@ -236,7 +236,7 @@ export function McpContent(props: {
                       {data.topUsers.map((u) => (
                         <li
                           key={u.person.telegramUserId}
-                          className={u.person.id ? 'cursor-pointer px-4 py-2.5 hover:bg-surface-2/70' : 'px-4 py-2.5'}
+                          className={u.person.id ? 'cursor-pointer px-5 py-3 hover:bg-surface-2/70' : 'px-5 py-3'}
                           onClick={u.person.id ? () => navigate({ to: '/users/$userId', params: { userId: u.person.id! }, search: { range } }) : undefined}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -244,7 +244,7 @@ export function McpContent(props: {
                             <span className="shrink-0 text-right text-sm text-text-2 tabular">
                               {plural(u.calls, 'call')}
                               {(u.failed || u.rateLimited) ? (
-                                <span className="block text-xs text-text-3">
+                                <span className="block text-[13px] text-text-3">
                                   {[u.failed ? `${formatNumber(u.failed)} failed` : null, u.rateLimited ? `${formatNumber(u.rateLimited)} refused` : null]
                                     .filter(Boolean)
                                     .join(' · ')}
@@ -310,7 +310,7 @@ export function McpContent(props: {
                   ) : (
                     <ul className="divide-y divide-border border-t border-border">
                       {data.rateLimitedBy.map((u) => (
-                        <li key={u.person.telegramUserId} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <li key={u.person.telegramUserId} className="flex items-center justify-between gap-3 px-5 py-3">
                           <PersonCell person={u.person} />
                           <span className="shrink-0 text-sm text-text-2 tabular">{plural(u.count, 'refused request')}</span>
                         </li>
@@ -350,7 +350,7 @@ export function McpContent(props: {
                     >
                       <Td>
                         <div className="font-medium text-text">{t.name}</div>
-                        <code className="font-mono text-xs text-text-3">{t.prefix}…</code>
+                        <code className="font-mono text-[13px] text-text-3">{t.prefix}…</code>
                       </Td>
                       <Td className="max-w-48">
                         <PersonCell person={t.person} />

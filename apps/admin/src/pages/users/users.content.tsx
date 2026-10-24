@@ -48,14 +48,14 @@ export function UsersContent(props: {
         subtitle="Everyone who has used the bot in any group. Open a person to see their groups, AI use and MCP tokens."
       />
       <Card>
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3 px-5 py-3">
           <SearchInput
             value={props.query}
             onChange={props.onQuery}
             placeholder="Search by name or @username"
             className="w-full sm:w-72"
           />
-          <label className="flex items-center gap-2 text-[13px] whitespace-nowrap text-text-2">
+          <label className="flex items-center gap-2 text-sm whitespace-nowrap text-text-2">
             Sort by
             <Select value={props.sort} onChange={(e) => props.onSort(e.target.value as UserSort)}>
               {(Object.keys(USER_SORT_LABELS) as UserSort[]).map((s) => (
@@ -171,7 +171,7 @@ export function UsersContent(props: {
           </>
         )}
       </Card>
-      <p className="mt-3 text-xs text-text-3">
+      <p className="mt-3 text-[13px] text-text-3">
         Click a column name to sort. AI cost is estimated from token counts × your price table (Settings); click an AI number to see the calls behind it.
       </p>
     </>

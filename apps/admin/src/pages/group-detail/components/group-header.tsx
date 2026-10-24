@@ -31,7 +31,7 @@ export function GroupHeader({
 
   return (
     <div className="mb-5">
-      <Link to="/groups" className="text-[13px] text-text-3 hover:text-text">
+      <Link to="/groups" className="text-sm text-text-3 hover:text-text">
         ← Groups
       </Link>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
@@ -47,7 +47,7 @@ export function GroupHeader({
           </div>
           <p className="mt-1 text-sm text-text-2">{GROUP_STATUS_HINTS[group.status]}</p>
           {group.previousDecision && (
-            <p className="mt-1 text-[13px] text-warn">
+            <p className="mt-1 text-sm text-warn">
               {previousDecisionText(group.previousDecision)}.{' '}
               <TextLink to="/audit-log" search={{ targetType: 'group', targetId: group.id }}>
                 See history
@@ -55,7 +55,7 @@ export function GroupHeader({
             </p>
           )}
           {(group.statusReason || showChange) && (
-            <p className="mt-1 text-[13px] text-text-3">
+            <p className="mt-1 text-sm text-text-3">
               {showChange && (
                 <span title={formatDateTime(group.statusChangedAt)}>
                   {STATUS_CHANGE_VERB[group.status] ?? 'Status changed'} {formatRelative(group.statusChangedAt)}
@@ -85,7 +85,7 @@ export function GroupHeader({
             <Menu
               label={`More actions for ${group.name}`}
               trigger={<MoreIcon />}
-              triggerClassName="size-9 border border-border-strong bg-surface"
+              triggerClassName="size-10 rounded-xl border border-border-strong bg-surface"
               items={more.map((a) => ({
                 label: ACTION_LABELS[a],
                 hint: a === 'leave' ? 'Bot leaves; tasks are kept' : a === 'delete' ? 'Removes all tasks permanently' : undefined,
@@ -97,7 +97,7 @@ export function GroupHeader({
         </div>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-4 py-3 sm:grid-cols-3 lg:grid-cols-5">
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-border bg-surface px-5 py-4 sm:grid-cols-3 lg:grid-cols-5">
         <Meta label="Added">
           <span title={formatDateTime(group.addedAt ?? group.createdAt)}>{formatDate(group.addedAt ?? group.createdAt)}</span>
           {group.addedBy && (
@@ -145,17 +145,17 @@ export function GroupHeader({
       </dl>
 
       {group.status === GroupStatus.MIGRATED && (
-        <p className="mt-3 text-[13px] text-text-3">
+        <p className="mt-3 text-sm text-text-3">
           Telegram upgraded this chat to a supergroup. Its tasks moved to the new group — find it under Active groups.
         </p>
       )}
       {group.botLeftAt && group.status === GroupStatus.LEFT && (
-        <p className="mt-3 text-[13px] text-text-3">
+        <p className="mt-3 text-sm text-text-3">
           The bot left on {formatDate(group.botLeftAt)}. If someone adds it back, the group’s approval is restored.
         </p>
       )}
 
-      <p className="mt-3 text-[13px]">
+      <p className="mt-3 text-sm">
         <TextLink to="/audit-log" search={{ targetType: 'group', targetId: group.id }}>
           Activity history — what you changed for this group →
         </TextLink>

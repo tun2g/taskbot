@@ -59,10 +59,10 @@ export function SettingsTab({
         />
         <ul className="divide-y divide-border border-t border-border">
           {danger.map((a) => (
-            <li key={a} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <li key={a} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-text">{ACTION_LABELS[a]}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-text-3">{CONSEQUENCES[a]}</p>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-text-3">{CONSEQUENCES[a]}</p>
               </div>
               <Button
                 size="sm"

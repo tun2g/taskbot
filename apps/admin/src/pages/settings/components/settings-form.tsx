@@ -152,14 +152,14 @@ export function SettingsForm({
         />
       </Card>
 
-      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-border bg-bg/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-border bg-bg/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
         <Button type="submit" variant="primary" disabled={!dirty || invalid} loading={saving}>
           Save settings
         </Button>
         <Button variant="secondary" disabled={!dirty || saving} onClick={() => setDraft(toDraft(settings))}>
           Discard changes
         </Button>
-        <span className="text-xs text-text-3">
+        <span className="text-[13px] text-text-3">
           {invalid && dirty
             ? 'Fix the highlighted fields to save.'
             : dirty

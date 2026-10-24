@@ -40,7 +40,6 @@ export function GroupsTable({
         <Th align="right" hint="last 30 days">
           AI cost
         </Th>
-        <Th>Added</Th>
         <Th>
           <span className="sr-only">Actions</span>
         </Th>
@@ -57,16 +56,20 @@ export function GroupsTable({
                   </Badge>
                 )}
               </span>
+              <span className="mt-0.5 block truncate text-[13px] text-text-3">
+                Added {formatDate(g.addedAt ?? g.createdAt)}
+                {g.addedBy && <> by {personName(g.addedBy)}</>}
+              </span>
             </Td>
-            <Td className="max-w-60">
+            <Td className="max-w-44">
               <GroupStatusBadge status={g.status} />
               {g.previousDecision && (
-                <span className="mt-1 block truncate text-xs text-warn" title={previousDecisionText(g.previousDecision)}>
+                <span className="mt-1 block truncate text-[13px] text-warn" title={previousDecisionText(g.previousDecision)}>
                   {previousDecisionText(g.previousDecision)}
                 </span>
               )}
               {g.statusReason && (g.status === GroupStatus.REJECTED || g.status === GroupStatus.SUSPENDED) && (
-                <span className="mt-1 block truncate text-xs text-text-3" title={g.statusReason}>
+                <span className="mt-1 block truncate text-[13px] text-text-3" title={g.statusReason}>
                   Reason: {g.statusReason}
                 </span>
               )}
@@ -107,10 +110,6 @@ export function GroupsTable({
               ) : (
                 <span className="text-text-3">$0</span>
               )}
-            </Td>
-            <Td>
-              <span className="block whitespace-nowrap text-text">{formatDate(g.addedAt ?? g.createdAt)}</span>
-              {g.addedBy && <span className="block truncate text-xs text-text-3">by {personName(g.addedBy)}</span>}
             </Td>
             <Td align="right" stop>
               <GroupRowActions group={g} onAction={onAction} busy={busyId === g.id} />

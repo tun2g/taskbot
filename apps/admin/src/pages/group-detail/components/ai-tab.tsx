@@ -42,7 +42,7 @@ export function AiTab({
         <Notice
           tone="warn"
           action={
-            <TextLink to="/settings" className="text-[13px]">
+            <TextLink to="/settings" className="text-sm">
               Add a price →
             </TextLink>
           }
@@ -62,7 +62,7 @@ export function AiTab({
             </>
           }
           action={
-            <span className="flex items-center gap-2 text-xs text-text-3">
+            <span className="flex items-center gap-2 text-[13px] text-text-3">
               Limit: <AiOverrideBadge disabled={group.aiDisabled} dailyLimit={group.aiDailyLimit} />
             </span>
           }
@@ -102,7 +102,7 @@ export function AiTab({
                     <Td>
                       <span className="text-text">{r.label}</span>
                       {r.unpriced > 0 && (
-                        <span className="block text-xs text-warn">{plural(r.unpriced, 'unpriced call')}</span>
+                        <span className="block text-[13px] text-warn">{plural(r.unpriced, 'unpriced call')}</span>
                       )}
                     </Td>
                     <Td align="right">{formatNumber(r.calls)}</Td>
@@ -134,7 +134,7 @@ export function AiTab({
             </tbody>
           </Table>
         )}
-        <div className="border-t border-border px-4 py-3 text-[13px]">
+        <div className="border-t border-border px-5 py-3 text-sm">
           <TextLink to="/ai" search={{ groupId: group.id, range }}>
             See every AI call from this group →
           </TextLink>

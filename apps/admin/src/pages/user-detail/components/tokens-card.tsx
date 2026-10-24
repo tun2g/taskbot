@@ -57,7 +57,7 @@ export function TokensCard({
               <Tr key={t.id}>
                 <Td className="font-medium text-text">{t.name}</Td>
                 <Td>
-                  <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-2">{t.prefix}…</code>
+                  <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[13px] text-text-2">{t.prefix}…</code>
                 </Td>
                 <Td>
                   {t.group ? (

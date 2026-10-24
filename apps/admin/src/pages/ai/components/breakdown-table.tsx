@@ -12,7 +12,7 @@ function RowLabel({ row, groupBy }: { row: AdminAiBreakdownRow; groupBy: AdminAi
     case 'feature':
       return <span>{featureLabel(row.key)}</span>;
     case 'model':
-      return <span className="font-mono text-[13px]">{row.label}</span>;
+      return <span className="font-mono text-sm">{row.label}</span>;
     case 'group':
       return row.key === 'none' ? <span className="text-text-3">Not in a group (e.g. direct messages)</span> : <span className="font-medium">{row.label}</span>;
     case 'user':

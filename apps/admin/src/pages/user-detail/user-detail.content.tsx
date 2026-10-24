@@ -10,6 +10,7 @@ import { Card, CardBody, CardHeader, PageHeader } from '@/components/ui/card';
 import { KpiCard } from '@/components/ui/kpi';
 import { EmptyState, ErrorState, PageSkeleton } from '@/components/ui/states';
 import { Table, Td, Th, THead, Tr } from '@/components/ui/table';
+import { Avatar } from '@/components/ui/values';
 import { formatDate, formatMoney, formatNumber, personName } from '@/lib/format';
 import { RANGE_LABELS } from '@/lib/labels';
 
@@ -61,7 +62,12 @@ export function UserDetailContent(props: {
   return (
     <>
       <PageHeader
-        title={name}
+        title={
+          <span className="flex items-center gap-3">
+            <Avatar name={name} seed={user.person.telegramUserId} className="size-11 text-base" />
+            {name}
+          </span>
+        }
         subtitle={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {user.person.username && <span>@{user.person.username}</span>}
@@ -121,7 +127,7 @@ export function UserDetailContent(props: {
               title="AI cost per day"
               subtitle="Estimated from token counts × your price table."
               action={
-                <TextLink to="/ai" search={{ userId, range }} className="text-[13px]">
+                <TextLink to="/ai" search={{ userId, range }} className="text-sm">
                   See calls
                 </TextLink>
               }

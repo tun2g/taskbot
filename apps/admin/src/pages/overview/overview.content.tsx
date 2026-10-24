@@ -86,7 +86,7 @@ export function OverviewContent({
             value={formatNumber(kpis.dau)}
             hint="People who used the bot today (since midnight UTC), in any group or channel."
             footer={
-              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[13px]">
                 <TextLink to="/users" search={{ activeIn: 'today' }}>
                   Today: {formatNumber(kpis.dau)} →
                 </TextLink>
@@ -258,7 +258,7 @@ export function OverviewContent({
 
 function KpiLink({ to, search, label }: { to: '/ai' | '/mcp'; search: Record<string, unknown>; label: string }) {
   return (
-    <TextLink to={to} search={search as never} className="text-[13px]">
+    <TextLink to={to} search={search as never} className="text-sm">
       {label} →
     </TextLink>
   );

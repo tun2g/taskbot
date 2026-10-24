@@ -6,11 +6,11 @@
  */
 :root {
   color-scheme: light;
-  --bg: #f6f6f4;
+  --bg: #f7f7f5;
   --surface: #ffffff;
   --surface-2: #f1f1ee;
   --surface-3: #e8e8e4;
-  --border: #e2e1dc;
+  --border: #e6e5e0;
   --border-strong: #cfcec8;
   --text: #17171a;
   --text-2: #52514e;
@@ -109,13 +109,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
   min-height: 100dvh;
+  font-size: 15px;
 }
 
 :focus-visible {
@@ -141,7 +142,7 @@ body {
 
 .skeleton {
   background: var(--surface-3);
-  border-radius: 6px;
+  border-radius: 10px;
   animation: shimmer 1.4s ease-in-out infinite;
 }
 

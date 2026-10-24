@@ -129,7 +129,7 @@ export function GroupsContent({
       <Tabs items={tabs} value={status} onChange={onStatus} className="mb-4" />
 
       {status !== 'all' && (
-        <p className="-mt-2 mb-3 text-[13px] text-text-3">{GROUP_STATUS_HINTS[status]}</p>
+        <p className="-mt-2 mb-3 text-sm text-text-3">{GROUP_STATUS_HINTS[status]}</p>
       )}
 
       {status === GroupStatus.PENDING && (
@@ -142,10 +142,10 @@ export function GroupsContent({
       )}
 
       <Card>
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3">
           <SearchInput value={query} onChange={onQuery} placeholder="Search groups by name" className="w-full sm:w-72" />
           <div className="flex-1" />
-          <label className="flex items-center gap-2 text-[13px] whitespace-nowrap text-text-2">
+          <label className="flex items-center gap-2 text-sm whitespace-nowrap text-text-2">
             Sort by
             <Select value={sort} onChange={(e) => onSort(e.target.value as GroupSort)}>
               {(Object.keys(GROUP_SORT_LABELS) as GroupSort[]).map((k) => (
@@ -157,7 +157,7 @@ export function GroupsContent({
           </label>
         </div>
         {activeIn && (
-          <div className="px-4 pb-3">
+          <div className="px-5 pb-3">
             <FilterChip
               label={
                 <>

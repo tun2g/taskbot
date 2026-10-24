@@ -73,7 +73,7 @@ export function AiOverrideForm({
         <Button type="submit" variant="primary" disabled={!dirty || invalid} loading={pending}>
           Save AI settings
         </Button>
-        <span className="text-xs text-text-3">Changes apply within 30 seconds.</span>
+        <span className="text-[13px] text-text-3">Changes apply within 30 seconds.</span>
       </div>
     </form>
   );

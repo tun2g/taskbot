@@ -40,9 +40,9 @@ function PriceInput({
         className={cn('h-8 text-right tabular', error && 'border-danger')}
       />
       {error ? (
-        <span className="mt-0.5 block text-right text-[11px] text-danger">{error}</span>
+        <span className="mt-0.5 block text-right text-xs text-danger">{error}</span>
       ) : builtIn != null ? (
-        <span className="mt-0.5 block text-right text-[11px] text-text-3">built-in {builtIn}</span>
+        <span className="mt-0.5 block text-right text-xs text-text-3">built-in {builtIn}</span>
       ) : null}
     </div>
   );
@@ -101,8 +101,8 @@ export function PriceTable({
             return (
               <Tr key={model}>
                 <Td>
-                  <span className="font-mono text-[13px] text-text">{model}</span>
-                  {model === currentModel && <span className="block text-xs text-text-3">Current model</span>}
+                  <span className="font-mono text-sm text-text">{model}</span>
+                  {model === currentModel && <span className="block text-[13px] text-text-3">Current model</span>}
                 </Td>
                 {FIELDS.map((f) => (
                   <Td key={f} align="right">
@@ -152,15 +152,15 @@ export function PriceTable({
                         aria-invalid={!!err?.model}
                         spellCheck={false}
                         autoComplete="off"
-                        className={cn('h-8 font-mono text-[13px]', err?.model && 'border-danger')}
+                        className={cn('h-8 font-mono text-sm', err?.model && 'border-danger')}
                       />
-                      {err?.model && <span className="mt-0.5 block text-[11px] text-danger">{err.model}</span>}
+                      {err?.model && <span className="mt-0.5 block text-xs text-danger">{err.model}</span>}
                     </div>
                   ) : (
                     <>
-                      <span className="font-mono text-[13px] text-text">{o.model}</span>
-                      {err?.model && <span className="block text-[11px] text-danger">{err.model}</span>}
-                      {o.model.trim() === currentModel && <span className="block text-xs text-text-3">Current model</span>}
+                      <span className="font-mono text-sm text-text">{o.model}</span>
+                      {err?.model && <span className="block text-xs text-danger">{err.model}</span>}
+                      {o.model.trim() === currentModel && <span className="block text-[13px] text-text-3">Current model</span>}
                     </>
                   )}
                 </Td>
@@ -190,11 +190,11 @@ export function PriceTable({
           })}
         </tbody>
       </Table>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-5 py-3">
         <Button size="sm" onClick={() => onChange([...overrides, priceToDraft('', undefined, true)])}>
           + Add a model
         </Button>
-        <span className="text-xs text-text-3">
+        <span className="text-[13px] text-text-3">
           For a model that shows as “unpriced”. Find model ids on{' '}
           <TextLink to="/ai" search={{ groupBy: 'model' }}>
             AI &amp; cost, grouped by model

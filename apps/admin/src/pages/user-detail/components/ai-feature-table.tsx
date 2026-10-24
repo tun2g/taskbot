@@ -35,7 +35,7 @@ export function AiFeatureTable({
   return (
     <>
       {total.unpriced > 0 && (
-        <div className="px-4 pb-3">
+        <div className="px-5 pb-3">
           <Notice tone="warn">
             {plural(total.unpriced, 'call')} used a model with no price in your price table, so the cost shown is a
             lower bound. Add the model’s price in Settings — new calls are priced from then on; calls already made keep the cost they were recorded with.
@@ -62,7 +62,7 @@ export function AiFeatureTable({
               <Td align="right">
                 {formatMoney(r.costUsd)}
                 {r.unpriced > 0 && (
-                  <span className="ml-1 text-xs text-warn" title={`${plural(r.unpriced, 'call')} had no price`}>
+                  <span className="ml-1 text-[13px] text-warn" title={`${plural(r.unpriced, 'call')} had no price`}>
                     +?
                   </span>
                 )}

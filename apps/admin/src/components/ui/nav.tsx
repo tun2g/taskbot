@@ -37,7 +37,7 @@ export function Tabs<T extends string>({
             title={item.hint}
             onClick={() => onChange(item.value)}
             className={cn(
-              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 py-2 text-sm whitespace-nowrap transition-colors',
+              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2.5 text-[15px] whitespace-nowrap transition-colors',
               active ? 'border-accent font-medium text-text' : 'border-transparent text-text-2 hover:text-text',
             )}
           >
@@ -45,7 +45,7 @@ export function Tabs<T extends string>({
             {item.count != null && (
               <span
                 className={cn(
-                  'rounded-full px-1.5 text-xs tabular',
+                  'rounded-full px-2 py-0.5 text-[13px] leading-none tabular',
                   active ? 'bg-accent-soft text-accent-text' : 'bg-neutral-soft text-text-3',
                 )}
               >
@@ -74,7 +74,7 @@ export function Segmented<T extends string>({
   size?: 'sm' | 'md';
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-border-strong bg-surface p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-xl bg-surface-3/70 p-1">
       {options.map((o) => (
         <button
           key={o.value}
@@ -84,9 +84,9 @@ export function Segmented<T extends string>({
           title={o.title}
           onClick={() => onChange(o.value)}
           className={cn(
-            'cursor-pointer rounded-md font-medium whitespace-nowrap transition-colors',
-            size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-[13px]',
-            o.value === value ? 'bg-accent-soft text-accent-text' : 'text-text-2 hover:text-text',
+            'cursor-pointer rounded-lg font-medium whitespace-nowrap transition-colors',
+            size === 'sm' ? 'px-2.5 py-1 text-[13px]' : 'px-3 py-1.5 text-sm',
+            o.value === value ? 'bg-surface text-text ring-1 ring-border' : 'text-text-2 hover:text-text',
           )}
         >
           {o.label}
@@ -114,7 +114,7 @@ export function Pagination({
   const from = (page - 1) * limit + 1;
   const to = Math.min(total, page * limit);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5 text-[13px] text-text-3">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3.5 text-sm text-text-2">
       <span className="tabular">
         {formatNumber(from)}–{formatNumber(to)} of {formatNumber(total)} {noun}
       </span>
@@ -138,7 +138,7 @@ export function Pagination({
 /** A removable filter chip ("Group: Acme Mobile Team ×"). */
 export function FilterChip({ label, onRemove }: { label: ReactNode; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft py-0.5 pr-1 pl-2.5 text-[13px] text-accent-text">
+    <span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft py-1 pr-1.5 pl-3 text-sm text-accent-text">
       {label}
       <button
         type="button"

@@ -40,8 +40,8 @@ export function CallsTable({
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-end gap-3 px-4 pb-3">
-        <label className="text-[13px] text-text-2">
+      <div className="flex flex-wrap items-end gap-3 px-5 pb-3">
+        <label className="text-sm text-text-2">
           <span className="mb-1 block">Result</span>
           <Select
             value={status ?? ''}
@@ -55,7 +55,7 @@ export function CallsTable({
             ))}
           </Select>
         </label>
-        <label className="text-[13px] text-text-2">
+        <label className="text-sm text-text-2">
           <span className="mb-1 block">Feature</span>
           <Select
             value={feature ?? ''}
@@ -119,7 +119,7 @@ export function CallsTable({
                     </Td>
                     <Td>
                       <span className="block max-w-56">{featureLabel(c.feature)}</span>
-                      {c.channel && <span className="block text-xs text-text-3">via {CHANNEL_LABELS[c.channel]}</span>}
+                      {c.channel && <span className="block text-[13px] text-text-3">via {CHANNEL_LABELS[c.channel]}</span>}
                     </Td>
                     <Td>
                       {c.group?.deleted ? (
@@ -140,12 +140,12 @@ export function CallsTable({
                       <PersonCell person={c.person} />
                     </Td>
                     <Td>
-                      <span className="font-mono text-xs text-text-2">{c.model}</span>
+                      <span className="font-mono text-[13px] text-text-2">{c.model}</span>
                     </Td>
                     <Td>
                       <AiStatusBadge status={c.status} />
                       {c.attempt > 1 && (
-                        <span className="mt-0.5 block text-xs text-text-3" title="The bot retried after the first attempt failed.">
+                        <span className="mt-0.5 block text-[13px] text-text-3" title="The bot retried after the first attempt failed.">
                           retry #{c.attempt}
                         </span>
                       )}
@@ -155,7 +155,7 @@ export function CallsTable({
                         {formatNumber(c.inputTokens)} / {formatNumber(c.outputTokens)}
                       </span>
                       {c.cachedTokens > 0 && (
-                        <span className="block text-xs text-text-3" title="Cached input tokens are billed at a lower price.">
+                        <span className="block text-[13px] text-text-3" title="Cached input tokens are billed at a lower price.">
                           of which {formatNumber(c.cachedTokens)} cached
                         </span>
                       )}
@@ -179,7 +179,7 @@ export function CallsTable({
                   </tr>
                   {c.error && (
                     <tr className="border-b border-border last:border-b-0">
-                      <td colSpan={9} className="px-4 pt-0 pb-2.5 text-xs text-danger">
+                      <td colSpan={9} className="px-5 pt-0 pb-2.5 text-[13px] text-danger">
                         {c.error}
                       </td>
                     </tr>

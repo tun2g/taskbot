@@ -35,10 +35,10 @@ export function LoginContent({
           <img src="/favicon.svg" alt="" className="size-9" />
           <div>
             <p className="text-base font-semibold text-text">TaskBot admin</p>
-            <p className="text-xs text-text-3">For the bot owner only</p>
+            <p className="text-[13px] text-text-3">For the bot owner only</p>
           </div>
         </div>
-        <div className="rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow)]">
+        <div className="rounded-2xl border border-border bg-surface p-6">
           {!sent ? (
             <>
               <h1 className="text-lg font-semibold text-text">Log in</h1>
@@ -70,7 +70,7 @@ export function LoginContent({
               <Button className="mt-5 w-full" onClick={onSend} loading={sending} disabled={resendIn > 0 && !expired}>
                 {resendIn > 0 && !expired ? `Send another link in ${resendIn}s` : 'Send another link'}
               </Button>
-              <p className="mt-3 text-xs leading-relaxed text-text-3">
+              <p className="mt-3 text-[13px] leading-relaxed text-text-3">
                 Didn’t get it? Make sure you’ve started a chat with the bot in Telegram — bots can’t message you first.
               </p>
             </>
@@ -82,7 +82,7 @@ export function LoginContent({
           )}
         </div>
         {mockHint && (
-          <p className="mt-4 text-center text-xs text-text-3">
+          <p className="mt-4 text-center text-[13px] text-text-3">
             Mock mode:{' '}
             <Link to="/login/callback" search={{ code: 'demo' }} className="text-accent-text underline">
               open the login link

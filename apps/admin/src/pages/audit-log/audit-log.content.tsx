@@ -16,7 +16,7 @@ function TargetLink({ entry }: { entry: AdminAuditEntry }) {
   if (entry.targetMissing) {
     return (
       <span className="text-text-2" title="Deleted since — there is no page to open.">
-        {label ?? '—'} <span className="text-xs text-text-3">(deleted)</span>
+        {label ?? '—'} <span className="text-[13px] text-text-3">(deleted)</span>
       </span>
     );
   }
@@ -70,7 +70,7 @@ export function AuditLogContent(props: {
         subtitle="Every change you made in the admin app — approvals, suspensions, AI limits, settings and sign-ins — newest first."
       />
       <Card>
-        <div className="px-4 pt-2">
+        <div className="px-5 pt-2">
           <Tabs
             items={tabs}
             value={props.targetType ?? 'all'}
@@ -78,7 +78,7 @@ export function AuditLogContent(props: {
           />
         </div>
         {props.targetId && (
-          <div className="px-4 pt-3">
+          <div className="px-5 pt-3">
             <FilterChip
               label={<>Only: {targetName ?? (props.targetType === 'user' ? 'this person' : 'this item')}</>}
               onRemove={props.onClearTarget}
@@ -117,7 +117,7 @@ export function AuditLogContent(props: {
                       <Td className="text-text">
                         {e.summary}
                         {e.changes && e.changes.length > 0 && (
-                          <ul className="mt-0.5 space-y-0.5 text-xs text-text-2">
+                          <ul className="mt-0.5 space-y-0.5 text-[13px] text-text-2">
                             {e.changes.map((c) => (
                               <li key={c}>{c}</li>
                             ))}

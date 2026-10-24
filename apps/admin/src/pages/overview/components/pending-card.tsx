@@ -28,14 +28,14 @@ export function PendingCard({
           <span className="flex items-center gap-2">
             Waiting for your approval
             {total > 0 && (
-              <span className="rounded-full bg-warn-soft px-2 text-xs font-semibold text-warn tabular">{total}</span>
+              <span className="rounded-full bg-warn-soft px-2 text-[13px] font-semibold text-warn tabular">{total}</span>
             )}
           </span>
         }
         subtitle="The bot stays quiet in these groups until you approve them. Approving posts a welcome message there."
         action={
           total > 0 && (
-            <TextLink to="/groups" search={{ status: 'pending' as never }} className="text-[13px]">
+            <TextLink to="/groups" search={{ status: 'pending' as never }} className="text-sm">
               {total > pending.length ? `All ${formatNumber(total)} →` : 'Open list →'}
             </TextLink>
           )
@@ -52,17 +52,17 @@ export function PendingCard({
           {pending.map((g) => (
             <li
               key={g.id}
-              className="flex cursor-pointer flex-col gap-2 px-4 py-3 hover:bg-surface-2/60 sm:flex-row sm:items-center sm:gap-4"
+              className="flex cursor-pointer flex-col gap-2 px-5 py-3 hover:bg-surface-2/60 sm:flex-row sm:items-center sm:gap-4"
               onClick={() => navigate({ to: '/groups/$groupId', params: { groupId: g.id } })}
             >
               <div className="min-w-0 sm:flex-1">
                 <p className="truncate font-medium text-text">{g.name}</p>
-                <p className="text-xs text-text-3">
+                <p className="text-[13px] text-text-3">
                   Added <RelativeTime value={g.addedAt} never="at an unknown time" />
                   {g.addedBy ? ` by ${personName(g.addedBy)}` : ''}
                   {g.memberCount != null ? ` · ${formatNumber(g.memberCount)} people in the chat` : ''}
                 </p>
-                {g.previousDecision && <p className="mt-0.5 text-xs text-warn">{previousDecisionText(g.previousDecision)}</p>}
+                {g.previousDecision && <p className="mt-0.5 text-[13px] text-warn">{previousDecisionText(g.previousDecision)}</p>}
               </div>
               <div className="flex shrink-0 gap-1.5" onClick={(e) => e.stopPropagation()}>
                 <Button size="sm" variant="primary" disabled={busyGroupId === g.id} onClick={() => onAction('approve', g)}>

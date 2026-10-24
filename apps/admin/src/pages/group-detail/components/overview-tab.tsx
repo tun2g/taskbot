@@ -167,11 +167,11 @@ export function OverviewTab({
                 <Tr key={`${u.channel}-${u.kind}`}>
                   <Td>
                     <span className="block text-text">{CHANNEL_LABELS[u.channel]}</span>
-                    <span className="block text-xs text-text-3">{CHANNEL_HINTS[u.channel]}</span>
+                    <span className="block text-[13px] text-text-3">{CHANNEL_HINTS[u.channel]}</span>
                   </Td>
                   <Td>
                     <span className="block text-text">{USAGE_KIND_LABELS[u.kind]}</span>
-                    <span className="block text-xs text-text-3">{KIND_HINTS[u.kind]}</span>
+                    <span className="block text-[13px] text-text-3">{KIND_HINTS[u.kind]}</span>
                   </Td>
                   <Td align="right">{formatNumber(u.count)}</Td>
                 </Tr>

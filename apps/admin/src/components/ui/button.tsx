@@ -15,8 +15,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'h-7 px-2.5 text-[13px] gap-1.5 rounded-md',
-  md: 'h-9 px-3.5 text-sm gap-2 rounded-lg',
+  sm: 'h-8 px-3 text-sm gap-1.5 rounded-lg',
+  md: 'h-10 px-4 text-[15px] gap-2 rounded-xl',
 };
 
 export function buttonClass(variant: ButtonVariant = 'secondary', size: ButtonSize = 'md', extra?: string) {
