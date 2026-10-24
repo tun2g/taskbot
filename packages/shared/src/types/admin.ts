@@ -213,11 +213,13 @@ export interface AdminGroupActionInput {
   notifyGroup?: boolean;
 }
 
-/** PATCH /groups/:id/ai and /users/:id/ai */
+/** PATCH /groups/:id/ai and /users/:id/ai → AdminAiOverrideResult */
 export interface AdminAiOverrideInput {
   disabled?: boolean;
-  /** null = default limits. */
+  /** null = default limits; otherwise at least 1 (turning AI off is `disabled`). */
   dailyLimit?: number | null;
+  /** Why (kept with the override, shown next to it and told to the person when the bot refuses). Cleared when back to defaults. */
+  reason?: string;
 }
 
 /** GET /groups/:id/delete-preview → what DELETE /groups/:id { confirmName } would remove. */
@@ -281,28 +283,34 @@ export interface AdminGroupEpicRow {
 // ── Users ───────────────────────────────────────────────────────────────────
 
 /**
- * GET /users?q=&sort=lastSeen|aiCost|aiCalls|events|tokens&activeIn=today|7d|30d&hasTokens=1&page=&limit=
+ * GET /users?q=&sort=lastSeen|aiCost|aiCalls|events|tokens&range=7d|30d|90d&activeIn=today|7d|30d&hasTokens=1&page=&limit=
  * activeIn = used the bot in that window (DAU/WAU/MAU); hasTokens=1 = only people holding an active MCP token.
+ * `totals` cover `range` (default 30d) — the same numbers the person's page shows for that range.
  */
 export interface AdminUserRow {
   person: AdminPersonRef;
   groups: number;
   lastSeenAt: string | null;
-  aiCalls30d: number;
-  aiCostUsd30d: number;
-  events30d: number;
+  range: AdminRange;
+  totals: AdminPersonTotals;
   activeTokens: number;
   aiDisabled: boolean;
   aiDailyLimit: number | null;
+  /** Why you turned AI off / limited this person (null = no reason given). */
+  aiReason: string | null;
   createdAt: string;
 }
 
-/** GET /users/:id?range=30d */
+/**
+ * GET /users/:id?range=30d — `totals` (from AdminUserRow) is the one set of range totals: the KPIs, the feature
+ * table footer and the groups table footer all equal it (groupList includes a `group: null` "No group" row).
+ */
 export interface AdminUserDetail extends AdminUserRow {
-  groupList: { group: AdminGroupRef; joinedAt: string | null; events: number; aiCostUsd: number }[];
+  groupList: AdminUserGroupRow[];
+  /** For the charts only — never re-summed for totals. */
   daily: { day: string; events: number; aiCalls: number; aiCostUsd: number }[];
   aiByFeature: AdminAiBreakdownRow[];
-  tokens: { id: string; name: string; prefix: string; group: AdminGroupRef | null; lastUsedAt: string | null; createdAt: string; expiresAt: string | null }[];
+  aiToday: AdminUserAiToday;
 }
 
 // ── AI usage & cost ─────────────────────────────────────────────────────────
@@ -323,12 +331,17 @@ export interface AdminAiBreakdownRow {
   refused?: number;
 }
 
-/** GET /ai/usage?range=30d&groupBy=day|feature|model|group|user&groupId=&userId= */
+/**
+ * GET /ai/usage?range=30d&groupBy=day|feature|model|group|user&groupId=&userId= — rows always add up to `totals`
+ * (calls without a group / person get a row with key "none"). `totals.refused` counts every refusal (see AdminAiRefusalReason).
+ */
 export interface AdminAiUsage {
   range: AdminRange;
   groupBy: 'day' | 'feature' | 'model' | 'group' | 'user';
   totals: Omit<AdminAiBreakdownRow, 'key' | 'label'>;
   rows: AdminAiBreakdownRow[];
+  /** Refusals in the range, by reason (sums to totals.refused). */
+  refusedByReason?: { reason: AdminAiRefusalReason; count: number }[];
 }
 
 /** GET /ai/calls?status=&feature=&groupId=&userId=&page=&limit= — the individual calls behind any total. */
@@ -395,12 +408,11 @@ export interface AdminMcpOverview {
   byGroup?: { group: AdminGroupRef; calls: number; failed: number }[];
   /** Who was refused by the rate limit (top 10). */
   rateLimitedBy?: { person: AdminPersonRef; count: number }[];
-  /** The active tokens behind `activeTokens` (newest first, max 100). */
-  tokens?: AdminMcpTokenRow[];
   /** The filter that was applied (echo). */
   filter?: { tool: string | null; client: string | null };
 }
 
+/** A row of GET /mcp/tokens (paginated). */
 export interface AdminMcpTokenRow {
   id: string;
   name: string;
@@ -411,6 +423,8 @@ export interface AdminMcpTokenRow {
   lastUsedAt: string | null;
   createdAt: string;
   expiresAt: string | null;
+  status: AdminMcpTokenStatus;
+  revokedAt: string | null;
 }
 
 // ── System & audit ──────────────────────────────────────────────────────────
@@ -471,6 +485,82 @@ export interface AdminAuditEntry {
   /** Plain-language lines about what changed (e.g. "Daily call limit: 500 → 200"). */
   changes?: string[];
   details: Record<string, unknown> | null;
+}
+
+// ── People/AI/MCP review ──
+
+/** One person's numbers for a range. */
+export interface AdminPersonTotals {
+  /** Bot actions: commands, button taps, Mini App & MCP requests. */
+  events: number;
+  aiCalls: number;
+  aiFailed: number;
+  aiCostUsd: number;
+  /** AI calls whose model had no price (cost is a lower bound when > 0). */
+  aiUnpriced: number;
+  /** AI requests refused by a limit or because AI is off (not in aiCalls). */
+  aiRefused: number;
+}
+
+/** A row of the person's groups table; `group: null` = actions and AI calls not tied to a group (private chat, Mini App home, MCP). */
+export interface AdminUserGroupRow {
+  group: AdminGroupRef | null;
+  /** Still a member the bot knows about (false = activity in a group they left, or the "No group" row). */
+  member: boolean;
+  joinedAt: string | null;
+  events: number;
+  aiCalls: number;
+  aiCostUsd: number;
+}
+
+/** The person's own daily AI limit today (UTC day). */
+export interface AdminUserAiToday {
+  /** Requests counted toward their daily limit today (null = unknown, the limiter couldn't be read). */
+  used: number | null;
+  /** Requests refused today, for any reason. */
+  refused: number;
+  /** The daily limit that applies to them now (null = no per-person limit). */
+  limit: number | null;
+  limitSource: 'override' | 'settings' | 'built_in';
+}
+
+/**
+ * Why an AI request was refused before reaching the model: their own daily limit, too many in a row, the group's
+ * limit, the bot-wide daily cap, or AI turned off by you.
+ */
+export type AdminAiRefusalReason = 'person_limit' | 'person_burst' | 'group_limit' | 'bot_limit' | 'ai_off';
+
+/** GET /ai/refused?by=person|group&range=&groupId=&userId=&page=&limit= — who was refused, most first (paginated). */
+export interface AdminAiRefusalRow {
+  /** Set when by=person (null = not tied to a person). */
+  person?: AdminPersonRef | null;
+  /** Set when by=group (null = not tied to a group). */
+  group?: AdminGroupRef | null;
+  count: number;
+  byReason: Partial<Record<AdminAiRefusalReason, number>>;
+}
+
+export type AdminMcpTokenStatus = 'active' | 'revoked' | 'expired';
+
+/** GET /mcp/tokens?status=active|revoked|expired|ended&userId=&q=&page=&limit= ("ended" = revoked or expired). */
+export type AdminMcpTokenFilter = AdminMcpTokenStatus | 'ended';
+
+/** POST /tokens/:id/revoke → the token after revoking (only this token stops working). */
+export interface AdminTokenRevokeResult {
+  token: AdminMcpTokenRow;
+  /** The audit entry for this change. */
+  auditId: string | null;
+}
+
+/** PATCH /groups/:id/ai and /users/:id/ai respond with the row plus these. */
+export interface AdminAiOverrideResult {
+  appliesWithinSeconds: number;
+  auditId: string | null;
+}
+
+/** (merged into AdminGroupRow) Why you turned AI off / limited this group. */
+export interface AdminGroupRow {
+  aiReason?: string | null;
 }
 
 // ── System/Audit/Settings review ──

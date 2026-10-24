@@ -58,6 +58,15 @@ export type {
   AdminAttentionKind,
   AdminSystemStatus,
   AdminAuditEntry,
+  AdminPersonTotals,
+  AdminUserGroupRow,
+  AdminUserAiToday,
+  AdminAiRefusalReason,
+  AdminAiRefusalRow,
+  AdminMcpTokenStatus,
+  AdminMcpTokenFilter,
+  AdminTokenRevokeResult,
+  AdminAiOverrideResult,
 } from './admin.js';
 // ── Groups review ──
 export type { AdminGroupMemberSort, AdminGroupTaskFilter, AdminGroupTaskCounts, AdminTaskVia, AdminGroupTaskRow, AdminGroupEpicRow } from './admin.js';

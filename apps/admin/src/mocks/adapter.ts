@@ -37,6 +37,19 @@ import {
   trackingSince,
   TRACKING_SINCE_DAYS_AGO,
 } from './fixtures';
+import {
+  activeTokensOf,
+  countReasons,
+  personDaily,
+  personGroups,
+  personToday,
+  personTotals,
+  rangeDays,
+  refusals,
+  tokenQuery,
+  tokens as mcpTokenStore,
+} from './people';
+
 import { groupDetailExtras, groupReviewRoutes, groupRowExtras, MockHttpError } from './groups-review';
 import { mockBot, mockRequestLink, mockSaveSettings, systemReviewRoutes } from './system-review';
 
@@ -198,21 +211,20 @@ function findGroup(id: string): MockGroup {
   return g;
 }
 
-function userRow(i: number): AdminUserRow {
+function userRow(i: number, range: AdminRange = '30d'): AdminUserRow {
   const p = people[i]!;
-  const calls = aiCalls.filter((c) => c.person?.id === p.id);
   const memberOf = groups.filter((g) => g.seed.members.includes(i));
   const last = memberOf.map((g) => g.lastActivityAt).filter(Boolean).sort().pop() ?? null;
   return {
     person: personRef(p),
     groups: memberOf.length,
     lastSeenAt: last,
-    aiCalls30d: calls.length,
-    aiCostUsd30d: calls.reduce((s, c) => s + c.costUsd, 0),
-    events30d: 40 + noise(p.id, 600),
-    activeTokens: i % 4 === 0 ? 2 : i % 3 === 0 ? 1 : 0,
+    range,
+    totals: personTotals(i, range),
+    activeTokens: activeTokensOf(p.id),
     aiDisabled: i === 10,
     aiDailyLimit: i === 3 ? 10 : null,
+    aiReason: i === 10 ? 'Kept pasting customer data into /ai — off until we talk.' : i === 3 ? 'Trial account' : null,
     createdAt: iso(p.createdDaysAgo * DAY),
     ...userOverrides.get(p.id),
   };
@@ -251,26 +263,6 @@ const MCP_CLIENT_SHARES: [string, number][] = [
   ['Unknown client', 0.05],
 ];
 
-/** Every active token, from the same per-person rows the People page shows. */
-function mcpTokens(): NonNullable<AdminMcpOverview['tokens']> {
-  return people
-    .flatMap((p, i) =>
-      Array.from({ length: userRow(i).activeTokens }, (_, k) => {
-        const g = groups.find((x) => x.seed.members.includes(i));
-        return {
-          id: `${p.id}-t${k}`,
-          name: k === 0 ? 'Claude Desktop' : 'Cursor (work laptop)',
-          prefix: `tbot_${p.id.slice(-4)}${k}`,
-          person: personRef(p),
-          group: k === 0 && g ? ref(g) : null,
-          lastUsedAt: i === 9 ? null : iso((k + 1) * (i + 1) * 3_600_000),
-          createdAt: iso((20 + k * 7 + i) * DAY),
-          expiresAt: k === 0 ? null : iso(-60 * DAY),
-        };
-      }),
-    )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
 
 const HOUR_MS = 3_600_000;
 const nextAt = (minute: number) => {
@@ -552,7 +544,10 @@ const routes: [string, RegExp, Handler][] = [
     const g = findGroup(params[0]!);
     if (typeof body.disabled === 'boolean') g.aiDisabled = body.disabled;
     if ('dailyLimit' in body) g.aiDailyLimit = (body.dailyLimit as number | null) ?? null;
-    return { data: groupRow(g) };
+    // Like the API: the reason belongs to the override and is cleared when back to the defaults.
+    if (!g.aiDisabled && g.aiDailyLimit == null) g.aiReason = null;
+    else if (typeof body.reason === 'string') g.aiReason = body.reason.trim() || null;
+    return { data: { ...groupRow(g), appliesWithinSeconds: 30, auditId: null } };
   }],
   ['DELETE', /^\/groups\/([^/]+)$/, ({ params, body }) => {
     const g = findGroup(params[0]!);
@@ -564,18 +559,19 @@ const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/users$/, ({ q }) => {
     const search = q.get('q')?.toLowerCase().replace(/^@/, '');
     const sort = q.get('sort') ?? 'lastSeen';
+    const range = rangeOf(q);
     const windowDays = { today: 1, '7d': 7, '30d': 30 }[q.get('activeIn') ?? ''] ?? 0;
     const since = windowDays ? dayStr(windowDays - 1) : null;
     let rows = people
-      .map((_, i) => userRow(i))
+      .map((_, i) => userRow(i, range))
       .filter((r) => !since || (r.lastSeenAt != null && r.lastSeenAt.slice(0, 10) >= since))
       .filter((r) => !q.get('hasTokens') || r.activeTokens > 0)
       .filter((r) => !search || r.person.name.toLowerCase().includes(search) || r.person.username?.toLowerCase().includes(search));
     const by: Record<string, (a: AdminUserRow, b: AdminUserRow) => number> = {
       lastSeen: (a, b) => (b.lastSeenAt ?? '').localeCompare(a.lastSeenAt ?? ''),
-      aiCost: (a, b) => b.aiCostUsd30d - a.aiCostUsd30d,
-      aiCalls: (a, b) => b.aiCalls30d - a.aiCalls30d,
-      events: (a, b) => b.events30d - a.events30d,
+      aiCost: (a, b) => b.totals.aiCostUsd - a.totals.aiCostUsd,
+      aiCalls: (a, b) => b.totals.aiCalls - a.totals.aiCalls,
+      events: (a, b) => b.totals.events - a.totals.events,
       tokens: (a, b) => b.activeTokens - a.activeTokens,
     };
     rows = rows.sort(by[sort] ?? by.lastSeen);
@@ -586,29 +582,13 @@ const routes: [string, RegExp, Handler][] = [
     const p = people[i]!;
     const range = rangeOf(q);
     const calls = aiCalls.filter((c) => c.person?.id === p.id && inRange(c.at, range));
-    const row = userRow(i);
+    const row = userRow(i, range);
     const detail: AdminUserDetail = {
       ...row,
-      groupList: groups
-        .filter((g) => g.seed.members.includes(i))
-        .map((g) => ({ group: ref(g), joinedAt: iso((g.seed.addedDaysAgo - 1) * DAY), events: 10 + noise(p.id + g.id, 300), aiCostUsd: calls.filter((c) => c.group?.id === g.id).reduce((s, c) => s + c.costUsd, 0) })),
-      daily: days(range).map((day) => {
-        const dc = calls.filter((c) => c.at.startsWith(day));
-        return { day, events: day >= trackingSince ? noise(p.id + day, 30) : 0, aiCalls: dc.length, aiCostUsd: dc.reduce((s, c) => s + c.costUsd, 0) };
-      }),
-      aiByFeature: featureRows(calls),
-      tokens: Array.from({ length: row.activeTokens }, (_, k) => {
-        const g = groups.find((x) => x.seed.members.includes(i));
-        return {
-          id: `${p.id}-t${k}`,
-          name: k === 0 ? 'Claude Desktop' : 'Cursor (work laptop)',
-          prefix: `tbot_${p.id.slice(-4)}${k}`,
-          group: k === 0 && g ? ref(g) : null,
-          lastUsedAt: iso((k + 1) * 5 * 3_600_000),
-          createdAt: iso((20 + k * 7) * DAY),
-          expiresAt: k === 0 ? null : iso(-60 * DAY),
-        };
-      }),
+      groupList: personGroups(i, range),
+      daily: personDaily(i, range),
+      aiByFeature: featureRows(calls).filter((r) => r.calls > 0),
+      aiToday: personToday(i, row.aiDisabled ? null : row.aiDailyLimit),
     };
     return { data: detail };
   }],
@@ -616,15 +596,24 @@ const routes: [string, RegExp, Handler][] = [
     const p = people[personIndex(params[0]!)]!;
     const o = userOverrides.get(p.id) ?? {};
     if (typeof body.disabled === 'boolean') o.aiDisabled = body.disabled;
-    if ('dailyLimit' in body) o.aiDailyLimit = (body.dailyLimit as number | null) ?? null;
+    if ('dailyLimit' in body) {
+      if (body.dailyLimit === 0) throw new HttpError(400, 'The daily limit must be at least 1 — to stop AI completely, turn it off instead.');
+      o.aiDailyLimit = (body.dailyLimit as number | null) ?? null;
+    }
+    const row = { ...userRow(personIndex(params[0]!)), ...o };
+    if (!row.aiDisabled && row.aiDailyLimit == null) o.aiReason = null;
+    else if (typeof body.reason === 'string') o.aiReason = body.reason.trim() || null;
     userOverrides.set(p.id, o);
-    return { data: { ok: true } };
+    const auditId = `mock-${Date.now()}`;
+    const change = row.aiDisabled ? 'AI turned off' : `Daily AI limit: ${row.aiDailyLimit ?? 'default'}`;
+    auditLog.unshift({ id: auditId, at: new Date().toISOString(), action: 'user.ai', summary: `Changed AI limits for user “${p.name}”`, targetType: 'user', targetId: p.id, targetLabel: p.name, reason: o.aiReason ?? null, details: null, changes: [change] });
+    return { data: { ...userRow(personIndex(params[0]!)), appliesWithinSeconds: 30, auditId } };
   }],
   ['POST', /^\/users\/([^/]+)\/revoke-tokens$/, ({ params }) => {
     const i = personIndex(params[0]!);
-    const revoked = userRow(i).activeTokens;
-    userOverrides.set(people[i]!.id, { ...userOverrides.get(people[i]!.id), activeTokens: 0 });
-    return { data: { revoked } };
+    const mine = mcpTokenStore.filter((t) => t.status === 'active' && t.person?.id === people[i]!.id);
+    for (const t of mine) Object.assign(t, { status: 'revoked', revokedAt: new Date().toISOString() });
+    return { data: { revoked: mine.length } };
   }],
 
   ['GET', /^\/ai\/usage$/, ({ q }) => {
@@ -645,7 +634,40 @@ const routes: [string, RegExp, Handler][] = [
       const map = new Map(rows.map((r) => [r.key, r]));
       rows = days(range).map((d) => map.get(d) ?? { key: d, label: d, calls: 0, failed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, unpriced: 0 });
     } else rows.sort((a, b) => b.costUsd - a.costUsd);
-    return { data: { range, groupBy, totals: totals(calls), rows } };
+    const refusedRows = refusals({ days: rangeDays(range), groupId: q.get('groupId'), userId: q.get('userId') });
+    if (groupBy === 'group' || groupBy === 'user') {
+      for (const r of rows) r.refused = refusedRows.filter((x) => (groupBy === 'group' ? (x.groupId ?? 'none') : x.personId || 'none') === r.key).length;
+    }
+    const byReason = countReasons(refusedRows);
+    const order = ['person_limit', 'person_burst', 'group_limit', 'bot_limit', 'ai_off'] as const;
+    return {
+      data: {
+        range,
+        groupBy,
+        totals: { ...totals(calls), refused: refusedRows.length },
+        rows,
+        refusedByReason: order.filter((r) => byReason[r]).map((reason) => ({ reason, count: byReason[reason]! })),
+      },
+    };
+  }],
+  ['GET', /^\/ai\/refused$/, ({ q }) => {
+    const by = q.get('by') === 'group' ? 'group' : 'person';
+    const list = refusals({ days: rangeDays(rangeOf(q)), groupId: q.get('groupId'), userId: q.get('userId') });
+    const keys = new Map<string, typeof list>();
+    for (const r of list) {
+      const k = by === 'group' ? (r.groupId ?? '') : r.personId;
+      keys.set(k, [...(keys.get(k) ?? []), r]);
+    }
+    const rows = [...keys.entries()]
+      .map(([k, rs]) => {
+        const g = groups.find((x) => x.id === k);
+        const p = people.find((x) => x.id === k);
+        const base = { count: rs.length, byReason: countReasons(rs) };
+        if (by === 'person') return { ...base, person: p ? personRef(p) : null };
+        return { ...base, group: k ? (g ? ref(g) : { id: k, name: 'Deleted group', status: GroupStatus.LEFT, deleted: true }) : null };
+      })
+      .sort((a, b) => b.count - a.count);
+    return paginate(rows, q);
   }],
   ['GET', /^\/ai\/calls$/, ({ q }) => {
     const range = q.get('range') as AdminRange | null;
@@ -679,7 +701,7 @@ const routes: [string, RegExp, Handler][] = [
     const rateLimited = Math.round(all * 0.006 * clientShare);
     const split = <T,>(rows: [T, number][], failRate = 0.021) =>
       rows.map(([key, w]) => ({ key, calls: Math.round(calls * w), failed: Math.round(calls * w * failRate) })).filter((r) => r.calls > 0);
-    const tokens = mcpTokens();
+    const tokens = mcpTokenStore.filter((t) => t.status === 'active');
     const overview: AdminMcpOverview = {
       activeTokens: tokens.length,
       tokenOwners: new Set(tokens.map((t) => t.person?.id)).size,
@@ -715,10 +737,23 @@ const routes: [string, RegExp, Handler][] = [
             { person: personRef(people[2]!), count: rateLimited - Math.round(rateLimited * 0.8) - Math.round(rateLimited * 0.1) },
           ].filter((r) => r.count > 0)
         : [],
-      tokens,
       filter: { tool, client },
     };
     return { data: overview };
+  }],
+  ['GET', /^\/mcp\/tokens$/, ({ q }) => {
+    if (!['active', 'revoked', 'expired', 'ended'].includes(q.get('status') ?? 'active')) throw new HttpError(400, 'Unknown token status.');
+    return paginate(tokenQuery(q), q);
+  }],
+  ['POST', /^\/tokens\/([^/]+)\/revoke$/, ({ params }) => {
+    const t = mcpTokenStore.find((x) => x.id === params[0]);
+    if (!t) throw new HttpError(404, "This token doesn't exist (it may have been deleted with its group).");
+    if (t.status === 'revoked') throw new HttpError(409, 'This token was already revoked.');
+    Object.assign(t, { status: 'revoked', revokedAt: new Date().toISOString() });
+    const auditId = `mock-${Date.now()}`;
+    const who = t.person?.name ?? 'a user';
+    auditLog.unshift({ id: auditId, at: t.revokedAt!, action: 'token.revoke', summary: `Revoked one MCP token of ${who}`, targetType: 'user', targetId: t.person?.id ?? null, targetLabel: t.person?.name ?? null, reason: null, details: null, changes: [`“${t.name}” (${t.prefix}…) revoked — their other tokens keep working`] });
+    return { data: { token: t, auditId } };
   }],
 
   ['GET', /^\/system$/, () => ({ data: systemStatus() })],

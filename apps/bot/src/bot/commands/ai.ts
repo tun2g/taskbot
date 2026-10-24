@@ -44,6 +44,7 @@ import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
 import { aiDisabledBy, aiDisabledText, aiGroupLimitText, aiUserLimitText } from 'src/shared/services/ai-quota';
 import { AI_STILL_WORKS } from 'src/shared/services/ai-command/telegram.renderer';
+import { escapeHtml } from 'src/shared/services/ai-command/format';
 
 const TYPING_INTERVAL_MS = 4500;
 
@@ -140,7 +141,7 @@ export class AiCommand {
       // The bot owner turned AI off for this group / person: like "AI unavailable", with the reason.
       const disabledBy = aiDisabledBy(group, user);
       if (disabledBy) {
-        await this.sendUnavailable(ctx, mode, { request, user, group, replyTask }, undefined, `🚫 ${aiDisabledText(disabledBy)} ${AI_STILL_WORKS}`);
+        await this.sendUnavailable(ctx, mode, { request, user, group, replyTask }, undefined, `🚫 ${escapeHtml(aiDisabledText(disabledBy, group, user))} ${AI_STILL_WORKS}`);
         return;
       }
 

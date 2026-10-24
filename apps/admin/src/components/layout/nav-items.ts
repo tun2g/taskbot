@@ -11,7 +11,7 @@ export const NAV = [
 ] as const;
 
 /** Pages whose numbers depend on the date range (the selector only shows there). */
-export const RANGED = [/^\/$/, /^\/groups\/[^/]+$/, /^\/users\/[^/]+$/, /^\/ai$/, /^\/mcp$/];
+export const RANGED = [/^\/$/, /^\/groups\/[^/]+$/, /^\/users(\/[^/]+)?$/, /^\/ai$/, /^\/mcp$/];
 
 /** The section the current path belongs to ("/groups/abc" → "Groups"). */
 export function currentSection(pathname: string): string | null {

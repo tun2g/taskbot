@@ -1,5 +1,6 @@
 import type {
   AdminAiCallRow,
+  AdminAiRefusalRow,
   AdminAiUsage,
   AdminRange,
   AiCallStatus,
@@ -28,11 +29,34 @@ export interface AiCallParams {
   limit?: number;
 }
 
+export interface AiRefusedParams {
+  by: 'person' | 'group';
+  range: AdminRange;
+  groupId?: string;
+  userId?: string;
+  page?: number;
+  limit?: number;
+}
+
 export const aiKeys = {
   all: ['ai'] as const,
   usage: (params: AiUsageParams) => [...aiKeys.all, 'usage', params] as const,
   calls: (params: AiCallParams) => [...aiKeys.all, 'calls', params] as const,
+  refused: (params: AiRefusedParams) => [...aiKeys.all, 'refused', params] as const,
 };
+
+/** GET /ai/refused?by=person|group&range=&groupId=&userId=&page=&limit= — who was refused, most first. */
+export function useAiRefused(params: AiRefusedParams, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: aiKeys.refused(params),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PaginatedResponse<AdminAiRefusalRow>>('/ai/refused', { params });
+      return data;
+    },
+    placeholderData: keepPreviousData,
+    enabled: opts.enabled ?? true,
+  });
+}
 
 /** GET /ai/usage?range=&groupBy=&groupId=&userId= */
 export function useAiUsage(params: AiUsageParams) {

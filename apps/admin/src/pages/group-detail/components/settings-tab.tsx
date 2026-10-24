@@ -3,6 +3,7 @@ import type { AdminAiOverrideInput, AdminGroupDetail } from '@tbot/shared';
 import { AiOverrideForm } from '@/components/actions/ai-override-form';
 import type { GroupLifecycleAction } from '@/components/actions/group-actions';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
+import { groupLimitsNow } from '@/lib/ai-limits';
 import { formatNumber } from '@/lib/format';
 
 import { aiCallStats } from '../group-detail.utils';
@@ -56,6 +57,8 @@ export function SettingsTab({
             subject="group"
             disabled={group.aiDisabled}
             dailyLimit={group.aiDailyLimit}
+            reason={group.aiReason ?? null}
+            rightNow={groupLimitsNow(aiLimits, { disabled: group.aiDisabled, dailyLimit: group.aiDailyLimit })}
             defaultLimitText={defaultLimitText(aiLimits)}
             pending={savingAi}
             onSave={onSaveAi}

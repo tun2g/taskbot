@@ -112,7 +112,7 @@ async function runWebChat(input: WebChatInput): Promise<WebChatOutcome> {
 
   if (!aiService.isConfigured()) return unavailable();
   const disabledBy = aiDisabledBy(group, requester);
-  if (disabledBy) return unavailable(`${aiDisabledText(disabledBy)} ${WEB_AI_STILL_WORKS}`);
+  if (disabledBy) return unavailable(`${aiDisabledText(disabledBy, group, requester)} ${WEB_AI_STILL_WORKS}`);
 
   const chatId = group.telegramGroupId;
   const userLimit = await checkUserAiRateLimit(requester.telegramUserId, chatId, requester);

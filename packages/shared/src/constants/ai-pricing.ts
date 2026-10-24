@@ -37,3 +37,23 @@ export const AI_DEFAULT_USER_DAILY_LIMIT = 100;
 
 /** Default "DM me at …% of the daily budget" threshold. */
 export const AI_DEFAULT_ALERT_AT_PERCENT = 80;
+
+/** Without an owner-set group limit, a group may make this many AI requests per rolling window. */
+export const AI_DEFAULT_GROUP_BURST = { limit: 20, windowMinutes: 10 } as const;
+
+/**
+ * Names of the bot's AI limiters (the `name` of a `rate_limited` usage event), so the admin app can say which
+ * limit refused a request. Every limit is checked on each request; whichever runs out first refuses it.
+ */
+export const AI_LIMITER = {
+  /** The person's daily limit (their override, else Settings, else AI_DEFAULT_USER_DAILY_LIMIT). */
+  personDaily: 'ai_user_daily',
+  /** Too many /ai requests in a row from one person in one chat. */
+  personBurst: 'ai_command',
+  /** The owner's daily limit for the group (replaces groupBurst when set). */
+  groupDaily: 'ai_group_daily',
+  /** The group's default AI_DEFAULT_GROUP_BURST window. */
+  groupBurst: 'ai_task_extract',
+  /** The bot-wide daily call cap (also recorded as an AI call with status "quota"). */
+  botDaily: 'ai_daily_budget',
+} as const;

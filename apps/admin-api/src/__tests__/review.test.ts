@@ -3,7 +3,7 @@ import * as db from '@tbot/db';
 import { createApp } from 'src/app';
 import { createSession, SESSION_COOKIE } from 'src/auth/auth.service';
 import { setBotQueue } from 'src/routes/system.routes';
-import { activeSince } from 'src/routes/users.routes';
+import { activeSince } from 'src/routes/users';
 import { auditChanges } from 'src/shared/audit';
 import { setKv } from 'src/shared/redis';
 import { chain, fakeQueue, FakeKv, startServer, TestServer } from './helpers';

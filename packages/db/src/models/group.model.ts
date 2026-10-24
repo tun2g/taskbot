@@ -38,7 +38,7 @@ export interface IGroup extends Document {
   /** The owner's approval DM for this group (edited in place on approve / reject). */
   approvalMessage?: { chatId: number; messageId: number } | null;
   /** Per-group AI overrides set in the admin app. dailyLimit null = default limits. */
-  ai: { disabled: boolean; dailyLimit: number | null };
+  ai: { disabled: boolean; dailyLimit: number | null; reason?: string | null };
 
   createdAt: Date;
   updatedAt: Date;
@@ -103,10 +103,15 @@ const GroupSchema: Schema = new Schema(
     },
     ai: {
       type: new Schema(
-        { disabled: { type: Boolean, default: false }, dailyLimit: { type: Number, default: null, min: 0 } },
+        {
+          disabled: { type: Boolean, default: false },
+          dailyLimit: { type: Number, default: null, min: 0 },
+          /** Why the owner turned AI off / limited it (told to the person when the bot refuses). */
+          reason: { type: String, default: null, maxlength: 500 },
+        },
         { _id: false },
       ),
-      default: () => ({ disabled: false, dailyLimit: null }),
+      default: () => ({ disabled: false, dailyLimit: null, reason: null }),
     },
   },
   {

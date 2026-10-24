@@ -511,7 +511,7 @@ async function handleExplain(ctx: BotContext, task: ITask, user: IUser, options:
 
   const disabledBy = aiDisabledBy(group, user);
   if (disabledBy) {
-    await ctx.answerCbQuery(`🚫 ${aiDisabledText(disabledBy)}`, { show_alert: true });
+    await ctx.answerCbQuery(`🚫 ${aiDisabledText(disabledBy, group, user, 80)}`, { show_alert: true });
     return;
   }
 

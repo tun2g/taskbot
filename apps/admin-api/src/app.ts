@@ -1,14 +1,14 @@
 import express, { Express, NextFunction, Request, Response } from 'express';
 import { csrfGuard, requireOwner } from 'src/auth/auth.middleware';
 import { authRouter } from 'src/auth/auth.routes';
-import { aiRouter } from 'src/routes/ai.routes';
+import { aiRouter } from 'src/routes/ai';
 import { auditRouter } from 'src/routes/audit.routes';
 import { groupsRouter } from 'src/routes/groups.routes';
-import { mcpRouter } from 'src/routes/mcp.routes';
+import { mcpRouter, tokensRouter } from 'src/routes/mcp';
 import { overviewRouter } from 'src/routes/overview.routes';
 import { settingsRouter } from 'src/routes/settings.routes';
 import { systemRouter } from 'src/routes/system.routes';
-import { usersRouter } from 'src/routes/users.routes';
+import { usersRouter } from 'src/routes/users';
 import { errorHandler, sendError } from 'src/shared/http';
 
 export function createApp(): Express {
@@ -43,6 +43,7 @@ export function createApp(): Express {
   api.use('/ai', aiRouter);
   api.use('/settings', settingsRouter);
   api.use('/mcp', mcpRouter);
+  api.use('/tokens', tokensRouter);
   api.use('/system', systemRouter);
   api.use('/audit-log', auditRouter);
   api.use((_req: Request, res: Response) => sendError(res, 404, 'This page of the admin API does not exist.'));

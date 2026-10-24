@@ -243,11 +243,15 @@ export const aiCalls: AdminAiCallRow[] = [];
         group: { id: group.id, name: group.name, status: group.status },
         person: personRef(person),
         channel: feature === AiFeature.PLANNER ? pick<UsageChannel>(['telegram', 'telegram', 'app']) : pick<UsageChannel>(['telegram', 'app', 'mcp']),
-        error: status === 'failed' ? pick(ERRORS) : status === 'invalid' ? 'Model reply was not valid JSON' : status === 'quota' ? 'Daily AI limit reached for this group' : status === 'disabled' ? 'AI is turned off for this group' : null,
+        error: status === 'failed' ? pick(ERRORS) : status === 'invalid' ? 'Model reply was not valid JSON' : status === 'quota' ? 'Daily AI budget of 400 calls reached' : status === 'disabled' ? 'AI is turned off for this group' : null,
       });
     }
   }
   aiCalls.sort((a, b) => b.at.localeCompare(a.at));
+  // Like the real bot: MCP calls and some Mini App ones (the home screen) aren't tied to a group → "No group" rows.
+  aiCalls.forEach((c, k) => {
+    if (c.status !== 'disabled' && (c.channel === 'mcp' || (c.channel === 'app' && k % 3 === 0))) c.group = null;
+  });
   // A group deleted 8 days ago: its earlier AI calls stay in the history (and in every total).
   const deleted: AdminAiCallRow['group'] = { id: oid(8_888), name: 'Weekend Hikers', status: GroupStatus.LEFT };
   for (const c of aiCalls) {

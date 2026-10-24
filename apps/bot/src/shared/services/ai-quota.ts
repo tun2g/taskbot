@@ -1,4 +1,4 @@
-import { AI_DEFAULT_USER_DAILY_LIMIT, AiFeature, UsageChannel } from '@tbot/shared';
+import { AI_DEFAULT_USER_DAILY_LIMIT, AI_LIMITER, AiFeature, UsageChannel } from '@tbot/shared';
 import { configService } from 'src/configs/configuration';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { settingsService } from 'src/shared/services/settings.service';
@@ -23,7 +23,7 @@ export function utcDayWindow(action: string, now = new Date()): { action: string
 
 /** Per-person / per-group AI overrides set by the bot owner in the admin app. */
 export interface AiOverrides {
-  ai?: { disabled?: boolean | null; dailyLimit?: number | null } | null;
+  ai?: { disabled?: boolean | null; dailyLimit?: number | null; reason?: string | null } | null;
 }
 
 /** user.ai.dailyLimit, else Settings → AI → per-person daily limit, else AI_USER_DAILY_LIMIT. */
@@ -36,7 +36,7 @@ export async function userAiDailyLimit(user?: AiOverrides | null): Promise<numbe
 
 export async function checkUserAiDailyLimit(telegramUserId: number, user?: AiOverrides | null): Promise<AiLimitResult> {
   const limit = await userAiDailyLimit(user);
-  const today = utcDayWindow('ai_user_daily');
+  const today = utcDayWindow(AI_LIMITER.personDaily);
   const result = await rateLimitService.checkRateLimit(telegramUserId, today.action, limit, today.seconds);
   return { ...result, scope: 'day', limit };
 }
@@ -135,8 +135,16 @@ export function aiDisabledBy(group?: AiOverrides | null, user?: AiOverrides | nu
   return null;
 }
 
-export function aiDisabledText(by: AiDisabledBy): string {
-  return by === 'group' ? AI_DISABLED_GROUP_TEXT : AI_DISABLED_USER_TEXT;
+/**
+ * Plain text (escape it for HTML replies). Adds the owner's reason when they gave one, so the person isn't left
+ * guessing: pass the group / person the switch was read from.
+ */
+export function aiDisabledText(by: AiDisabledBy, group?: AiOverrides | null, user?: AiOverrides | null, maxReason = 300): string {
+  const base = by === 'group' ? AI_DISABLED_GROUP_TEXT : AI_DISABLED_USER_TEXT;
+  const full = (by === 'group' ? group : user)?.ai?.reason?.trim();
+  if (!full) return base;
+  const reason = full.length > maxReason ? `${full.slice(0, maxReason - 1).trimEnd()}…` : full;
+  return `${base} Reason: ${reason}${/[.!?…]$/.test(reason) ? '' : '.'}`;
 }
 
 type Doc = AiOverrides & { _id?: unknown };
