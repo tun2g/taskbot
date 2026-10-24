@@ -10,6 +10,7 @@ import type {
 import { GROUP_STATUS_VALUES } from '@tbot/shared';
 import { Request, Response, Router } from 'express';
 import { Types } from 'mongoose';
+import { aiOverrideSet, overrideSnapshot } from 'src/routes/ai-override';
 import { applyDecision, applyLeave, BOT_IN_CHAT } from 'src/routes/group-actions';
 import { GROUP_FIELDS, groupRows, iso, LeanGroup, normalizeGroup, taskCountsBy } from 'src/routes/group-rows';
 import { actionSchema, actionWithReasonSchema, aiOverrideSchema, deleteGroupSchema } from 'src/routes/schemas';
@@ -288,23 +289,18 @@ groupsRouter.patch(
     const id = objectIdParam(req.params.id, 'group');
     const input = parseOr400(aiOverrideSchema, req.body);
     const before = await findGroup(id);
-    const set: Record<string, unknown> = {};
-    if (input.disabled !== undefined) set['ai.disabled'] = input.disabled;
-    if (input.dailyLimit !== undefined) set['ai.dailyLimit'] = input.dailyLimit;
-    await Group.updateOne({ _id: id }, { $set: set });
+    await Group.updateOne({ _id: id }, { $set: aiOverrideSet(input, before.ai) });
     const after = await findGroup(id);
-    await writeAudit(req, {
+    const auditId = await writeAudit(req, {
       action: 'group.ai',
       targetType: 'group',
       targetId: String(id),
       targetLabel: before.groupName,
-      details: {
-        before: { disabled: !!before.ai?.disabled, dailyLimit: before.ai?.dailyLimit ?? null },
-        after: { disabled: !!after.ai?.disabled, dailyLimit: after.ai?.dailyLimit ?? null },
-      },
+      reason: after.ai?.reason ?? null,
+      details: { before: overrideSnapshot(before.ai), after: overrideSnapshot(after.ai) },
     });
     const [row] = await groupRows([after]);
-    res.json({ data: { ...row, appliesWithinSeconds: SETTINGS_CACHE_SECONDS } });
+    res.json({ data: { ...row, appliesWithinSeconds: SETTINGS_CACHE_SECONDS, auditId } });
   }),
 );
 

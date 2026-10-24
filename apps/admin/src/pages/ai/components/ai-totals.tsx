@@ -1,19 +1,13 @@
 import type { AdminAiUsage, AdminRange } from '@tbot/shared';
 
+import { Cost } from '@/components/ui/cost';
 import { KpiCard } from '@/components/ui/kpi';
 import { Skeleton } from '@/components/ui/states';
-import { formatMoney, formatNumber, formatPercent } from '@/lib/format';
+import { formatNumber, formatPercent } from '@/lib/format';
 import { RANGE_LABELS } from '@/lib/labels';
+import { scrollToSection } from '@/lib/use-scroll-to-hash';
 
-export function AiTotals({
-  totals,
-  loading,
-  range,
-}: {
-  totals: AdminAiUsage['totals'] | undefined;
-  loading: boolean;
-  range: AdminRange;
-}) {
+export function AiTotals({ totals, loading, range }: { totals: AdminAiUsage['totals'] | undefined; loading: boolean; range: AdminRange }) {
   if (loading || !totals) {
     return (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -24,41 +18,45 @@ export function AiTotals({
     );
   }
   const failRate = totals.calls > 0 ? totals.failed / totals.calls : 0;
+  const refused = totals.refused ?? 0;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
-        label="Estimated cost"
-        value={formatMoney(totals.costUsd)}
-        hint={
-          totals.unpriced > 0
-            ? `${RANGE_LABELS[range]}. Token counts × your price table — a lower bound, since ${formatNumber(totals.unpriced)} calls have no price.`
-            : `${RANGE_LABELS[range]}. Token counts × your price table, not your provider’s invoice.`
-        }
+        label="Est. AI cost"
+        value={<Cost usd={totals.costUsd} unpriced={totals.unpriced} className="items-start" />}
+        hint={`${RANGE_LABELS[range]}. Token counts × your price table, not your provider’s invoice.`}
       />
       <KpiCard
         label="AI calls"
         value={formatNumber(totals.calls)}
-        hint={[
+        hint={
           totals.failed > 0
-            ? `${formatNumber(totals.failed)} failed (${formatPercent(failRate, failRate < 0.1 ? 1 : 0)}): an error or an unusable reply.`
-            : 'None failed.',
-          'Each call is one request from the bot to the model.',
-          totals.refused
-            ? `${formatNumber(totals.refused)} more ${totals.refused === 1 ? 'request was' : 'requests were'} refused before reaching the model (a daily limit, or AI turned off) — not counted here.`
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+            ? `${formatNumber(totals.failed)} failed (${formatPercent(failRate, failRate < 0.1 ? 1 : 0)}): an error or an unusable reply. Each call is one request from the bot to the model.`
+            : 'None failed. Each call is one request from the bot to the model.'
+        }
       />
       <KpiCard
-        label="Input tokens"
-        value={formatNumber(totals.inputTokens, { compact: true })}
-        hint="Text sent to the model (the request, task details, chat messages). A token is roughly ¾ of a word."
+        label="Refused (limit)"
+        value={formatNumber(refused)}
+        hint="Requests that never reached the model: a daily limit was reached, too many came in a row, or AI is off. Not counted in AI calls."
+        footer={
+          refused > 0 && (
+            <button type="button" onClick={() => scrollToSection('refused')} className="mt-2 cursor-pointer text-[13px] text-accent-text hover:underline">
+              See who was refused ↓
+            </button>
+          )
+        }
       />
       <KpiCard
-        label="Output tokens"
-        value={formatNumber(totals.outputTokens, { compact: true })}
-        hint="Text the model wrote back. Output usually costs several times more per token than input."
+        label="Tokens in / out"
+        value={
+          <>
+            {formatNumber(totals.inputTokens, { compact: true })}
+            <span className="text-text-3"> / </span>
+            {formatNumber(totals.outputTokens, { compact: true })}
+          </>
+        }
+        hint="Text sent to the model / written back. A token is roughly ¾ of a word; output usually costs several times more per token."
       />
     </div>
   );

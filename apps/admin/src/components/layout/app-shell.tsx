@@ -29,7 +29,7 @@ const NAV = [
 ] as const;
 
 /** Pages whose numbers depend on the date range (the selector only shows there). */
-const RANGED = [/^\/$/, /^\/groups\/[^/]+$/, /^\/users\/[^/]+$/, /^\/ai$/, /^\/mcp$/];
+const RANGED = [/^\/$/, /^\/groups\/[^/]+$/, /^\/users(\/[^/]+)?$/, /^\/ai$/, /^\/mcp$/];
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pending = usePendingCount();

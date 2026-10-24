@@ -3,6 +3,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 
 import { NotFound, RouteError } from './components/layout/route-error';
 import { getErrorStatus, setUnauthorizedHandler } from './lib/api-client';
+import { parseSearch, stringifySearch } from './lib/search-params';
 import { routeTree } from './routeTree.gen';
 
 export const queryClient = new QueryClient({
@@ -23,6 +24,8 @@ export const queryClient = new QueryClient({
 export const router = createRouter({
   routeTree,
   context: { queryClient },
+  parseSearch,
+  stringifySearch,
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
   defaultErrorComponent: RouteError,

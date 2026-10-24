@@ -72,18 +72,32 @@ export function AiStatusBadge({ status }: { status: AiCallStatus }) {
   );
 }
 
-/** A person's or group's AI override, in words. */
-export function AiOverrideBadge({ disabled, dailyLimit }: { disabled: boolean; dailyLimit: number | null }) {
-  if (disabled) return <Badge tone="danger" title="AI features are turned off by you.">AI off</Badge>;
+/**
+ * A person's or group's AI override, in words. `defaultLabel` says what applies without one ("Default (40/day)");
+ * `reason` (what you gave when setting it) goes in the hover text.
+ */
+export function AiOverrideBadge({
+  disabled,
+  dailyLimit,
+  defaultLabel = 'Default',
+  reason,
+}: {
+  disabled: boolean;
+  dailyLimit: number | null;
+  defaultLabel?: string;
+  reason?: string | null;
+}) {
+  const why = reason ? ` Reason: ${reason}` : '';
+  if (disabled) return <Badge tone="danger" title={`AI features are turned off by you.${why}`}>AI off</Badge>;
   if (dailyLimit != null)
     return (
-      <Badge tone="accent" title="A custom daily AI call limit set by you.">
+      <Badge tone="accent" title={`A custom daily AI call limit set by you.${why}`}>
         {dailyLimit}/day limit
       </Badge>
     );
   return (
-    <Tooltip content="Uses the default limits from Settings.">
-      <span className="text-[13px] text-text-3">Default</span>
+    <Tooltip content="No override: the default limits from Settings apply.">
+      <span className="text-[13px] whitespace-nowrap text-text-3">{defaultLabel}</span>
     </Tooltip>
   );
 }

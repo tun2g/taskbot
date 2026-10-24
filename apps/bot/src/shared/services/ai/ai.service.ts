@@ -1,3 +1,4 @@
+import { AI_LIMITER } from '@tbot/shared';
 import { z } from 'zod';
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
@@ -74,7 +75,7 @@ class AIService {
     const settings = await settingsService.getAi();
     const max = settings.dailyCallLimit ?? configService.ai.dailyLimit;
     if (!max) return;
-    const today = utcDayWindow('ai_daily_budget');
+    const today = utcDayWindow(AI_LIMITER.botDaily);
     const budget = await rateLimitService.checkRateLimit('all', today.action, max, today.seconds);
     if (!budget.allowed) throw new AIUnavailableError('quota', `Daily AI budget of ${max} calls reached`);
   }

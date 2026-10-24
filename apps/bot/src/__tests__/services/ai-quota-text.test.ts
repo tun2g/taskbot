@@ -1,4 +1,4 @@
-import { aiGroupLimitText, aiLimitText, aiResetTime } from 'src/shared/services/ai-quota';
+import { AI_DISABLED_GROUP_TEXT, AI_DISABLED_USER_TEXT, aiDisabledText, aiGroupLimitText, aiLimitText, aiResetTime } from 'src/shared/services/ai-quota';
 
 jest.mock('src/configs/configuration', () => ({ configService: { timezone: 'Asia/Ho_Chi_Minh' } }));
 jest.mock('src/shared/services/rate-limit.service', () => ({ rateLimitService: {} }));
@@ -43,5 +43,18 @@ describe('AI limit texts', () => {
     expect(aiGroupLimitText(null, { scope: 'minute', retryAfterSeconds: 45 })).toContain('try again in 45s');
     // The limiter result decides which limit it was.
     expect(aiGroupLimitText({ ai: { dailyLimit: 5 } }, { scope: 'day', retryAfterSeconds: 3600 })).toContain('for today');
+  });
+
+  it("AI turned off: adds the owner's reason when there is one", () => {
+    expect(aiDisabledText('group', { ai: { disabled: true } }, null)).toBe(AI_DISABLED_GROUP_TEXT);
+    expect(aiDisabledText('user', null, { ai: { disabled: true, reason: '  Over budget this month ' } })).toBe(
+      `${AI_DISABLED_USER_TEXT} Reason: Over budget this month.`,
+    );
+    // The group's reason when the group switch is the one that applies, not the person's.
+    expect(aiDisabledText('group', { ai: { disabled: true, reason: 'Paused for the audit!' } }, { ai: { reason: 'x' } })).toBe(
+      `${AI_DISABLED_GROUP_TEXT} Reason: Paused for the audit!`,
+    );
+    // Short surfaces (Telegram alerts) cap the reason.
+    expect(aiDisabledText('user', null, { ai: { reason: 'a'.repeat(200) } }, 20)).toMatch(/Reason: a{19}…$/);
   });
 });

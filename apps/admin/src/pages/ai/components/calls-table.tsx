@@ -2,30 +2,43 @@ import type { AdminAiCallRow, AiCallStatus, AiFeature, PaginatedResponse } from 
 import { AI_CALL_STATUS_VALUES, AI_FEATURE_VALUES } from '@tbot/shared';
 import { Fragment } from 'react';
 
-import { AiStatusBadge, Badge } from '@/components/ui/badge';
-import { Button, TextLink } from '@/components/ui/button';
-import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/nav';
+import { Select } from '@/components/ui/select';
 import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
-import { Table, Td, Th, THead } from '@/components/ui/table';
-import { PersonCell, RelativeTime } from '@/components/ui/values';
-import { formatDuration, formatMoney, formatNumber } from '@/lib/format';
-import { AI_FEATURE_LABELS, AI_STATUS_HINTS, AI_STATUS_LABELS, CHANNEL_LABELS, featureLabel } from '@/lib/labels';
+import { Table, Th, THead } from '@/components/ui/table';
+import { AI_FEATURE_LABELS, AI_STATUS_HINTS, AI_STATUS_LABELS } from '@/lib/labels';
 import type { AiSearch } from '@/lib/search';
 
-export function CallsTable({
-  calls,
-  loading,
-  error,
-  onRetry,
-  retrying,
-  status,
-  feature,
-  filtered,
-  page,
-  pageSize,
-  onUpdate,
-}: {
+import { CallCells } from './call-row';
+
+const COLUMNS = 7;
+
+function CallsFilters({ status, feature, onUpdate }: { status?: AiCallStatus; feature?: AiFeature; onUpdate: (patch: Partial<AiSearch>) => void }) {
+  return (
+    <div className="flex flex-wrap items-end gap-3 px-5 pb-3">
+      <Select
+        label="Result"
+        value={status ?? ''}
+        onChange={(v) => onUpdate({ status: (v || undefined) as AiCallStatus | undefined })}
+        options={[{ value: '', label: 'All results' }, ...AI_CALL_STATUS_VALUES.map((s) => ({ value: s, label: AI_STATUS_LABELS[s], hint: AI_STATUS_HINTS[s] }))]}
+      />
+      <Select
+        label="Feature"
+        value={feature ?? ''}
+        onChange={(v) => onUpdate({ feature: (v || undefined) as AiFeature | undefined })}
+        options={[{ value: '', label: 'All features' }, ...AI_FEATURE_VALUES.map((f) => ({ value: f, label: AI_FEATURE_LABELS[f] }))]}
+      />
+      {(status || feature) && (
+        <Button size="sm" variant="ghost" onClick={() => onUpdate({ status: undefined, feature: undefined })}>
+          Clear result & feature
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function CallsTable(props: {
   calls: PaginatedResponse<AdminAiCallRow> | undefined;
   loading: boolean;
   error: string | null;
@@ -38,40 +51,19 @@ export function CallsTable({
   pageSize: number;
   onUpdate: (patch: Partial<AiSearch>) => void;
 }) {
+  const { calls } = props;
   return (
     <>
-      <div className="flex flex-wrap items-end gap-3 px-5 pb-3">
-        <Select
-          label="Result"
-          value={status ?? ''}
-          onChange={(v) => onUpdate({ status: (v || undefined) as AiCallStatus | undefined })}
-          options={[
-            { value: '', label: 'All results' },
-            ...AI_CALL_STATUS_VALUES.map((s) => ({ value: s, label: AI_STATUS_LABELS[s], hint: AI_STATUS_HINTS[s] })),
-          ]}
-        />
-        <Select
-          label="Feature"
-          value={feature ?? ''}
-          onChange={(v) => onUpdate({ feature: (v || undefined) as AiFeature | undefined })}
-          options={[{ value: '', label: 'All features' }, ...AI_FEATURE_VALUES.map((f) => ({ value: f, label: AI_FEATURE_LABELS[f] }))]}
-        />
-        {(status || feature) && (
-          <Button size="sm" variant="ghost" onClick={() => onUpdate({ status: undefined, feature: undefined })}>
-            Clear result & feature
-          </Button>
-        )}
-      </div>
-
-      {error ? (
-        <ErrorState message={error} onRetry={onRetry} retrying={retrying} />
-      ) : loading || !calls ? (
+      <CallsFilters status={props.status} feature={props.feature} onUpdate={props.onUpdate} />
+      {props.error ? (
+        <ErrorState message={props.error} onRetry={props.onRetry} retrying={props.retrying} />
+      ) : props.loading || !calls ? (
         <TableSkeleton rows={8} />
       ) : calls.data.length === 0 ? (
         <EmptyState
-          title={filtered ? 'No AI calls match these filters.' : 'No AI calls in this period.'}
+          title={props.filtered ? 'No AI calls match these filters.' : 'No AI calls in this period.'}
           body={
-            filtered
+            props.filtered
               ? 'Try another result or feature, or remove the group / person filter at the top.'
               : 'When people use /ai, “Explain”, “Create tasks from messages” or “Split into subtasks”, each call shows up here.'
           }
@@ -84,88 +76,21 @@ export function CallsTable({
               <Th>Feature</Th>
               <Th>Group</Th>
               <Th>Person</Th>
-              <Th hint="AI model that answered">Model</Th>
               <Th>Result</Th>
-              <Th align="right" hint="in / out">
-                Tokens
-              </Th>
-              <Th align="right" hint="time to answer">
-                Took
-              </Th>
+              <Th hint="model · tokens in → out · time">Details</Th>
               <Th align="right" hint="estimated">
-                Cost
+                Est. AI cost
               </Th>
             </THead>
             <tbody>
               {calls.data.map((c) => (
                 <Fragment key={c.id}>
                   <tr className={c.error ? '' : 'border-b border-border last:border-b-0'}>
-                    <Td>
-                      <RelativeTime value={c.at} />
-                    </Td>
-                    <Td>
-                      <span className="block max-w-56">{featureLabel(c.feature)}</span>
-                      {c.channel && <span className="block text-[13px] text-text-3">via {CHANNEL_LABELS[c.channel]}</span>}
-                    </Td>
-                    <Td>
-                      {c.group?.deleted ? (
-                        <span className="text-text-3" title="This group was deleted after the call. Its cost still counts in the totals.">
-                          Deleted group
-                        </span>
-                      ) : c.group ? (
-                        <TextLink to="/groups/$groupId" params={{ groupId: c.group.id }} className="block max-w-48 truncate">
-                          {c.group.name}
-                        </TextLink>
-                      ) : (
-                        <span className="text-text-3" title="Made outside a group — e.g. in a private chat with the bot or from the Mini App home.">
-                          No group
-                        </span>
-                      )}
-                    </Td>
-                    <Td>
-                      <PersonCell person={c.person} />
-                    </Td>
-                    <Td>
-                      <span className="font-mono text-[13px] text-text-2">{c.model}</span>
-                    </Td>
-                    <Td>
-                      <AiStatusBadge status={c.status} />
-                      {c.attempt > 1 && (
-                        <span className="mt-0.5 block text-[13px] text-text-3" title="The bot retried after the first attempt failed.">
-                          retry #{c.attempt}
-                        </span>
-                      )}
-                    </Td>
-                    <Td align="right">
-                      <span className="whitespace-nowrap">
-                        {formatNumber(c.inputTokens)} / {formatNumber(c.outputTokens)}
-                      </span>
-                      {c.cachedTokens > 0 && (
-                        <span className="block text-[13px] text-text-3" title="Cached input tokens are billed at a lower price.">
-                          of which {formatNumber(c.cachedTokens)} cached
-                        </span>
-                      )}
-                    </Td>
-                    <Td align="right" className="whitespace-nowrap text-text-2">
-                      {c.latencyMs > 0 ? formatDuration(c.latencyMs) : '—'}
-                    </Td>
-                    <Td align="right" className="font-medium">
-                      {c.priced ? (
-                        formatMoney(c.costUsd)
-                      ) : (
-                        <Badge
-                          tone="warn"
-                          dot={false}
-                          title={`“${c.model}” has no price in your price table, so this call counts as $0. Adding a price in Settings prices new calls only — each call keeps the cost recorded when it was made.`}
-                        >
-                          no price
-                        </Badge>
-                      )}
-                    </Td>
+                    <CallCells call={c} />
                   </tr>
                   {c.error && (
                     <tr className="border-b border-border last:border-b-0">
-                      <td colSpan={9} className="px-5 pt-0 pb-2.5 text-[13px] text-danger">
+                      <td colSpan={COLUMNS} className="px-5 pt-0 pb-2.5 text-[13px] text-danger">
                         {c.error}
                       </td>
                     </tr>
@@ -175,11 +100,11 @@ export function CallsTable({
             </tbody>
           </Table>
           <Pagination
-            page={page}
-            limit={calls.meta.limit || pageSize}
+            page={props.page}
+            limit={calls.meta.limit || props.pageSize}
             total={calls.meta.total}
             noun="calls"
-            onPage={(p) => onUpdate({ page: p > 1 ? p : undefined })}
+            onPage={(p) => props.onUpdate({ page: p > 1 ? p : undefined })}
           />
         </>
       )}

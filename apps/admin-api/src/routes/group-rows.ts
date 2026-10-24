@@ -28,7 +28,7 @@ export interface LeanGroup {
   lastActivityAt?: Date | null;
   memberCount?: number | null;
   approvalMessage?: { chatId: number; messageId: number } | null;
-  ai?: { disabled?: boolean; dailyLimit?: number | null } | null;
+  ai?: { disabled?: boolean; dailyLimit?: number | null; reason?: string | null } | null;
   createdAt: Date;
 }
 
@@ -119,6 +119,7 @@ export async function groupRows(groups: LeanGroup[], now = new Date()): Promise<
       statusChangedAt: iso(g.statusChangedAt),
       aiDisabled: !!g.ai?.disabled,
       aiDailyLimit: g.ai?.dailyLimit ?? null,
+      aiReason: g.ai?.reason ?? null,
       createdAt: iso(g.createdAt) ?? new Date(0).toISOString(),
       ...(decisions.has(id) ? { previousDecision: decisions.get(id) ?? null } : {}),
     };

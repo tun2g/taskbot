@@ -1,3 +1,4 @@
+import { useRouter } from '@tanstack/react-router';
 import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/cn';
@@ -12,6 +13,7 @@ const TONE: Record<ToastTone, { bar: string; icon: string }> = {
 
 export function Toaster() {
   const toasts = useToasts();
+  const router = useRouter();
   return createPortal(
     <div
       aria-live="polite"
@@ -27,6 +29,19 @@ export function Toaster() {
           <div className="min-w-0 flex-1 px-3 py-2.5">
             <p className="text-sm font-medium text-text">{t.title}</p>
             {t.body && <p className="mt-0.5 text-sm leading-relaxed text-text-2">{t.body}</p>}
+            {t.link && (
+              <a
+                href={t.link.href}
+                onClick={(e) => {
+                  e.preventDefault();
+                  router.history.push(t.link!.href);
+                  dismissToast(t.id);
+                }}
+                className="mt-1 inline-block text-sm font-medium text-accent-text hover:underline"
+              >
+                {t.link.label}
+              </a>
+            )}
           </div>
           <button
             type="button"

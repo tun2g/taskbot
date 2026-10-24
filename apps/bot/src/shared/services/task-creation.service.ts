@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import mongoose from 'mongoose';
-import { AiFeature, EpicStatus, TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
+import { AI_DEFAULT_GROUP_BURST, AI_LIMITER, AiFeature, EpicStatus, TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
 import { BotContext } from 'src/bot/interface/context';
 import { buildTaskButtons, formatTaskCard } from 'src/bot/task-card.renderer';
 import { configService } from 'src/configs/configuration';
@@ -51,8 +51,8 @@ import { parentRefOf, sharedParentOf } from 'src/shared/services/created-summary
 
 export { BATCH_CALLBACK_PREFIX, BATCH_UNDO_WINDOW_MS } from 'src/shared/services/batch-undo.constants';
 export type { BatchCallbackData } from 'src/shared/services/batch-undo.constants';
-const AI_RATE_LIMIT = 20;
-const AI_RATE_WINDOW_SECONDS = 10 * 60;
+const AI_RATE_LIMIT = AI_DEFAULT_GROUP_BURST.limit;
+const AI_RATE_WINDOW_SECONDS = AI_DEFAULT_GROUP_BURST.windowMinutes * 60;
 const PROGRESS_DELAY_MS = 1500;
 const SUMMARY_TITLE_MAX = 60;
 
@@ -112,11 +112,11 @@ export function messageLink(chatId: number, messageId: number, threadId?: number
 export async function checkGroupAiRateLimit(chatId: number, group?: AiOverrides | null): Promise<AiLimitResult> {
   const daily = group?.ai?.dailyLimit;
   if (typeof daily === 'number') {
-    const today = utcDayWindow('ai_group_daily');
+    const today = utcDayWindow(AI_LIMITER.groupDaily);
     const result = await rateLimitService.checkRateLimit(chatId, today.action, daily, today.seconds);
     return { ...result, scope: 'day', limit: daily };
   }
-  const result = await rateLimitService.checkRateLimit(chatId, 'ai_task_extract', AI_RATE_LIMIT, AI_RATE_WINDOW_SECONDS);
+  const result = await rateLimitService.checkRateLimit(chatId, AI_LIMITER.groupBurst, AI_RATE_LIMIT, AI_RATE_WINDOW_SECONDS);
   return { ...result, scope: 'minute', limit: AI_RATE_LIMIT };
 }
 
@@ -285,7 +285,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
   const allowed = userAllowed && (groupLimit?.allowed ?? true);
   if (disabledBy) {
     result = { tasks: [buildFallbackTask(extractionInput)], source: 'fallback' };
-    warnings.push(`ℹ️ ${aiDisabledText(disabledBy)} I made a basic task from the text instead.`);
+    warnings.push(`ℹ️ ${aiDisabledText(disabledBy, group, requester)} I made a basic task from the text instead.`);
   } else if (!allowed) {
     const why = userAllowed ? aiGroupLimitText(group, groupLimit) : aiLimitText('user', { scope: 'day', retryAfterSeconds: 0 }, aiTimezone(group));
     if (input.multiMessage) return { status: 'rate_limited', message: why };

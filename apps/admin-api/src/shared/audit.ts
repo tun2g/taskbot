@@ -13,10 +13,10 @@ export interface AuditInput {
   details?: Record<string, unknown> | null;
 }
 
-/** Records an owner action. Never fails the request: the change already happened. */
-export async function writeAudit(req: Request | null, input: AuditInput): Promise<void> {
+/** Records an owner action and returns its id (null when it couldn't be saved). Never fails the request: the change already happened. */
+export async function writeAudit(req: Request | null, input: AuditInput): Promise<string | null> {
   try {
-    await AdminAuditLog.create({
+    const doc = await AdminAuditLog.create({
       action: input.action,
       targetType: input.targetType,
       targetId: input.targetId ?? null,
@@ -25,8 +25,11 @@ export async function writeAudit(req: Request | null, input: AuditInput): Promis
       details: input.details ?? null,
       ip: req?.ip ?? null,
     });
+    const id = (doc as { _id?: unknown } | null)?._id;
+    return id ? String(id) : null;
   } catch (err) {
     logger.error(`Failed to write audit log (${input.action}): ${err}`);
+    return null;
   }
 }
 
@@ -59,6 +62,8 @@ export function auditSummary(action: string, targetLabel: string | null | undefi
       return withTarget('Changed AI limits for', 'user');
     case 'user.revoke_tokens':
       return `Revoked all MCP tokens of ${targetLabel ?? 'a user'}`;
+    case 'token.revoke':
+      return `Revoked one MCP token of ${targetLabel ?? 'a user'}`;
     case 'settings.ai.update':
       return 'Changed AI settings';
     default:
@@ -85,6 +90,9 @@ function aiOverrideChanges(details: Obj): string[] {
   if (!!before.disabled !== !!after.disabled) out.push(after.disabled ? 'AI turned off' : 'AI turned back on');
   if ((before.dailyLimit ?? null) !== (after.dailyLimit ?? null)) {
     out.push(`Daily AI limit: ${limitText(before.dailyLimit, 'default')} → ${limitText(after.dailyLimit, 'default')}`);
+  }
+  if ((before.reason ?? null) !== (after.reason ?? null) && out.length === 0) {
+    out.push(after.reason ? `Reason changed to “${String(after.reason)}”` : 'Reason removed');
   }
   return out.length ? out : ['Nothing changed'];
 }
@@ -135,6 +143,13 @@ export function auditChanges(action: string, details: Obj | null | undefined): s
     case 'user.revoke_tokens':
       out.push(`${count(details.revoked, 'token')} revoked`);
       break;
+    case 'token.revoke': {
+      const name = typeof details.name === 'string' ? `“${details.name}”` : 'A token';
+      const prefix = typeof details.prefix === 'string' ? ` (${details.prefix}…)` : '';
+      const where = typeof details.groupName === 'string' ? `worked in ${details.groupName}` : 'worked in all their groups';
+      out.push(`${name}${prefix} revoked — it ${where}; their other tokens keep working`);
+      break;
+    }
   }
   if (details.via === 'telegram') out.push('Decided from the approval message in your Telegram DM');
   if (details.notifiedGroup === false) out.push('The group was not told in Telegram');

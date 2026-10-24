@@ -1,5 +1,5 @@
 import type { AiChatTurn } from '@tbot/shared';
-import { AiFeature, EpicStatus, isClosedStatus, UsageChannel } from '@tbot/shared';
+import { AI_LIMITER, AiFeature, EpicStatus, isClosedStatus, UsageChannel } from '@tbot/shared';
 import mongoose from 'mongoose';
 import {
   buildTaskButtons,
@@ -226,7 +226,7 @@ export function withRequestAiScope<T>(feature: AiFeature, c: AiRequestContext, f
 export async function checkUserAiRateLimit(telegramUserId: number, chatId: number, user?: AiOverrides | null) {
   const burst = await rateLimitService.checkRateLimit(
     telegramUserId,
-    `ai_command:${chatId}`,
+    `${AI_LIMITER.personBurst}:${chatId}`,
     AI_USER_RATE_LIMIT,
     AI_USER_RATE_WINDOW_SECONDS,
   );
