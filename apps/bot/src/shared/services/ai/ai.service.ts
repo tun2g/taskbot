@@ -5,8 +5,9 @@ import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/servi
 import { FuseProvider } from 'src/shared/services/ai/fuse.provider';
 import { GeminiProvider } from 'src/shared/services/ai/gemini.provider';
 import { OpenAIProvider } from 'src/shared/services/ai/openai.provider';
+import { rateLimitService } from 'src/shared/services/rate-limit.service';
 
-export type AIUnavailableReason = 'unconfigured' | 'failed' | 'invalid';
+export type AIUnavailableReason = 'unconfigured' | 'failed' | 'invalid' | 'quota';
 
 /** Thrown by `generateJson` when no usable structured answer could be produced. */
 export class AIUnavailableError extends Error {
@@ -59,6 +60,17 @@ class AIService {
     return this.provider;
   }
 
+  /**
+   * AI_DAILY_LIMIT: every AI call counts (one /ai can make several: plan, explanations, breakdown), so a
+   * runaway or abusive day can't run up an unbounded bill. Callers already fall back on AIUnavailableError.
+   */
+  private async checkDailyBudget() {
+    const max = configService.ai.dailyLimit;
+    if (!max) return;
+    const budget = await rateLimitService.checkRateLimit('all', 'ai_daily_budget', max, 24 * 60 * 60);
+    if (!budget.allowed) throw new AIUnavailableError('quota', `Daily AI budget of ${max} calls reached`);
+  }
+
   async chat(messages: ChatMessage[]) {
     return this.getProvider().chat(messages);
   }
@@ -75,6 +87,7 @@ class AIService {
    */
   async generateJson<T>(request: JsonGenerationRequest, schema: z.ZodType<T>, options: GenerateJsonOptions = {}): Promise<T> {
     if (!this.isConfigured()) throw new AIUnavailableError('unconfigured', 'AI_API_KEY is not set');
+    await this.checkDailyBudget();
     const attempts = 1 + (options.retries ?? 1);
 
     for (let attempt = 1; attempt <= attempts; attempt++) {

@@ -10,7 +10,7 @@ import {
   MAX_ACTIVE_TOKENS,
   TooManyTokensError,
 } from 'src/database/services/api-token.service';
-import { MCP_RATE_LIMIT, mcpAuthMiddleware, SCOPE_LOST_MESSAGE } from 'src/mcp/mcp-auth.middleware';
+import { MCP_RATE_LIMIT, MCP_USER_RATE_LIMIT, mcpAuthMiddleware, SCOPE_LOST_MESSAGE } from 'src/mcp/mcp-auth.middleware';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { alpha, me, oid } from './mcp-test-helpers';
 
@@ -144,6 +144,22 @@ describe('mcpAuthMiddleware', () => {
     await mcpAuthMiddleware(req, res, next);
     expect(res.status).toHaveBeenCalledWith(429);
     expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '42');
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('429 over the per-user limit, shared by all of that user\'s tokens', async () => {
+    (ApiToken.findOne as jest.Mock).mockResolvedValue(stored());
+    (rateLimitService.checkRateLimit as jest.Mock).mockImplementation(async (_id, action) =>
+      action === 'mcp_user'
+        ? { allowed: false, remaining: 0, retryAfterSeconds: 7 }
+        : { allowed: true, remaining: 100, retryAfterSeconds: 0 },
+    );
+    const { req, res, next } = reqRes(`Bearer ${secret}`);
+    await mcpAuthMiddleware(req, res, next);
+    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(String(me._id), 'mcp_user', MCP_USER_RATE_LIMIT, 60);
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '7');
+    expect(res.json.mock.calls[0][0].error.message).toMatch(/per user/);
     expect(next).not.toHaveBeenCalled();
   });
 

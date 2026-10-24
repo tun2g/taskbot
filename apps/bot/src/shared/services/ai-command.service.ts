@@ -80,6 +80,7 @@ import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service
 import { TaskActivityVia } from 'src/database/models/task-activity.model';
 import { BufferedMention } from 'src/shared/services/message-buffer.service';
 import { notificationService } from 'src/shared/services/notification.service';
+import { checkUserAiDailyLimit } from 'src/shared/services/ai-quota';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { resolveMember } from 'src/shared/services/task-extraction.service';
 import type { TaskChange } from 'src/shared/services/task-sync.service';
@@ -207,13 +208,16 @@ export const AI_HISTORY_TURNS = 8;
  */
 export const EXPLAIN_WORDING = /giải thích|giai thich|là gì|la gi\b|làm gì|lam gi\b|tóm tắt|tom tat|explain|what is|what's/i;
 
-export function checkUserAiRateLimit(telegramUserId: number, chatId: number) {
-  return rateLimitService.checkRateLimit(
+/** Per-user AI limits: the per-minute burst in this group, then the daily quota across all groups. */
+export async function checkUserAiRateLimit(telegramUserId: number, chatId: number) {
+  const burst = await rateLimitService.checkRateLimit(
     telegramUserId,
     `ai_command:${chatId}`,
     AI_USER_RATE_LIMIT,
     AI_USER_RATE_WINDOW_SECONDS,
   );
+  if (!burst.allowed) return burst;
+  return checkUserAiDailyLimit(telegramUserId);
 }
 
 export interface AiContextInput {

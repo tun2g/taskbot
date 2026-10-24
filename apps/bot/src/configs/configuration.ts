@@ -29,6 +29,8 @@ class ConfigService {
     // Base URL for the HTTP providers (openai, fuse) — any OpenAI-compatible endpoint works.
     // FUSE_API_URL is the legacy name; empty means the provider's own default.
     apiUrl: process.env.AI_API_URL || process.env.FUSE_API_URL || '',
+    // Bot-wide cap on AI calls per day (a cost circuit breaker); 0 = no cap.
+    dailyLimit: parseInt(process.env.AI_DAILY_LIMIT || '0', 10) || 0,
   };
   timezone = process.env.TIMEZONE || 'UTC';
   devMode = process.env.NODE_ENV === 'development';

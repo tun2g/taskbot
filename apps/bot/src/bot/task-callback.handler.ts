@@ -61,6 +61,7 @@ import { taskSyncService } from 'src/shared/services/task-sync.service';
 import { taskButton } from 'src/shared/utils/app-links';
 import { Telegram } from 'telegraf';
 import { InlineKeyboardButton } from 'telegraf/types';
+import { formatRetryAfter } from 'src/shared/services/ai-quota';
 
 interface TaskCallbackData {
   taskId: string;
@@ -499,7 +500,7 @@ async function handleExplain(ctx: BotContext, task: ITask, user: IUser, options:
 
   const userLimit = await checkUserAiRateLimit(user.telegramUserId, group.telegramGroupId);
   if (!userLimit.allowed) {
-    await ctx.answerCbQuery(`⏳ Too many AI requests. Try again in ${userLimit.retryAfterSeconds}s.`, { show_alert: true });
+    await ctx.answerCbQuery(`⏳ Too many AI requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}.`, { show_alert: true });
     return;
   }
   if (!(await checkGroupAiRateLimit(group.telegramGroupId))) {

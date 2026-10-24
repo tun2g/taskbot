@@ -16,6 +16,7 @@ import { TASK_POPULATE } from 'src/database/services/task-populate';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import { aiService } from 'src/shared/services/ai/ai.service';
+import { checkUserAiDailyLimit } from 'src/shared/services/ai-quota';
 import { epicLabel, epicOf } from 'src/shared/services/ai-command/format';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { buildMessageLink, groupMessengerService, isForumChat } from 'src/shared/services/group-messenger.service';
@@ -58,6 +59,8 @@ export interface CreateTasksInput {
    * AI rate limit is hit → ask to wait. False (default): always creates at least a basic task.
    */
   multiMessage?: boolean;
+  /** True when the caller already counted this request against the person's AI limits (/ai, web chat). */
+  userAiLimitChecked?: boolean;
 }
 
 type SendExtra = Parameters<BotContext['reply']>[1];
@@ -248,11 +251,19 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
   };
 
   let result: ExtractionResult;
-  const allowed = !aiService.isConfigured() || (await checkGroupAiRateLimit(chatId));
+  const userAllowed =
+    !aiService.isConfigured() ||
+    input.userAiLimitChecked ||
+    (await checkUserAiDailyLimit(requester.telegramUserId)).allowed;
+  const allowed = userAllowed && (!aiService.isConfigured() || (await checkGroupAiRateLimit(chatId)));
   if (!allowed) {
     if (input.multiMessage) return { status: 'rate_limited' };
     result = { tasks: [buildFallbackTask(extractionInput)], source: 'fallback' };
-    warnings.push('ℹ️ AI limit reached for this group, so I made a basic task.');
+    warnings.push(
+      userAllowed
+        ? 'ℹ️ AI limit reached for this group, so I made a basic task.'
+        : "ℹ️ You've reached your daily AI limit, so I made a basic task.",
+    );
   } else {
     result = await taskExtractionService.extract(extractionInput);
     if (result.source === 'fallback') {

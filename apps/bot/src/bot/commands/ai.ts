@@ -42,6 +42,7 @@ import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
+import { formatRetryAfter } from 'src/shared/services/ai-quota';
 
 const TYPING_INTERVAL_MS = 4500;
 
@@ -138,7 +139,7 @@ export class AiCommand {
       const userLimit = await checkUserAiRateLimit(user.telegramUserId, chat.id);
       if (!userLimit.allowed) {
         await this.send(ctx, {
-          text: `⏳ Too many /ai requests. Try again in ${userLimit.retryAfterSeconds}s, or use the card buttons.`,
+          text: `⏳ Too many /ai requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}, or use the card buttons.`,
         });
         return;
       }
@@ -186,7 +187,7 @@ export class AiCommand {
         } else {
           messages.push(toBufferedMessage(message, chat.id, request));
         }
-        await createTasksFromInput(ctx, { messages, note, requester: user, group });
+        await createTasksFromInput(ctx, { messages, note, requester: user, group, userAiLimitChecked: true });
         return;
       }
 

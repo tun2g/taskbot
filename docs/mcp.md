@@ -115,8 +115,8 @@ epics by title (case-insensitive) or id. Errors are written for the agent: unkno
 
 ### Limits
 
-- **120 MCP requests / minute per token** (HTTP 429 + `Retry-After` beyond that).
-- `ask_taskbot` shares the `/ai` limits: 6 requests / minute per person per group, 20 AI requests / 10 minutes per group.
+- **120 MCP requests / minute per token, 240 / minute per user across all their tokens** (HTTP 429 + `Retry-After` beyond that).
+- `ask_taskbot` shares the `/ai` limits: 6 requests / minute per person per group, 20 AI requests / 10 minutes per group, and 100 AI requests / day per person across all groups, the app and MCP.
 - At most **10 active tokens** per person.
 
 ### Revoking

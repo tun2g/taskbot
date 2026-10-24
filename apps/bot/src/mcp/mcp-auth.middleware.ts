@@ -9,6 +9,8 @@ import { rateLimitService } from 'src/shared/services/rate-limit.service';
 
 /** MCP requests per token per minute (tools/call, tools/list, initialize… all count). */
 export const MCP_RATE_LIMIT = 120;
+/** Per user across all their tokens — otherwise 10 tokens (or revoke + recreate) multiply the limit. */
+export const MCP_USER_RATE_LIMIT = 240;
 const MCP_RATE_WINDOW_SECONDS = 60;
 
 export interface McpRequest extends Request {
@@ -46,7 +48,7 @@ function unauthorized(res: Response, reason: keyof typeof REASON_TEXT) {
 }
 
 /**
- * `Authorization: Bearer tbot_…` → `req.user` + `req.apiToken`, then the per-token rate limit.
+ * `Authorization: Bearer tbot_…` → `req.user` + `req.apiToken`, then the per-token and per-user rate limits.
  * Web session tokens are not accepted here.
  */
 export async function mcpAuthMiddleware(req: McpRequest, res: Response, next: NextFunction) {
@@ -68,19 +70,19 @@ export async function mcpAuthMiddleware(req: McpRequest, res: Response, next: Ne
       return;
     }
 
-    const limit = await rateLimitService.checkRateLimit(
-      String(result.token._id),
-      'mcp',
-      MCP_RATE_LIMIT,
-      MCP_RATE_WINDOW_SECONDS,
-    );
-    if (!limit.allowed) {
+    const limits = [
+      { id: String(result.token._id), action: 'mcp', max: MCP_RATE_LIMIT, per: 'per token' },
+      { id: String(result.user._id), action: 'mcp_user', max: MCP_USER_RATE_LIMIT, per: 'per user (all tokens)' },
+    ];
+    for (const { id, action, max, per } of limits) {
+      const limit = await rateLimitService.checkRateLimit(id, action, max, MCP_RATE_WINDOW_SECONDS);
+      if (limit.allowed) continue;
       res.setHeader('Retry-After', String(limit.retryAfterSeconds));
       res.status(429).json({
         jsonrpc: '2.0',
         error: {
           code: -32029,
-          message: `Too many requests: at most ${MCP_RATE_LIMIT} per minute per token. Try again in ${limit.retryAfterSeconds}s.`,
+          message: `Too many requests: at most ${max} per minute ${per}. Try again in ${limit.retryAfterSeconds}s.`,
         },
         id: null,
       });

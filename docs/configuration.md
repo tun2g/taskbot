@@ -24,6 +24,7 @@ Env files are **per app**:
 | `AI_API_KEY` | Provider API key. Without a key, `/new` still creates a basic task and `/ai` explains that AI is unavailable |
 | `AI_MODEL` | Model id. Defaults to `gemini-3.5-flash-lite` (gemini) or `gpt-5-mini` (openai) |
 | `AI_API_URL` | For `openai` / `fuse`: base URL of any OpenAI-compatible endpoint (OpenRouter, Groq, vLLM, Ollama, ...). Empty means the provider default (`https://api.openai.com/v1`, `https://api.fuseapi.app/v1`). Ignored by `gemini` |
+| `AI_DAILY_LIMIT` | Optional bot-wide cap on AI calls per day (a cost circuit breaker). Beyond it AI features fall back as if AI were unavailable. Empty or `0` = no cap. Per-user limits always apply: 6 `/ai` requests per minute per group and 100 AI requests per day across all groups, the app and MCP |
 | `TIMEZONE` | Default group timezone for due dates, "overdue", reminders and the 9:00 daily digest. Default `UTC`, for example `Asia/Ho_Chi_Minh` |
 | `WEB_AUTH_SECRET` | Optional key for browser-login tokens (Telegram Login Widget). Derived from `BOT_TOKEN` if unset; set it to rotate web sessions without changing the bot token |
 | `NODE_ENV` | `development` / `production` |

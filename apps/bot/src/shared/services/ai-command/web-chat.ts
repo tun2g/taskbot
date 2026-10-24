@@ -33,6 +33,7 @@ import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { redisService } from 'src/shared/services/redis.service';
 import { BATCH_UNDO_WINDOW_MS, checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
+import { formatRetryAfter } from 'src/shared/services/ai-quota';
 
 /** Where the "(via app)" group post of a web-created batch is remembered (for undo). */
 const APP_BATCH_POST_PREFIX = 'app_batch_post';
@@ -108,7 +109,7 @@ export async function handleWebChat(input: WebChatInput): Promise<WebChatOutcome
   if (!userLimit.allowed) {
     return {
       status: 'rate_limited',
-      message: `Too many AI requests. Try again in ${userLimit.retryAfterSeconds}s.`,
+      message: `Too many AI requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}.`,
     };
   }
   if (!(await checkGroupAiRateLimit(chatId))) return unavailable(WEB_AI_BUSY_TEXT);
@@ -166,6 +167,7 @@ async function createFromChat(c: AiRequestContext, channel?: ChatChannel): Promi
   const { requester, group, request } = c;
   const result = await createTasks({
     origin: 'app',
+    userAiLimitChecked: true,
     ...(channel ? { activityVia: channel.activity } : {}),
     requester,
     group,

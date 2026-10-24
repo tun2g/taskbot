@@ -13,6 +13,7 @@ import { aiCommandService } from 'src/shared/services/ai-command.service';
 import { aiPlanSchema } from 'src/shared/services/ai-command/plan.schema';
 import { WEB_AI_UNAVAILABLE_TEXT } from 'src/shared/services/ai-command/web.renderer';
 import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
+import { AI_USER_DAILY_LIMIT } from 'src/shared/services/ai-quota';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { redisService } from 'src/shared/services/redis.service';
 import { checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
@@ -314,6 +315,19 @@ describe('POST /api/groups/:groupId/ai', () => {
       message: 'Too many AI requests. Try again in 30s.',
       statusCode: 429,
     });
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+  });
+
+  it('daily per-user AI quota (across all groups) → 429 with a human wait time', async () => {
+    (rateLimitService.checkRateLimit as jest.Mock).mockImplementation(async (_id, action) =>
+      action === 'ai_user_daily'
+        ? { allowed: false, remaining: 0, retryAfterSeconds: 5 * 3600 }
+        : { allowed: true, remaining: 5, retryAfterSeconds: 0 },
+    );
+    const res = await chat({ message: 'hi' });
+    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(1, 'ai_user_daily', AI_USER_DAILY_LIMIT, 86400);
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.json.mock.calls[0][0].message).toBe('Too many AI requests. Try again in 5h.');
     expect(aiCommandService.plan).not.toHaveBeenCalled();
   });
 

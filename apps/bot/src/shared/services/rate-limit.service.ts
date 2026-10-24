@@ -12,33 +12,22 @@ export class RateLimitService {
     const key = `ratelimit:${action}:${userId}`;
 
     try {
-      const current = await redisService.get(key);
-      const currentCount = current ? parseInt(current, 10) : 0;
+      // INCR first, then compare: atomic, so a burst of parallel requests can't all pass a GET check.
+      const count = await redisService.incr(key);
+      if (count === 1) await redisService.expire(key, windowSeconds);
 
-      if (currentCount >= limit) {
-        const ttl = await redisService.ttl(key);
-        const retryAfter = ttl > 0 ? ttl : windowSeconds;
-
-        logger.warn(`[RateLimit] User ${userId} exceeded ${action} limit (${currentCount}/${limit})`);
-
-        return {
-          allowed: false,
-          remaining: 0,
-          retryAfterSeconds: retryAfter,
-        };
+      if (count > limit) {
+        let ttl = await redisService.ttl(key);
+        // A key left without a TTL (expire failed after incr) would block forever.
+        if (ttl === -1) {
+          await redisService.expire(key, windowSeconds);
+          ttl = windowSeconds;
+        }
+        logger.warn(`[RateLimit] User ${userId} exceeded ${action} limit (${count}/${limit})`);
+        return { allowed: false, remaining: 0, retryAfterSeconds: ttl > 0 ? ttl : windowSeconds };
       }
 
-      const newCount = await redisService.incr(key);
-
-      if (newCount === 1) {
-        await redisService.expire(key, windowSeconds);
-      }
-
-      return {
-        allowed: true,
-        remaining: limit - newCount,
-        retryAfterSeconds: 0,
-      };
+      return { allowed: true, remaining: limit - count, retryAfterSeconds: 0 };
     } catch (error) {
       logger.error(`[RateLimit] Redis error for ${action}:${userId}: ${error}`);
       return {
