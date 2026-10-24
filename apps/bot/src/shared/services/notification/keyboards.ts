@@ -7,7 +7,7 @@ import { InlineKeyboardButton } from 'telegraf/types';
 /**
  * DM quick actions: `tdm:<status>:<taskId>` (or `tdm:noop:<taskId>` for a state-only button).
  * Self-contained — no Redis entry to expire — and under Telegram's 64-byte limit.
- * Handled in task-callback.handler (only the DM's buttons change, never its text).
+ * Handled in task-callback/dm (only the DM's buttons change, never its text).
  */
 export const DM_TASK_CALLBACK_PREFIX = 'tdm:';
 
