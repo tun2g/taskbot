@@ -28,7 +28,7 @@ export function AiCostCell({ group, period }: { group: AdminGroupRow; period: Ad
       >
         <TextLink {...link} className="text-warn">
           {formatMoney(cost)}
-          {allUnpriced ? <span className="text-[13px]"> · {plural(unpriced, 'call')} unpriced</span> : '+'}
+          {allUnpriced ? <span className="block text-[13px]">{plural(unpriced, 'call')} unpriced</span> : '+'}
         </TextLink>
       </Tooltip>
     );

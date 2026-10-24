@@ -11,7 +11,6 @@ import { actionConfirmOptions, deleteBody, type GroupLike } from './group-action
 
 export type GroupLifecycleAction = GroupAction | 'delete';
 
-
 /**
  * Approve / reject / suspend / unsuspend / leave / delete with the right confirmation for each.
  * Render `dialog` once; call `request(action, group)` from buttons.
@@ -92,7 +91,7 @@ export const ACTION_HINTS: Partial<Record<GroupLifecycleAction, string>> = {
   reconsider: 'Clears the rejection; a re-add asks you again',
 };
 
-/** Row actions for a group table: ≤3 inline buttons, the rest behind "⋯". */
+/** Row actions for a group table: ≤2 compact inline buttons, the rest behind "⋯". */
 export function GroupRowActions({
   group,
   onAction,
@@ -110,11 +109,11 @@ export function GroupRowActions({
     onSelect: () => onAction(a, group),
   }));
   return (
-    <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
       {inline.map((a) => (
         <Button
           key={a}
-          size="sm"
+          size="xs"
           variant={a === 'approve' || a === 'unsuspend' ? 'primary' : 'secondary'}
           disabled={busy}
           onClick={() => onAction(a, group)}
@@ -122,7 +121,9 @@ export function GroupRowActions({
           {ACTION_LABELS[a]}
         </Button>
       ))}
-      {items.length > 0 && <Menu label={`More actions for ${group.name}`} trigger={<MoreIcon />} items={items} />}
+      {items.length > 0 && (
+        <Menu label={`More actions for ${group.name}`} trigger={<MoreIcon />} items={items} triggerClassName="size-7 rounded-lg" />
+      )}
     </div>
   );
 }

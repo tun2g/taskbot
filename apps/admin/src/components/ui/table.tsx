@@ -25,11 +25,17 @@ export function Th({
   hint,
   className,
   sort,
+  hintWidth = 'min',
 }: {
   children?: ReactNode;
   align?: 'left' | 'right';
   /** Short explanation shown under the column name. */
   hint?: string;
+  /**
+   * How wide the hint may get: `min` keeps it at least 7rem (default), `fit` sizes it to its text (short hints),
+   * `wrap` lets it wrap freely so the column can be as narrow as its content (tight tables).
+   */
+  hintWidth?: 'min' | 'fit' | 'wrap';
   className?: string;
   /** Makes the column name a "sort by this" button (highest / newest first). */
   sort?: { active: boolean; onSort: () => void };
@@ -60,7 +66,14 @@ export function Th({
         children
       )}
       {hint && (
-        <span className={cn('mt-0.5 block max-w-44 min-w-28 text-[13px] leading-snug font-normal whitespace-normal text-text-3', align === 'right' && 'ml-auto')}>
+        <span
+          className={cn(
+            'mt-0.5 block max-w-44 text-[13px] leading-snug font-normal whitespace-normal text-text-3',
+            hintWidth === 'min' && 'min-w-28',
+            hintWidth === 'fit' && 'w-max',
+            align === 'right' && 'ml-auto',
+          )}
+        >
           {hint}
         </span>
       )}
