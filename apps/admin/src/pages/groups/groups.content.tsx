@@ -11,46 +11,10 @@ import { EmptyState, ErrorState, Notice, TableSkeleton } from '@/components/ui/s
 import { formatNumber } from '@/lib/format';
 import { GROUP_SORT_LABELS, type GroupSort, RANGE_LABELS } from '@/lib/labels';
 
-/** With a period filter, "activity" and "tasks" are counted inside the period. */
-const PERIOD_SORT_LABELS: Partial<Record<GroupSort, string>> = {
-  lastActivity: 'Most requests in the period',
-  tasks: 'Tasks created in the period',
-};
-
 import { GroupsTable } from './components/groups-table';
+import { EMPTY, PERIOD_SORT_LABELS, type StatusTab } from './groups.copy';
 
-export type StatusTab = 'all' | GroupStatus;
-
-const EMPTY: Record<StatusTab, { title: string; body: string }> = {
-  all: {
-    title: 'The bot isn’t in any group yet.',
-    body: 'When someone adds the bot to a Telegram group, the group shows up here waiting for your approval.',
-  },
-  [GroupStatus.PENDING]: {
-    title: 'No groups are waiting for approval.',
-    body: 'When someone adds the bot to a new group, it shows up here for you to approve or reject.',
-  },
-  [GroupStatus.ACTIVE]: {
-    title: 'No active groups yet.',
-    body: 'Approve a waiting group and it shows up here.',
-  },
-  [GroupStatus.SUSPENDED]: {
-    title: 'No suspended groups.',
-    body: 'Suspending pauses a group’s service without deleting its tasks.',
-  },
-  [GroupStatus.REJECTED]: {
-    title: 'You haven’t rejected any groups.',
-    body: 'Groups you decline from the approval queue are listed here.',
-  },
-  [GroupStatus.LEFT]: {
-    title: 'The bot hasn’t been removed from any group.',
-    body: 'Groups where someone removed the bot (or you made it leave) are listed here. Their tasks are kept.',
-  },
-  [GroupStatus.MIGRATED]: {
-    title: 'No groups have moved to a supergroup.',
-    body: 'When Telegram upgrades a basic group to a supergroup, the old chat is listed here.',
-  },
-};
+export type { StatusTab };
 
 export function GroupsContent({
   rows,
@@ -162,7 +126,7 @@ export function GroupsContent({
             <FilterChip
               label={
                 <>
-                  Active in the {RANGE_LABELS[activeIn].toLowerCase()} · {formatNumber(total)}
+                  Had activity in the {RANGE_LABELS[activeIn].toLowerCase()} · {formatNumber(total)}
                 </>
               }
               onRemove={onClearActive}
@@ -188,7 +152,7 @@ export function GroupsContent({
           />
         ) : (
           <div className={isFetching ? 'opacity-70 transition-opacity' : undefined}>
-            <GroupsTable rows={rows} onOpen={onOpen} onAction={onAction} busyId={busyId} />
+            <GroupsTable rows={rows} period={activeIn} onOpen={onOpen} onAction={onAction} busyId={busyId} />
             <Pagination page={page} limit={limit} total={total} onPage={onPage} noun="groups" />
           </div>
         )}

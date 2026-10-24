@@ -152,7 +152,7 @@ describe('drill-down filters', () => {
     const res = await server.req('GET', '/api/groups?activeIn=7d&sort=tasks', { cookie });
     expect(res.status).toBe(200);
     expect(mdb.Group.countDocuments.mock.calls[0][0]._id.$in.map(String)).toEqual([G1]);
-    expect(res.body.data[0].inPeriod).toEqual({ events: 0, tasksCreated: 4, aiCalls: 0, aiCostUsd: 0 });
+    expect(res.body.data[0].inPeriod).toEqual({ events: 0, tasksCreated: 4, aiCalls: 0, aiCostUsd: 0, aiUnpriced: 0 });
     mdb.Task.aggregate.mockImplementation(async () => []);
     mdb.Group.find.mockImplementation(() => chain([]));
   });

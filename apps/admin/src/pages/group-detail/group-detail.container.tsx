@@ -1,12 +1,14 @@
 import { getRouteApi } from '@tanstack/react-router';
 
 import { useGroup, useSetGroupAi } from '@/api/groups';
+import { useAiSettings } from '@/api/settings';
 import { useGroupLifecycle } from '@/components/actions/group-actions';
 import { rangeStart, useTrackingSince } from '@/components/tracking-notice';
 import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
 import { DEFAULT_RANGE, type GroupTab } from '@/lib/search';
 
 import { GroupDetailContent } from './group-detail.content';
+import { effectiveAiLimits } from './group-detail.utils';
 
 const route = getRouteApi('/_app/groups/$groupId');
 
@@ -20,6 +22,7 @@ export function GroupDetailContainer() {
   const group = useGroup(groupId, range);
   const tracking = useTrackingSince(range);
   const setAi = useSetGroupAi();
+  const aiSettings = useAiSettings();
   const lifecycle = useGroupLifecycle({ onDeleted: () => void navigate({ to: '/groups', search: {} }) });
 
   return (
@@ -33,7 +36,9 @@ export function GroupDetailContainer() {
         onRetry={() => void group.refetch()}
         range={range}
         tab={tab}
-        onTab={(t) => void navigate({ search: (prev) => ({ ...prev, tab: t === 'overview' ? undefined : t }), replace: true })}
+        onTab={(t) =>
+          void navigate({ search: (prev) => ({ ...prev, tab: t === 'overview' ? undefined : t, q: undefined, page: undefined }), replace: true })
+        }
         trackingSince={tracking.trackingSince}
         trackingLoaded={tracking.loaded}
         rangeFrom={rangeStart(range)}
@@ -41,6 +46,7 @@ export function GroupDetailContainer() {
         busy={!!lifecycle.pendingId}
         onSaveAi={(input) => setAi.mutate({ id: groupId, ...input })}
         savingAi={setAi.isPending}
+        aiLimits={effectiveAiLimits(aiSettings.data)}
         onOpenPerson={(userId) => void navigate({ to: '/users/$userId', params: { userId } })}
         onOpenFeature={(feature) => void navigate({ to: '/ai', search: { groupId, feature, range } })}
       />

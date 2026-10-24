@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { AdminAiOverrideInput } from '@tbot/shared';
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 
@@ -22,6 +22,7 @@ export function AiOverrideForm({
   defaultLimitText,
   pending,
   onSave,
+  usage,
 }: {
   subject: 'group' | 'person';
   disabled: boolean;
@@ -30,6 +31,8 @@ export function AiOverrideForm({
   defaultLimitText: string;
   pending: boolean;
   onSave: (input: AdminAiOverrideInput) => void;
+  /** Recent usage shown under the limit field, so a limit isn't set blind. */
+  usage?: ReactNode;
 }) {
   const defaults: Values = { disabled, dailyLimit: toInput(dailyLimit) };
   const form = useForm<Values, unknown, z.output<typeof schema>>({ resolver: zodResolver(schema), defaultValues: defaults });
@@ -58,6 +61,7 @@ export function AiOverrideForm({
         disabled={off}
         className="max-w-40"
       />
+      {usage && <div className="-mt-2 text-[13px] text-text-2">{usage}</div>}
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" variant="primary" disabled={!form.formState.isDirty} loading={pending}>
           Save AI settings

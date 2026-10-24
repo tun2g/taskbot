@@ -61,8 +61,9 @@ Sign-ins and "sign out everywhere" are recorded in the audit log.
   `Content-Type: application/json`, or the API answers `415`. HTML forms can't send that type, and a cross-site
   `fetch` with it needs a CORS preflight, which this API never answers. Outside development, a request with an
   `Origin` header other than `ADMIN_PUBLIC_URL`'s origin is refused with `403`.
-- **Privacy**: responses contain numbers and the names of groups and people only. They never contain task titles,
-  descriptions or message text. Task data is only ever counted.
+- **Privacy**: responses contain numbers and the names of groups and people. The one exception is
+  `GET /groups/:id/tasks`, the read-only list behind a group's task numbers: it returns task titles (plus status,
+  assignee, dates and where the task was created). Descriptions and message text are never returned.
 - **Audit log**: every change is written to `admin_audit_logs` (action, target name snapshot, reason, details such as
   before/after values or deleted counts, IP). The IP is not returned by the API.
 - The API sets `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
@@ -93,8 +94,11 @@ Sign-ins and "sign out everywhere" are recorded in the audit log.
 | `POST /api/auth/logout`, `POST /api/auth/logout-all` | |
 | `GET /api/auth/me` | → `AdminSession` |
 | `GET /api/overview?range=7d\|30d\|90d` | → `AdminOverview`, with `attention` (see "Needs attention" below; left out if it can't be computed) |
-| `GET /api/groups?status=&q=&sort=lastActivity\|aiCost\|tasks\|members\|added&activeIn=7d\|30d\|90d&page=&limit=` | `status` may be a comma-separated list. `q` matches the name or Telegram chat id. `activeIn` keeps the groups behind the overview's "Active groups" (same rule and window) and adds `inPeriod` numbers; with it, the default sort is requests in the period and `sort=tasks` is tasks created in the period. Pending rows carry `previousDecision` (last reject / suspend / remove from the audit log). |
-| `GET /api/groups/:id?range=` | → `AdminGroupDetail` (Telegram member count and public link refreshed best-effort) |
+| `GET /api/groups?status=&q=&sort=lastActivity\|aiCost\|tasks\|members\|added&activeIn=7d\|30d\|90d&page=&limit=` | `status` may be a comma-separated list. `q` matches the name or Telegram chat id. `activeIn` keeps the groups behind the overview's "Groups with activity" (same rule and window) and adds `inPeriod` numbers (AI cost and unpriced calls for that period); with it, the default sort is requests in the period and `sort=tasks` is tasks created in the period. Pending rows carry `previousDecision` (last reject / suspend / remove from the audit log). |
+| `GET /api/groups/:id?range=` | → `AdminGroupDetail` (Telegram member count and public link refreshed best-effort). Moved groups carry `migratedTo` (the group that continues them); bot-removed groups carry `statusBeforeLeft` (what a re-add restores). |
+| `GET /api/groups/:id/members?range=&q=&sort=lastActive\|events\|aiCalls\|aiCost\|tasks\|tokens\|joined&page=&limit=` | Paginated `AdminGroupMemberRow`s (everyone, no cap). `q` matches name, @username or Telegram id. |
+| `GET /api/groups/:id/tasks?filter=open\|overdue\|done\|all&createdIn=7d\|30d\|90d&q=&page=&limit=` | Paginated `AdminGroupTaskRow`s plus `counts` per filter. Read-only; titles only. |
+| `GET /api/groups/:id/epics?page=&limit=` | Paginated `AdminGroupEpicRow`s (open first) with task counts. |
 | `GET /api/groups/:id/delete-preview` | → `AdminGroupDeletePreview` |
 | `DELETE /api/groups/:id` `{ confirmName }` | The bot leaves the chat (best effort), then the group's data is deleted. Usage and AI cost rows are kept. |
 | `POST /api/groups/:id/approve` `{ notifyGroup? }` | pending → active. A rejected group can't be approved (the bot left the chat); adding the bot again makes it pending. |
@@ -102,6 +106,7 @@ Sign-ins and "sign out everywhere" are recorded in the audit log.
 | `POST /api/groups/:id/suspend` `{ reason, notifyGroup? }` | active/pending → suspended. The reason is required. |
 | `POST /api/groups/:id/unsuspend` `{ notifyGroup? }` | suspended → active |
 | `POST /api/groups/:id/leave` `{ reason?, notifyGroup? }` | The bot says goodbye and leaves. The status becomes `left`, and the previous status is kept so a re-add restores it. |
+| `POST /api/groups/:id/reconsider` `{}` | rejected → `left` with no decision kept: nothing is sent to Telegram, the rejection reason is cleared, and the next time someone adds the bot the group waits for approval again (never auto-approved). Audited as `group.reconsider`. |
 | `PATCH /api/groups/:id/ai` `{ disabled?, dailyLimit? }` | |
 | `GET /api/users?q=&sort=lastSeen\|aiCost\|aiCalls\|events\|tokens&activeIn=today\|7d\|30d&hasTokens=1&page=&limit=` | `activeIn` = people with a usage event in that window — the people behind DAU / WAU / MAU. `hasTokens=1` = people holding an active MCP token (the people behind MCP "Active tokens"). |
 | `GET /api/users/:id?range=` | → `AdminUserDetail` |
@@ -178,7 +183,7 @@ Prices in `AdminAiSettings.pricing` / `builtInPricing` are shown as **USD per 1M
 | `/login/callback?code=` | `POST /auth/exchange { code }`, then back to the page you came from (kept in `localStorage`, since the link opens in a new tab) |
 | `/` Overview | `GET /overview?range=`; inline Approve/Reject → `POST /groups/:id/approve|reject` |
 | `/groups` | `GET /groups?status=&q=&sort=&page=&limit=20`, `GET /overview?range=` (tab counts); row actions below |
-| `/groups/$groupId` | `GET /groups/:id?range=`, `GET /overview?range=` (trackingSince), `PATCH /groups/:id/ai`, lifecycle: `POST /groups/:id/{approve,reject,suspend,unsuspend,leave}`, `GET /groups/:id/delete-preview`, `DELETE /groups/:id { confirmName }` |
+| `/groups/$groupId` | `GET /groups/:id?range=`, `GET /overview?range=` (trackingSince), `GET /settings/ai` (the limits that apply without an override), Tasks tab: `GET /groups/:id/tasks`, `GET /groups/:id/epics`; People tab: `GET /groups/:id/members`; `PATCH /groups/:id/ai`, lifecycle: `POST /groups/:id/{approve,reject,suspend,unsuspend,leave,reconsider}`, `GET /groups/:id/delete-preview`, `DELETE /groups/:id { confirmName }` |
 | `/users` | `GET /users?q=&sort=&activeIn=&hasTokens=&page=&limit=20` |
 | `/users/$userId` | `GET /users/:id?range=`, `GET /overview?range=`, `GET /settings/ai` (default limit text), `PATCH /users/:id/ai`, `POST /users/:id/revoke-tokens` |
 | `/ai` | `GET /ai/usage?range=&groupBy=&groupId=&userId=` (+ `groupBy=day` for the charts), `GET /ai/calls?range=&status=&feature=&groupId=&userId=&page=&limit=25`, `GET /groups/:id` / `GET /users/:id` to label filter chips |

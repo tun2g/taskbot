@@ -59,3 +59,5 @@ export type {
   AdminSystemStatus,
   AdminAuditEntry,
 } from './admin.js';
+// ── Groups review ──
+export type { AdminGroupMemberSort, AdminGroupTaskFilter, AdminGroupTaskCounts, AdminTaskVia, AdminGroupTaskRow, AdminGroupEpicRow } from './admin.js';

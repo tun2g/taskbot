@@ -1,139 +1,77 @@
-import type { AdminGroupDetail, AdminGroupMemberRow, AdminRange } from '@tbot/shared';
-import { useState } from 'react';
+import type { AdminRange } from '@tbot/shared';
 
-import { TextLink } from '@/components/ui/button';
+import { useGroupMembers } from '@/api/groups';
+import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/states';
-import { Table, Td, Th, THead, Tr } from '@/components/ui/table';
-import { PersonCell, RelativeTime } from '@/components/ui/values';
-import { formatDate, formatMoney, formatNumber } from '@/lib/format';
+import { SearchInput } from '@/components/ui/input';
+import { Pagination } from '@/components/ui/nav';
+import { EmptyState, ErrorState, TableSkeleton } from '@/components/ui/states';
+import { getErrorMessage } from '@/lib/api-client';
 import { RANGE_LABELS } from '@/lib/labels';
+import { useUrlSearchBox } from '@/lib/use-url-search-box';
 
-type MemberSort = 'lastActive' | 'events' | 'aiCalls' | 'aiCost' | 'tasks' | 'tokens' | 'joined';
+import { useDetailSearch } from '../use-detail-search';
+import { MembersTable } from './members-table';
 
-const time = (v: string | null | undefined) => (v ? Date.parse(v) : 0);
+const LIMIT = 25;
 
-const SORTERS: Record<MemberSort, (m: AdminGroupMemberRow) => number> = {
-  lastActive: (m) => time(m.lastActiveHereAt !== undefined ? m.lastActiveHereAt : m.lastSeenAt),
-  events: (m) => m.events,
-  aiCalls: (m) => m.aiCalls,
-  aiCost: (m) => m.aiCostUsd,
-  tasks: (m) => m.tasksCreated,
-  tokens: (m) => m.activeTokens ?? 0,
-  joined: (m) => time(m.joinedAt),
-};
-
-export function MembersTab({
-  group,
-  range,
-  onOpenPerson,
-}: {
-  group: AdminGroupDetail;
-  range: AdminRange;
-  onOpenPerson: (userId: string) => void;
-}) {
-  const [sort, setSort] = useState<MemberSort>('events');
-  const rangeText = RANGE_LABELS[range].toLowerCase();
-  const by = SORTERS[sort];
-  const members = [...group.members].sort((a, b) => by(b) - by(a) || b.events - a.events || a.person.name.localeCompare(b.person.name));
-  // Older APIs only send "last seen anywhere"; then the column says so.
-  const hasHere = group.members.some((m) => m.lastActiveHereAt !== undefined);
-  const hasTokens = group.members.some((m) => m.activeTokens !== undefined);
-  const sortBy = (key: MemberSort) => ({ active: sort === key, onSort: () => setSort(key) });
+/** People in this group who used the bot — paged, searchable and sortable on the server. */
+export function MembersTab({ range, onOpenPerson }: { range: AdminRange; onOpenPerson: (userId: string) => void }) {
+  const { groupId, search, update } = useDetailSearch();
+  const page = search.page ?? 1;
+  const sort = search.sort ?? 'events';
+  const members = useGroupMembers(groupId, { range, q: search.q, sort, page, limit: LIMIT });
+  const box = useUrlSearchBox(search.q, (q) => update({ q, page: undefined }));
+  const rows = members.data?.data ?? [];
 
   return (
     <Card>
       <CardHeader
-        title="Members"
-        subtitle={`People in this group who have used the bot. Activity, AI and task numbers cover the ${rangeText}. Click a column name to sort, a row to open the person.`}
+        title="People using the bot"
+        subtitle={`People in this group who have used the bot. Activity, AI and task numbers cover the ${RANGE_LABELS[range].toLowerCase()}. Click a column name to sort, a row to open the person.`}
       />
-      {members.length === 0 ? (
-        <EmptyState
-          title="Nobody in this group has used the bot yet."
-          body="People appear here after their first command, button tap or Mini App visit."
-        />
+      <div className="px-5 pb-3">
+        <SearchInput value={box.query} onChange={box.setQuery} placeholder="Search name or @username" className="w-full sm:w-72" />
+      </div>
+      {members.isError ? (
+        <ErrorState message={getErrorMessage(members.error)} onRetry={() => void members.refetch()} retrying={members.isFetching} />
+      ) : members.isLoading ? (
+        <TableSkeleton />
+      ) : rows.length === 0 ? (
+        search.q ? (
+          <EmptyState
+            title={`Nobody matches “${search.q}”.`}
+            body="Search looks at names and @usernames."
+            action={
+              <Button size="sm" onClick={box.clear}>
+                Clear search
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="Nobody in this group has used the bot yet."
+            body="People appear here after their first command, button tap or Mini App visit."
+          />
+        )
       ) : (
-        <Table>
-          <THead>
-            <Th>Person</Th>
-            <Th sort={sortBy('joined')}>Joined</Th>
-            <Th sort={sortBy('lastActive')} hint={hasHere ? 'in this group' : 'in any group'}>
-              Last active
-            </Th>
-            <Th align="right" hint="requests to the bot" sort={sortBy('events')}>
-              Activity
-            </Th>
-            <Th align="right" sort={sortBy('aiCalls')}>
-              AI calls
-            </Th>
-            <Th align="right" hint="estimated" sort={sortBy('aiCost')}>
-              AI cost
-            </Th>
-            <Th align="right" sort={sortBy('tasks')}>
-              Tasks created
-            </Th>
-            {hasTokens && (
-              <Th align="right" hint="that reach this group" sort={sortBy('tokens')}>
-                MCP tokens
-              </Th>
-            )}
-          </THead>
-          <tbody>
-            {members.map((m) => {
-              const userId = m.person.id;
-              const aiLink = m.aiCalls > 0 && userId ? { groupId: group.id, userId, range } : null;
-              return (
-                <Tr key={m.person.telegramUserId} onOpen={userId ? () => onOpenPerson(userId) : undefined}>
-                  <Td className="max-w-56">
-                    <PersonCell person={m.person} />
-                  </Td>
-                  <Td>
-                    <span className="whitespace-nowrap">{m.joinedAt ? formatDate(m.joinedAt) : <span className="text-text-3">Not recorded</span>}</span>
-                  </Td>
-                  <Td>
-                    {hasHere ? (
-                      <>
-                        <RelativeTime value={m.lastActiveHereAt} never="Not in 90 days" />
-                        {m.lastSeenAt && m.lastSeenAt !== m.lastActiveHereAt && (
-                          <span className="block text-[13px] text-text-3">
-                            anywhere: <RelativeTime value={m.lastSeenAt} />
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <RelativeTime value={m.lastSeenAt} />
-                    )}
-                  </Td>
-                  <Td align="right">{formatNumber(m.events)}</Td>
-                  <Td align="right" stop>
-                    {aiLink ? (
-                      <TextLink to="/ai" search={aiLink} title="See this person’s AI calls in this group">
-                        {formatNumber(m.aiCalls)}
-                      </TextLink>
-                    ) : (
-                      <span className="text-text-3">0</span>
-                    )}
-                  </Td>
-                  <Td align="right" stop>
-                    {aiLink ? (
-                      <TextLink to="/ai" search={aiLink} title="See the AI calls behind this cost">
-                        {formatMoney(m.aiCostUsd)}
-                      </TextLink>
-                    ) : (
-                      <span className="text-text-3">{formatMoney(m.aiCostUsd)}</span>
-                    )}
-                  </Td>
-                  <Td align="right">{formatNumber(m.tasksCreated)}</Td>
-                  {hasTokens && (
-                    <Td align="right">
-                      {m.activeTokens ? formatNumber(m.activeTokens) : <span className="text-text-3">None</span>}
-                    </Td>
-                  )}
-                </Tr>
-              );
-            })}
-          </tbody>
-        </Table>
+        <div className={members.isFetching ? 'opacity-70 transition-opacity' : undefined}>
+          <MembersTable
+            rows={rows}
+            groupId={groupId}
+            range={range}
+            sort={sort}
+            onSort={(s) => update({ sort: s === 'events' ? undefined : s, page: undefined })}
+            onOpenPerson={onOpenPerson}
+          />
+          <Pagination
+            page={page}
+            limit={members.data?.meta.limit ?? LIMIT}
+            total={members.data?.meta.total ?? 0}
+            onPage={(p) => update({ page: p > 1 ? p : undefined })}
+            noun="people"
+          />
+        </div>
       )}
     </Card>
   );

@@ -53,6 +53,8 @@ export function auditSummary(action: string, targetLabel: string | null | undefi
       return withTarget('Removed the bot from', 'group');
     case 'group.delete':
       return withTarget('Deleted', 'group');
+    case 'group.reconsider':
+      return withTarget('Cleared the rejection of', 'group');
     case 'group.ai':
       return withTarget('Changed AI limits for', 'group');
     case 'user.ai':
@@ -134,6 +136,10 @@ export function auditChanges(action: string, details: Obj | null | undefined): s
       break;
     case 'user.revoke_tokens':
       out.push(`${count(details.revoked, 'token')} revoked`);
+      break;
+    case 'group.reconsider':
+      out.push('If the bot is added again, the group waits for your approval like a new one');
+      if (typeof details.clearedReason === 'string' && details.clearedReason) out.push(`Cleared reason: “${details.clearedReason}”`);
       break;
   }
   if (details.via === 'telegram') out.push('Decided from the approval message in your Telegram DM');

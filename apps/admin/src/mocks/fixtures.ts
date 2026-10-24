@@ -84,6 +84,8 @@ interface GroupSeed {
   /** Uses a model with no price → unpriced calls. */
   unpricedModel?: boolean;
   publicLink?: string;
+  /** Bot removed only: what a re-add restores (default active). */
+  statusBeforeLeft?: GroupStatus;
 }
 
 const GROUP_SEEDS: GroupSeed[] = [
