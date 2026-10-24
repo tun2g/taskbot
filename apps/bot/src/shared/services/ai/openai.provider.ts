@@ -1,6 +1,14 @@
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage, chatCompletionsUrl, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
+import {
+  AiCompletion,
+  AIProvider,
+  AiProviderError,
+  ChatMessage,
+  chatCompletionsUrl,
+  JsonGenerationRequest,
+  usageFromOpenAI,
+} from 'src/shared/services/ai/ai.interface';
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -15,6 +23,8 @@ interface OpenAIRequest {
 }
 
 interface OpenAIResponse {
+  model?: string;
+  usage?: unknown;
   choices?: Array<{
     message: { role: string; content: string | null; refusal?: string | null };
     finish_reason: string;
@@ -26,9 +36,14 @@ const FIXED_TEMPERATURE_MODEL = /^(o\d|gpt-5)/i;
 
 /** OpenAI Chat Completions — also works with any OpenAI-compatible endpoint via AI_API_URL. */
 export class OpenAIProvider implements AIProvider {
+  readonly name = 'openai';
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
+
+  get modelName(): string {
+    return this.model;
+  }
 
   constructor() {
     this.apiUrl = chatCompletionsUrl(configService.ai.apiUrl || 'https://api.openai.com/v1');
@@ -39,7 +54,7 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-  private async callOpenAI(messages: OpenAIMessage[], temperature: number, json = false): Promise<string> {
+  private async callOpenAI(messages: OpenAIMessage[], temperature: number, json = false): Promise<AiCompletion> {
     const requestBody: OpenAIRequest = { model: this.model, messages };
     if (!FIXED_TEMPERATURE_MODEL.test(this.model)) requestBody.temperature = temperature;
     if (json) requestBody.response_format = { type: 'json_object' };
@@ -59,10 +74,19 @@ export class OpenAIProvider implements AIProvider {
     }
 
     const data = (await response.json()) as OpenAIResponse;
+    const usage = usageFromOpenAI(data.usage);
+    const model = data.model || this.model;
     const message = data.choices?.[0]?.message;
-    if (!message) throw new Error('No response from OpenAI API');
-    if (message.refusal) throw new Error(`OpenAI refused: ${message.refusal}`);
-    return message.content ?? '';
+    if (!message) throw new AiProviderError('No response from OpenAI API', usage, model);
+    // A refusal is still billed: keep its usage for the cost log.
+    if (message.refusal) throw new AiProviderError(`OpenAI refused: ${message.refusal}`, usage, model);
+    return { text: message.content ?? '', usage, model };
+  }
+
+  private wrap(message: string, cause: unknown): AiProviderError {
+    return cause instanceof AiProviderError
+      ? new AiProviderError(message, cause.usage, cause.model)
+      : new AiProviderError(message);
   }
 
   private parseError(error: unknown): string {
@@ -93,7 +117,7 @@ export class OpenAIProvider implements AIProvider {
     return 'Unknown error';
   }
 
-  async chat(messages: ChatMessage[]): Promise<string> {
+  async chat(messages: ChatMessage[]): Promise<AiCompletion> {
     try {
       return await this.callOpenAI(
         messages.map((msg) => ({ role: msg.role, content: msg.content })),
@@ -102,11 +126,11 @@ export class OpenAIProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in chat: ${error}`);
-      throw new Error(errorMessage);
+      throw this.wrap(errorMessage, error);
     }
   }
 
-  async generateJson(request: JsonGenerationRequest): Promise<string> {
+  async generateJson(request: JsonGenerationRequest): Promise<AiCompletion> {
     try {
       // json_object mode requires the word "JSON" somewhere in the messages.
       return await this.callOpenAI(
@@ -120,7 +144,7 @@ export class OpenAIProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in generateJson: ${error}`);
-      throw new Error(errorMessage);
+      throw this.wrap(errorMessage, error);
     }
   }
 }

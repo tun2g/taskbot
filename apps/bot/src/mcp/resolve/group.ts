@@ -4,11 +4,17 @@ import { Group, IGroup } from 'src/database/models/group.model';
 import { groupMemberService } from 'src/database/services/group-member.service';
 import type { McpContext } from 'src/mcp/context';
 import { McpToolError } from 'src/mcp/context';
+import { groupUnavailableToolMessage, isGroupActive } from 'src/shared/utils/group-status';
+import { noteGroup } from 'src/shared/services/telemetry/request-context';
 
 const MAX_LISTED = 10;
 
 export const NOT_A_MEMBER_TOOL_MESSAGE =
   "You don't have access to that group (it doesn't exist or you're not a member). Call list_groups to see the groups you can use.";
+
+export const NO_USABLE_GROUP_TOOL_MESSAGE =
+  "None of the user's groups can be used right now: they are waiting for the bot owner's approval or paused. " +
+  'Call list_groups to see each status, and tell the user; retrying won\'t help.';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -59,6 +65,8 @@ export async function requireGroup(ctx: McpContext, ref?: string): Promise<IGrou
           'for other groups, create an all-groups token with /mcp in a private chat with the bot.',
       );
     }
+    if (!isGroupActive(ctx.scopeGroup)) throw new McpToolError(groupUnavailableToolMessage(ctx.scopeGroup));
+    noteGroup(ctx.scopeGroup._id);
     return ctx.scopeGroup;
   }
 
@@ -67,22 +75,28 @@ export async function requireGroup(ctx: McpContext, ref?: string): Promise<IGrou
     groupId = ref.trim();
   } else {
     const groups = await userGroups(ctx);
+    // Without a ref, only usable groups are candidates; a named group that isn't usable gets its own explanation below.
+    const usable = groups.filter(isGroupActive);
     if (ref) {
       groupId = String(findByTitle(groups, ref)._id);
-    } else if (groups.length === 1) {
-      groupId = String(groups[0]._id);
+    } else if (usable.length === 1) {
+      groupId = String(usable[0]._id);
     } else if (groups.length === 0) {
       throw new McpToolError(
         "You aren't in any group with the bot yet. Add the bot to a Telegram group and post there once.",
       );
+    } else if (usable.length === 0) {
+      throw new McpToolError(groups.length === 1 ? groupUnavailableToolMessage(groups[0]) : NO_USABLE_GROUP_TOOL_MESSAGE);
     } else {
       throw new McpToolError(
-        `Which group? Pass \`group\` (id or title). Your groups: ${groupChoices(groups)}. If the user didn't say, ask them.`,
+        `Which group? Pass \`group\` (id or title). Your groups: ${groupChoices(usable)}. If the user didn't say, ask them.`,
       );
     }
   }
 
   const access = await checkGroupAccess(groupId, ctx.user);
-  if (!access.ok) throw new McpToolError(NOT_A_MEMBER_TOOL_MESSAGE);
+  if (!access.ok) throw new McpToolError(access.inactive ? groupUnavailableToolMessage(access.inactive) : NOT_A_MEMBER_TOOL_MESSAGE);
+  // Attributes this tool call's usage event to the group.
+  noteGroup(access.group._id);
   return access.group;
 }

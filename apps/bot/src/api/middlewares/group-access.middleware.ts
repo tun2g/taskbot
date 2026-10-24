@@ -9,21 +9,30 @@ import { groupService } from 'src/database/services/group.service';
 import { epicService } from 'src/database/services/epic.service';
 import { taskService } from 'src/database/services/task.service';
 import { memberSyncService } from 'src/shared/services/member-sync.service';
+import { groupUnavailableMessage, isGroupActive } from 'src/shared/utils/group-status';
 
 export const NOT_A_MEMBER_MESSAGE = 'You are not a member of this group.';
 export const GROUP_NOT_FOUND_MESSAGE = 'This group could not be found. It may have been removed.';
 export const TASK_NOT_FOUND_MESSAGE = 'This task could not be found. It may have been deleted.';
 export const EPIC_NOT_FOUND_MESSAGE = 'This epic could not be found. It may have been deleted.';
+/** `error` of a 403 for a member whose group has no service (pending, paused, ...): the app shows a group-level screen. */
+export const GROUP_UNAVAILABLE_ERROR = 'Group Unavailable';
 
 export type GroupAccess =
   | { ok: true; group: IGroup }
-  | { ok: false; status: 403 | 404; message: string };
+  /** `inactive`: the caller is a member, but the group has no service (pending approval, suspended, ...). */
+  | { ok: false; status: 403 | 404; message: string; inactive?: IGroup };
 
 /**
  * Loads the group and checks that the user is a member — asking Telegram before refusing someone who was
- * never seen in the group (they may just not have posted yet). Shared by the REST API and the MCP server.
+ * never seen in the group (they may just not have posted yet) — and that the group gets service (ACTIVE).
+ * `allowInactive` skips the last check (the MCP server reports it per tool instead). Shared by the REST API and MCP.
  */
-export async function checkGroupAccess(groupId: string, user: Pick<IUser, '_id' | 'telegramUserId'>): Promise<GroupAccess> {
+export async function checkGroupAccess(
+  groupId: string,
+  user: Pick<IUser, '_id' | 'telegramUserId'>,
+  options: { allowInactive?: boolean } = {},
+): Promise<GroupAccess> {
   if (!mongoose.Types.ObjectId.isValid(groupId)) return { ok: false, status: 404, message: GROUP_NOT_FOUND_MESSAGE };
 
   const group = await groupService.findGroupById(new mongoose.Types.ObjectId(groupId));
@@ -33,6 +42,20 @@ export async function checkGroupAccess(groupId: string, user: Pick<IUser, '_id' 
     (await groupMemberService.isMember(group._id as mongoose.Types.ObjectId, user._id as mongoose.Types.ObjectId)) ||
     (await memberSyncService.verifyAndAddMember(group, user as IUser));
   if (!isMember) return { ok: false, status: 403, message: NOT_A_MEMBER_MESSAGE };
+  // Membership first: non-members learn nothing about a group's status.
+  if (!options.allowInactive && !isGroupActive(group)) {
+    return { ok: false, status: 403, message: groupUnavailableMessage(group), inactive: group };
+  }
+  return { ok: true, group };
+}
+
+/** Member check for a task's / epic's group, then the same service check as `checkGroupAccess`. */
+async function checkParentGroupAccess(groupId: mongoose.Types.ObjectId, user: IUser): Promise<GroupAccess> {
+  const group = await groupService.findGroupById(groupId);
+  if (!group) return { ok: false, status: 403, message: NOT_A_MEMBER_MESSAGE };
+  const isMember = (await groupMemberService.isMember(groupId, user._id)) || (await memberSyncService.verifyAndAddMember(group, user));
+  if (!isMember) return { ok: false, status: 403, message: NOT_A_MEMBER_MESSAGE };
+  if (!isGroupActive(group)) return { ok: false, status: 403, message: groupUnavailableMessage(group), inactive: group };
   return { ok: true, group };
 }
 
@@ -51,7 +74,7 @@ export function requireGroupMember(paramName = 'groupId') {
 
     const access = await checkGroupAccess(req.params[paramName] as string, user);
     if (!access.ok) {
-      sendError(res, access.status, access.message);
+      sendError(res, access.status, access.message, access.inactive ? GROUP_UNAVAILABLE_ERROR : undefined);
       return;
     }
 
@@ -80,12 +103,10 @@ export function requireTaskMember(paramName = 'taskId') {
       return;
     }
 
-    if (!(await groupMemberService.isMember(task.groupId, user._id))) {
-      const group = await groupService.findGroupById(task.groupId);
-      if (!group || !(await memberSyncService.verifyAndAddMember(group, user))) {
-        sendError(res, 403, NOT_A_MEMBER_MESSAGE);
-        return;
-      }
+    const access = await checkParentGroupAccess(task.groupId, user);
+    if (!access.ok) {
+      sendError(res, access.status, access.message, access.inactive ? GROUP_UNAVAILABLE_ERROR : undefined);
+      return;
     }
 
     authReq.task = task;
@@ -113,12 +134,10 @@ export function requireEpicMember(paramName = 'epicId') {
       return;
     }
 
-    if (!(await groupMemberService.isMember(epic.groupId, user._id))) {
-      const group = await groupService.findGroupById(epic.groupId);
-      if (!group || !(await memberSyncService.verifyAndAddMember(group, user))) {
-        sendError(res, 403, NOT_A_MEMBER_MESSAGE);
-        return;
-      }
+    const access = await checkParentGroupAccess(epic.groupId, user);
+    if (!access.ok) {
+      sendError(res, access.status, access.message, access.inactive ? GROUP_UNAVAILABLE_ERROR : undefined);
+      return;
     }
 
     authReq.epic = epic;

@@ -24,7 +24,7 @@ import { changedUpdates } from 'src/shared/services/ai-command/result';
 import {
   renderWeb,
   renderWebCreated,
-  WEB_AI_BUSY_TEXT,
+  WEB_AI_STILL_WORKS,
   WEB_AI_UNAVAILABLE_TEXT,
   WEB_SAVE_FAILED_TEXT,
 } from 'src/shared/services/ai-command/web.renderer';
@@ -33,7 +33,8 @@ import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { redisService } from 'src/shared/services/redis.service';
 import { BATCH_UNDO_WINDOW_MS, checkGroupAiRateLimit, createTasks } from 'src/shared/services/task-creation.service';
 import { taskSyncService, userDisplayName } from 'src/shared/services/task-sync.service';
-import { formatRetryAfter } from 'src/shared/services/ai-quota';
+import { aiDisabledBy, aiDisabledText, aiGroupLimitText, aiUserLimitText } from 'src/shared/services/ai-quota';
+import { noteGroup, withContext } from 'src/shared/services/telemetry/request-context';
 
 /** Where the "(via app)" group post of a web-created batch is remembered (for undo). */
 const APP_BATCH_POST_PREFIX = 'app_batch_post';
@@ -92,7 +93,14 @@ export async function populateResponse(data: AiChatResponse) {
  * POST /api/groups/:groupId/ai — the same planner, safety rules, activity log, DMs and card refreshes as
  * Telegram /ai; group-visible changes get "(via app)" posts; created tasks are undoable from the chat.
  */
-export async function handleWebChat(input: WebChatInput): Promise<WebChatOutcome> {
+export function handleWebChat(input: WebChatInput): Promise<WebChatOutcome> {
+  // Every AI call in this request is attributed to the group, the person and the app (or MCP).
+  const channel = input.channel?.activity === 'mcp' ? 'mcp' : 'app';
+  noteGroup(input.group._id);
+  return withContext({ channel, groupId: input.group._id, userId: input.requester._id }, () => runWebChat(input));
+}
+
+async function runWebChat(input: WebChatInput): Promise<WebChatOutcome> {
   const { group, requester, message, editor } = input;
 
   // "This task" must belong to the group — checked before anything else.
@@ -103,16 +111,19 @@ export async function handleWebChat(input: WebChatInput): Promise<WebChatOutcome
   }
 
   if (!aiService.isConfigured()) return unavailable();
+  const disabledBy = aiDisabledBy(group, requester);
+  if (disabledBy) return unavailable(`${aiDisabledText(disabledBy)} ${WEB_AI_STILL_WORKS}`);
 
   const chatId = group.telegramGroupId;
-  const userLimit = await checkUserAiRateLimit(requester.telegramUserId, chatId);
+  const userLimit = await checkUserAiRateLimit(requester.telegramUserId, chatId, requester);
   if (!userLimit.allowed) {
     return {
       status: 'rate_limited',
-      message: `Too many AI requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}.`,
+      message: aiUserLimitText(userLimit, group),
     };
   }
-  if (!(await checkGroupAiRateLimit(chatId))) return unavailable(WEB_AI_BUSY_TEXT);
+  const groupLimit = await checkGroupAiRateLimit(chatId, group);
+  if (!groupLimit.allowed) return unavailable(`${aiGroupLimitText(group, groupLimit)} ${WEB_AI_STILL_WORKS}`);
 
   const context = await buildAiContext({
     request: message,

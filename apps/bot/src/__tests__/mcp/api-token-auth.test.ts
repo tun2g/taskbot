@@ -101,7 +101,7 @@ describe('mcpAuthMiddleware', () => {
     expect(req.user).toBe(me);
     expect(req.apiToken).toBe(token);
     expect(req.scopeGroup).toBeNull();
-    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(String(token._id), 'mcp', MCP_RATE_LIMIT, 60);
+    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(String(token._id), 'mcp', MCP_RATE_LIMIT, 60, expect.objectContaining({ channel: 'mcp' }));
   });
 
   it.each([
@@ -156,7 +156,7 @@ describe('mcpAuthMiddleware', () => {
     );
     const { req, res, next } = reqRes(`Bearer ${secret}`);
     await mcpAuthMiddleware(req, res, next);
-    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(String(me._id), 'mcp_user', MCP_USER_RATE_LIMIT, 60);
+    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(String(me._id), 'mcp_user', MCP_USER_RATE_LIMIT, 60, expect.objectContaining({ channel: 'mcp' }));
     expect(res.status).toHaveBeenCalledWith(429);
     expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '7');
     expect(res.json.mock.calls[0][0].error.message).toMatch(/per user/);

@@ -1,4 +1,4 @@
-import { statusesInCategory, TaskStatusCategory } from '@tbot/shared';
+import { GroupStatus, statusesInCategory, TaskStatusCategory } from '@tbot/shared';
 import Bull from 'bull';
 import { bot } from 'src/bot';
 import {
@@ -107,7 +107,8 @@ export async function processDigestJob(_job: Bull.Job): Promise<void> {
 
   try {
     const now = new Date();
-    const groups = await Group.find();
+    // Only groups that get service: pending / suspended / removed groups get no digest.
+    const groups = await Group.find({ status: GroupStatus.ACTIVE });
     let sent = 0;
 
     for (const group of groups) {

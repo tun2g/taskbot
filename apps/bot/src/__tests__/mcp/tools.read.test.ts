@@ -62,8 +62,8 @@ describe('list_groups', () => {
     (Task.aggregate as jest.Mock).mockResolvedValue([{ _id: alpha._id, count: 4 }]);
     const out = await call(listGroupsTool, {});
     expect(out.data.groups).toEqual([
-      { id: String(alpha._id), title: 'Team Alpha', openTasks: 4 },
-      { id: String(beta._id), title: 'Team Beta', openTasks: 0 },
+      { id: String(alpha._id), title: 'Team Alpha', openTasks: 4, status: 'active', available: true },
+      { id: String(beta._id), title: 'Team Beta', openTasks: 0, status: 'active', available: true },
     ]);
     expect(out.text).toContain('Team Alpha — 4 open tasks');
     const match = (Task.aggregate as jest.Mock).mock.calls[0][0][0].$match;
@@ -254,5 +254,16 @@ describe('list_epics', () => {
     const out = await call(listEpicsTool, { group: String(alpha._id) });
     expect(out.data.epics.map((e: any) => e.title)).toEqual(['Login', 'Old']);
     expect(out.text).toContain('Login — open, blue · 3/5 done, 1 in progress');
+  });
+});
+
+describe('list_groups — groups without service', () => {
+  it('marks them unavailable instead of counting tasks', async () => {
+    const pending = { ...beta, status: 'pending' };
+    (Group.find as jest.Mock).mockReturnValue(groupsQuery([alpha, pending]));
+    (Task.aggregate as jest.Mock).mockResolvedValue([]);
+    const out = await call(listGroupsTool, {});
+    expect(out.data.groups[1]).toEqual(expect.objectContaining({ status: 'pending', available: false }));
+    expect(out.text).toContain('Team Beta — unavailable: waiting for approval');
   });
 });

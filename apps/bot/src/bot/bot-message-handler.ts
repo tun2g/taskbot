@@ -1,5 +1,6 @@
 import { aiCommand } from 'src/bot/commands/ai';
 import { BotContext } from 'src/bot/interface/context';
+import { recordMention } from 'src/bot/middlewares/usage.middleware';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import { redisService } from 'src/shared/services/redis.service';
@@ -36,6 +37,7 @@ class BotMessageHandler {
 
     try {
       if (this.mentionsBot(ctx, message.text, entities)) {
+        recordMention(ctx, 'mention');
         await aiCommand.onAi(ctx, 'ai', { request: this.stripMention(ctx, message.text) });
         return;
       }
@@ -46,6 +48,7 @@ class BotMessageHandler {
       if (QUESTION_PATTERN.test(message.text)) {
         const card = await taskService.getTaskByCardMessage(chat.id, reply.message_id);
         if (card) {
+          recordMention(ctx, 'card_question');
           await aiCommand.onAi(ctx, 'ai', { request: message.text.trim() });
           return;
         }

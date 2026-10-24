@@ -42,7 +42,8 @@ import { epicEventsService } from 'src/shared/services/epic-events.service';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
 import { Message } from 'telegraf/types';
-import { formatRetryAfter } from 'src/shared/services/ai-quota';
+import { aiDisabledBy, aiDisabledText, aiGroupLimitText, aiUserLimitText } from 'src/shared/services/ai-quota';
+import { AI_STILL_WORKS } from 'src/shared/services/ai-command/telegram.renderer';
 
 const TYPING_INTERVAL_MS = 4500;
 
@@ -136,16 +137,24 @@ export class AiCommand {
         return;
       }
 
-      const userLimit = await checkUserAiRateLimit(user.telegramUserId, chat.id);
+      // The bot owner turned AI off for this group / person: like "AI unavailable", with the reason.
+      const disabledBy = aiDisabledBy(group, user);
+      if (disabledBy) {
+        await this.sendUnavailable(ctx, mode, { request, user, group, replyTask }, undefined, `🚫 ${aiDisabledText(disabledBy)} ${AI_STILL_WORKS}`);
+        return;
+      }
+
+      const userLimit = await checkUserAiRateLimit(user.telegramUserId, chat.id, user);
       if (!userLimit.allowed) {
         await this.send(ctx, {
-          text: `⏳ Too many /ai requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}, or use the card buttons.`,
+          text: `⏳ ${aiUserLimitText(userLimit, group)} ${AI_STILL_WORKS}`,
         });
         return;
       }
-      if (!(await checkGroupAiRateLimit(chat.id))) {
+      const groupLimit = await checkGroupAiRateLimit(chat.id, group);
+      if (!groupLimit.allowed) {
         await this.send(ctx, {
-          text: '⏳ AI is busy in this group — try again in a few minutes. Meanwhile use the card buttons or /list, /done.',
+          text: `⏳ ${aiGroupLimitText(group, groupLimit)} ${AI_STILL_WORKS}`,
         });
         return;
       }
@@ -279,6 +288,7 @@ export class AiCommand {
     mode: 'ai' | 'update',
     input: { request: string; user: IUser; group: IGroup; replyTask: ITask | null },
     context?: AiRequestContext,
+    text: string = AI_UNAVAILABLE_MESSAGE,
   ) {
     if (mode === 'ai' && EXPLAIN_WORDING.test(input.request)) {
       try {
@@ -294,7 +304,7 @@ export class AiCommand {
         logger.warn(`/ai explain fallback failed: ${error}`);
       }
     }
-    await this.send(ctx, { text: AI_UNAVAILABLE_MESSAGE });
+    await this.send(ctx, { text });
   }
 
   /** Exactly one HTML reply, threaded to the user's /ai message (plain-text retry on a formatting error). */

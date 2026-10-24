@@ -39,8 +39,9 @@ class QueueService {
           cron: cronExpression,
           tz: timezone,
         },
-        removeOnComplete: true,
-        removeOnFail: false,
+        // Keep recent history (bounded): the admin System page reads it for "last run" / "last error".
+        removeOnComplete: 200,
+        removeOnFail: 200,
       });
       logger.info(`Added repeating job: ${name} with cron: ${cronExpression}`);
     } catch (error) {

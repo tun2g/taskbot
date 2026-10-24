@@ -44,6 +44,12 @@ describe('daily digest', () => {
 
   const base = { _id: 'g1', telegramGroupId: -100, groupName: 'Team', timezone: 'UTC', knownTopics: [] };
 
+  it('only groups that get service (ACTIVE) are considered', async () => {
+    (Group.find as jest.Mock).mockResolvedValue([]);
+    await processDigestJob({} as any);
+    expect(Group.find).toHaveBeenCalledWith({ status: 'active' });
+  });
+
   it('normal group: posted in the chat as before', async () => {
     (Group.find as jest.Mock).mockResolvedValue([{ ...base, isForum: false }]);
     await processDigestJob({} as any);

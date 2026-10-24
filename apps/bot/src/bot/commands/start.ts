@@ -7,10 +7,28 @@ import { groupService } from 'src/database/services/group.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
 import { isForumChat } from 'src/shared/services/group-messenger.service';
-import { appLinkButton, boardButton, webappBaseUrl } from 'src/shared/utils/app-links';
+import { adminLink, appLinkButton, boardButton, webappBaseUrl } from 'src/shared/utils/app-links';
 import { InlineKeyboardButton } from 'telegraf/types';
+import { isGroupActive } from 'src/shared/utils/group-status';
+import { GROUP_STATUS_LABELS, GroupStatus } from '@tbot/shared';
+import { configService } from 'src/configs/configuration';
+import { groupLifecycleService } from 'src/shared/services/group-lifecycle.service';
+import type { IGroup } from 'src/database/models/group.model';
 
 const MAX_GROUP_BUTTONS = 20;
+/** Owner's /start re-sends at most this many approval cards (oldest first). */
+export const MAX_PENDING_CARDS = 5;
+
+/** "• Team Alpha — waiting for the bot owner's approval" for groups whose board can't open yet. */
+function unavailableLine(group: IGroup): string {
+  const why =
+    group.status === GroupStatus.PENDING
+      ? "waiting for the bot owner's approval"
+      : group.status === GroupStatus.SUSPENDED
+        ? 'paused by the bot owner'
+        : GROUP_STATUS_LABELS[group.status].toLowerCase();
+  return `• ${escapeMarkdown(truncate(group.groupName, 40))} — ${why}`;
+}
 
 export class StartCommand {
   private map: Map<string, (ctx: BotContext) => void>;
@@ -34,9 +52,25 @@ export class StartCommand {
         return;
       }
 
+      if (ctx.from && ctx.from.id === configService.botOwnerTelegramId) await this.sendPendingCards(ctx);
+
       const groupIds = user ? await groupMemberService.getUserGroups(user._id) : [];
-      const groups = groupIds.length ? await Group.find({ _id: { $in: groupIds } }).sort({ groupName: 1 }) : [];
+      const allGroups = groupIds.length ? await Group.find({ _id: { $in: groupIds } }).sort({ groupName: 1 }) : [];
+      // Boards only open for groups that get service (approved, not paused).
+      const groups = allGroups.filter(isGroupActive);
+      // Only groups the bot is still meant to be in; rejected / removed ones are history.
+      const waiting = allGroups.filter((g) => g.status === GroupStatus.PENDING || g.status === GroupStatus.SUSPENDED);
+      const waitingLines = waiting.length
+        ? ['', "⏳ *Not ready yet* — you'll see a message in the group when it is:", ...waiting.slice(0, 10).map(unavailableLine)]
+        : [];
       const base = webappBaseUrl();
+
+      if (groups.length === 0 && waiting.length > 0) {
+        await ctx.reply([`Hi ${name}! None of your groups can be used with me yet.`, ...waitingLines].join('\n'), {
+          parse_mode: 'Markdown',
+        });
+        return;
+      }
 
       if (groups.length === 0) {
         const add = addToGroupButton();
@@ -74,6 +108,8 @@ export class StartCommand {
           ? `Hi ${name}! Pick a group to open its board:`
           : `You're in ${groups.length} group(s) with me. Use /list inside a group to see its tasks.`,
         '',
+        ...waitingLines,
+        '',
         "I'll DM you here when someone assigns you a task or one of yours changes.",
       ].join('\n');
 
@@ -84,6 +120,25 @@ export class StartCommand {
     } catch (error) {
       logger.error(`Error in /start command: ${error}`);
       await ctx.reply('Something went wrong. Please try /start again.');
+    }
+  }
+
+  /** The bot owner's /start: groups still waiting for a decision get their Approve / Reject card again. */
+  private async sendPendingCards(ctx: BotContext) {
+    try {
+      const pending = await Group.find({ status: GroupStatus.PENDING }).sort({ addedAt: 1 }).limit(MAX_PENDING_CARDS + 1);
+      if (!pending.length) return;
+      const count =
+        pending.length > MAX_PENDING_CARDS
+          ? `More than ${MAX_PENDING_CARDS} groups are waiting for your approval — the oldest ${MAX_PENDING_CARDS} are below, the rest are in the admin app.`
+          : pending.length === 1
+            ? '1 group is waiting for your approval:'
+            : `${pending.length} groups are waiting for your approval:`;
+      const all = pending.length > MAX_PENDING_CARDS ? adminLink(`/groups?status=${GroupStatus.PENDING}`) : null;
+      await ctx.reply(`🆕 ${count}`, all ? { reply_markup: { inline_keyboard: [[{ text: '🛠 All waiting groups', url: all }]] } } : {});
+      for (const group of pending.slice(0, MAX_PENDING_CARDS)) await groupLifecycleService.sendOwnerCard(ctx.telegram, group);
+    } catch (error) {
+      logger.warn(`/start: could not list pending groups for the owner: ${error}`);
     }
   }
 

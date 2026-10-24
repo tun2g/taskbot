@@ -1,6 +1,14 @@
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage, chatCompletionsUrl, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
+import {
+  AiCompletion,
+  AIProvider,
+  AiProviderError,
+  ChatMessage,
+  chatCompletionsUrl,
+  JsonGenerationRequest,
+  usageFromOpenAI,
+} from 'src/shared/services/ai/ai.interface';
 
 interface FuseAPIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -27,17 +35,25 @@ interface FuseAPIResponse {
     };
     finish_reason: string;
   }>;
-  usage: {
+  usage?: {
     completion_tokens: number;
     total_tokens: number;
     prompt_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+    completion_tokens_details?: { reasoning_tokens?: number } | null;
   };
 }
 
 export class FuseProvider implements AIProvider {
+  readonly name = 'fuse';
   private apiUrl: string;
   private apiKey: string;
-  private model = 'claude-opus-4.6';
+  // AI_MODEL (or the configured default), like the other providers.
+  private model = configService.ai.model;
+
+  get modelName(): string {
+    return this.model;
+  }
 
   constructor() {
     this.apiUrl = chatCompletionsUrl(configService.ai.apiUrl || 'https://api.fuseapi.app/v1');
@@ -47,7 +63,7 @@ export class FuseProvider implements AIProvider {
     }
   }
 
-  private async callFuseAPI(messages: FuseAPIMessage[], temperature = 0.7): Promise<string> {
+  private async callFuseAPI(messages: FuseAPIMessage[], temperature = 0.7): Promise<AiCompletion> {
     try {
       const requestBody: FuseAPIRequest = {
         model: this.model,
@@ -71,15 +87,23 @@ export class FuseProvider implements AIProvider {
 
       const data = (await response.json()) as FuseAPIResponse;
 
+      const usage = usageFromOpenAI(data.usage);
+      const model = data.model || this.model;
       if (!data.choices || data.choices.length === 0) {
-        throw new Error('No response from Fuse API');
+        throw new AiProviderError('No response from Fuse API', usage, model);
       }
 
-      return data.choices[0].message.content;
+      return { text: data.choices[0].message.content ?? '', usage, model };
     } catch (error) {
       logger.error(`Fuse API call failed: ${error}`);
       throw error;
     }
+  }
+
+  private wrap(message: string, cause: unknown): AiProviderError {
+    return cause instanceof AiProviderError
+      ? new AiProviderError(message, cause.usage, cause.model)
+      : new AiProviderError(message);
   }
 
   private parseError(error: unknown): string {
@@ -107,7 +131,7 @@ export class FuseProvider implements AIProvider {
     return 'Unknown error';
   }
 
-  async chat(messages: ChatMessage[]): Promise<string> {
+  async chat(messages: ChatMessage[]): Promise<AiCompletion> {
     try {
       const fuseMessages: FuseAPIMessage[] = messages.map((msg) => ({
         role: msg.role as 'user' | 'assistant',
@@ -118,11 +142,11 @@ export class FuseProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in chat: ${error}`);
-      throw new Error(errorMessage);
+      throw this.wrap(errorMessage, error);
     }
   }
 
-  async generateJson(request: JsonGenerationRequest): Promise<string> {
+  async generateJson(request: JsonGenerationRequest): Promise<AiCompletion> {
     try {
       return await this.callFuseAPI(
         [
@@ -134,7 +158,7 @@ export class FuseProvider implements AIProvider {
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in generateJson: ${error}`);
-      throw new Error(errorMessage);
+      throw this.wrap(errorMessage, error);
     }
   }
 }

@@ -13,6 +13,7 @@ import {
 } from '@/api/tokens';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
+import { isGroupUsable } from '@/lib/group-status';
 
 import { SettingsTokensContent } from './settings-tokens.content';
 
@@ -70,7 +71,7 @@ export function SettingsTokensContainer() {
       tokensError={tokens.isError ? getErrorMessage(tokens.error) : null}
       onRetryTokens={() => tokens.refetch()}
       isRetryingTokens={tokens.isFetching}
-      groups={groups.data ?? []}
+      groups={(groups.data ?? []).filter(isGroupUsable)}
       groupsLoading={groups.isLoading}
       preferredGroupId={search.group}
       onCreate={handleCreate}

@@ -25,6 +25,8 @@ interface TasksContentProps {
   groupName?: string;
   timeZone?: string | null;
   accessError: string | null;
+  /** The group exists and the user is in it, but it can't be used right now (waiting for approval / paused). */
+  groupUnavailable?: boolean;
   search: BoardSearch;
   view: BoardView;
   groupBy: BoardGroupBy;
@@ -115,8 +117,8 @@ export function TasksContent(props: TasksContentProps) {
     return (
       <Layout title="Task board" onBack={onBack}>
         <StateMessage
-          icon="🔒"
-          title="Can't open this board"
+          icon={props.groupUnavailable ? '⏸' : '🔒'}
+          title={props.groupUnavailable ? "This group can't be used right now" : "Can't open this board"}
           body={accessError}
           action={
             <Button variant="primary" onClick={onBack}>

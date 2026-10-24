@@ -43,6 +43,8 @@ export type AiOutcome =
   | { kind: 'reply'; reply: AiReply; updates?: UpdateOutcome[] }
   | { kind: 'create'; useReply: boolean };
 
+/** What still works without AI — appended when the AI says no (limit reached / turned off). */
+export const AI_STILL_WORKS = 'Card buttons and /new, /list, /done still work.';
 export const AI_UNAVAILABLE_MESSAGE = '🤖 AI is unavailable right now — use the card buttons or /new, /list, /done.';
 export const WHICH_TASK_MESSAGE = '🤔 Which task? Reply to its card or write #number.';
 /** The plan had nothing to do: show what /ai understands instead of asking "Which task?". */

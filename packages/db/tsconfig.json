@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "module": "Node16",
+    "moduleResolution": "Node16"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../shared" }]
+}

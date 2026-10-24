@@ -2,6 +2,7 @@ import { statusesInCategory, TaskStatusCategory } from '@tbot/shared';
 import Bull from 'bull';
 import { addDays, dueDay, groupTimezone, hourIn, refId, todayIn } from 'src/bot/task-card.renderer';
 import { Group, IGroup } from 'src/database/models/group.model';
+import { isGroupActive } from 'src/shared/utils/group-status';
 import { Task } from 'src/database/models/task.model';
 import { User } from 'src/database/models/user.model';
 import logger from 'src/shared/logger/logger';
@@ -38,7 +39,10 @@ export async function processReminderJob(_job: Bull.Job): Promise<void> {
       if (!task.dueDate) continue;
       const groupId = task.groupId.toString();
       if (!groupCache.has(groupId)) groupCache.set(groupId, await Group.findById(task.groupId));
-      const tz = groupTimezone(groupCache.get(groupId));
+      const group = groupCache.get(groupId);
+      // No reminders from groups without service (left unmarked: they still go out if it resumes in time).
+      if (!group || !isGroupActive(group)) continue;
+      const tz = groupTimezone(group);
 
       const today = todayIn(tz, now);
       const due = dueDay(task.dueDate);

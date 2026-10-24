@@ -1,4 +1,4 @@
-import { isClosedStatus, SUBTASKS_MAX } from '@tbot/shared';
+import { AiFeature, isClosedStatus, SUBTASKS_MAX } from '@tbot/shared';
 import mongoose from 'mongoose';
 import { ITask } from 'src/database/models/task.model';
 import { IUser } from 'src/database/models/user.model';
@@ -26,6 +26,7 @@ import { SubtasksOutcome } from 'src/shared/services/ai-command/result';
 import { createSubtaskItems, ReadyItem, SubtaskCreateContext } from 'src/shared/services/ai-command/subtask-items';
 import { savePreview } from 'src/shared/services/ai-command/subtask-preview';
 import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service';
+import { withAiScope } from 'src/shared/services/ai-quota';
 import type { TaskChange } from 'src/shared/services/task-event-lines';
 import { MutationChannel, refId, TaskMutationError } from 'src/shared/services/task-mutation/common';
 
@@ -83,10 +84,10 @@ async function proposeSubtasks(
     count,
   });
   try {
-    const { subtasks } = await aiService.generateJson(
-      { system: BREAKDOWN_SYSTEM_PROMPT, user, temperature: 0.3 },
-      breakdownSchema,
-      { retries: 1 },
+    const { subtasks } = await withAiScope(
+      AiFeature.BREAKDOWN,
+      { group: c.group, user: c.requester, channel: c.activityVia === 'mcp' ? 'mcp' : c.channel === 'web' ? 'app' : 'telegram' },
+      () => aiService.generateJson({ system: BREAKDOWN_SYSTEM_PROMPT, user, temperature: 0.3 }, breakdownSchema, { retries: 1 }),
     );
     return subtasks.slice(0, count ?? BREAKDOWN_MAX).map((s) => ({ title: s.title }));
   } catch (error) {

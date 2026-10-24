@@ -155,7 +155,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (aiService.isConfigured as jest.Mock).mockReturnValue(true);
   (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 5, retryAfterSeconds: 0 });
-  (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+  (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 1, retryAfterSeconds: 0 });
   (groupMemberService.getMembers as jest.Mock).mockResolvedValue([me, an]);
   (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
   (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
@@ -299,10 +299,11 @@ describe('POST /api/groups/:groupId/ai', () => {
   });
 
   it('group AI limit → 200 unavailable (not 429)', async () => {
-    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(false);
+    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 240, scope: 'minute' });
     const res = await chat({ message: 'hi' });
     expect(res.status).not.toHaveBeenCalled();
     expect(dataOf(res).kind).toBe('unavailable');
+    expect(dataOf(res).text).toContain('try again in 4 min');
   });
 
   it('per-user limit → 429 with a plain message (shared with Telegram /ai)', async () => {
@@ -312,7 +313,7 @@ describe('POST /api/groups/:groupId/ai', () => {
     expect(res.status).toHaveBeenCalledWith(429);
     expect(res.json).toHaveBeenCalledWith({
       error: 'Too Many Requests',
-      message: 'Too many AI requests. Try again in 30s.',
+      message: 'Too many AI requests in a row — try again in 30s.',
       statusCode: 429,
     });
     expect(aiCommandService.plan).not.toHaveBeenCalled();
@@ -320,14 +321,14 @@ describe('POST /api/groups/:groupId/ai', () => {
 
   it('daily per-user AI quota (across all groups) → 429 with a human wait time', async () => {
     (rateLimitService.checkRateLimit as jest.Mock).mockImplementation(async (_id, action) =>
-      action === 'ai_user_daily'
+      String(action).startsWith('ai_user_daily:')
         ? { allowed: false, remaining: 0, retryAfterSeconds: 5 * 3600 }
         : { allowed: true, remaining: 5, retryAfterSeconds: 0 },
     );
     const res = await chat({ message: 'hi' });
-    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(1, 'ai_user_daily', AI_USER_DAILY_LIMIT, 86400);
+    expect(rateLimitService.checkRateLimit).toHaveBeenCalledWith(1, expect.stringMatching(/^ai_user_daily:\d{4}-\d{2}-\d{2}$/), AI_USER_DAILY_LIMIT, expect.any(Number));
     expect(res.status).toHaveBeenCalledWith(429);
-    expect(res.json.mock.calls[0][0].message).toBe('Too many AI requests. Try again in 5h.');
+    expect(res.json.mock.calls[0][0].message).toMatch(/^You've used all your AI requests for today \(\d+\)\. They come back (tomorrow )?at \d\d:\d\d \(in \d+(h|s| min)\)\.$/);
     expect(aiCommandService.plan).not.toHaveBeenCalled();
   });
 

@@ -7,7 +7,7 @@ import { useGroup, useGroupMembers } from '@/api/groups';
 import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
 import { useDeleteTask, useTask, useTaskActivity, useUpdateTask } from '@/api/tasks';
 import { useToast } from '@/components/ui/toast';
-import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
+import { getErrorMessage, getErrorStatus, isGroupUnavailableError } from '@/lib/api-client';
 import { getEpicId, resolveEpic } from '@/lib/epics';
 import { haptic, isLandedTask } from '@/lib/telegram';
 
@@ -153,7 +153,12 @@ export function TaskDetailContainer() {
       groupId={groupId}
       task={task.data ?? null}
       isLoading={task.isLoading}
-      notFound={task.isError && (status === 404 || status === 403) ? { status, message: getErrorMessage(task.error) } : null}
+      notFound={
+        task.isError && (status === 404 || status === 403)
+          ? { status, message: getErrorMessage(task.error), groupUnavailable: isGroupUnavailableError(task.error) }
+          : null
+      }
+      onBackToGroups={() => navigate({ to: '/' })}
       loadError={task.isError && status !== 404 && status !== 403 ? getErrorMessage(task.error) : null}
       onRetry={() => task.refetch()}
       timeZone={group.data?.timezone}

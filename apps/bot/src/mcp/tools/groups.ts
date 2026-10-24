@@ -1,4 +1,4 @@
-import { isClosedStatus, TASK_STATUS_ORDER } from '@tbot/shared';
+import { GROUP_STATUS_LABELS, GroupStatus, isClosedStatus, TASK_STATUS_ORDER } from '@tbot/shared';
 import mongoose from 'mongoose';
 import { Group } from 'src/database/models/group.model';
 import { Task } from 'src/database/models/task.model';
@@ -6,6 +6,7 @@ import { groupMemberService } from 'src/database/services/group-member.service';
 import { requireGroup } from 'src/mcp/resolve/group';
 import { defineTool, groupArg, READ_ONLY } from 'src/mcp/tools/types';
 import { userDisplayName } from 'src/shared/services/task-event-lines';
+import { isGroupActive } from 'src/shared/utils/group-status';
 
 const CLOSED_STATUSES = TASK_STATUS_ORDER.filter((s) => isClosedStatus(s));
 
@@ -14,7 +15,8 @@ export const listGroupsTool = defineTool({
   title: 'List my groups',
   description:
     'Lists the Telegram groups (workspaces) you share with the TaskBot bot, with how many tasks are still open in each. ' +
-    "Call this first when you don't know which group the user means: other tools take `group` (an id or title from here).",
+    "Call this first when you don't know which group the user means: other tools take `group` (an id or title from here). " +
+    'Groups marked unavailable (waiting for approval, paused, bot removed) cannot be used by any tool until that changes.',
   inputSchema: {},
   annotations: READ_ONLY,
   handler: async (_args, ctx) => {
@@ -41,6 +43,8 @@ export const listGroupsTool = defineTool({
       id: String(g._id),
       title: g.groupName,
       openTasks: open.get(String(g._id)) ?? 0,
+      status: g.status ?? GroupStatus.ACTIVE,
+      available: isGroupActive(g),
     }));
 
     const lines = [
@@ -48,8 +52,12 @@ export const listGroupsTool = defineTool({
         ? `This connection is limited to one group — \`group\` can be omitted everywhere:`
         : `${list.length} group${list.length === 1 ? '' : 's'}:`,
     ];
-    for (const g of list)
-      lines.push(`- ${g.title} — ${g.openTasks} open task${g.openTasks === 1 ? '' : 's'} (id: ${g.id})`);
+    for (const g of list) {
+      const state = g.available
+        ? `${g.openTasks} open task${g.openTasks === 1 ? '' : 's'}`
+        : `unavailable: ${GROUP_STATUS_LABELS[g.status].toLowerCase()}`;
+      lines.push(`- ${g.title} — ${state} (id: ${g.id})`);
+    }
     return { text: lines.join('\n'), data: { groups: list, scoped: !!ctx.scopeGroup } };
   },
 });

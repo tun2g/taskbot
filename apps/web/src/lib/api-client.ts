@@ -41,6 +41,13 @@ apiClient.interceptors.response.use(
   },
 );
 
+/** A member's request refused because the group isn't usable right now (waiting for approval, paused, bot removed). */
+export function isGroupUnavailableError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const body = error.response?.data as Partial<ApiError> | undefined;
+  return error.response?.status === 403 && body?.error === 'Group Unavailable';
+}
+
 export function getErrorStatus(error: unknown): number | undefined {
   return axios.isAxiosError(error) ? error.response?.status : undefined;
 }

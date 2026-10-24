@@ -34,8 +34,8 @@ import type { CreatedTask } from 'src/shared/services/task-creation.service';
 // Web "Ask AI" replies: PLAIN text only (no HTML/Markdown) in short lines; the web app renders
 // `tasks` / `changed` as rich chips.
 
+export const WEB_AI_STILL_WORKS = 'You can still edit tasks on the board.';
 export const WEB_AI_UNAVAILABLE_TEXT = 'AI is unavailable right now — you can still edit tasks on the board.';
-export const WEB_AI_BUSY_TEXT = 'AI is busy in this group — try again in a few minutes. You can still edit tasks on the board.';
 export const WEB_SAVE_FAILED_TEXT = "❌ I couldn't save the task. Please try again in a moment.";
 const WHICH_TASK_TEXT = '🤔 Which task? Write its #number.';
 /** Most tasks a query returns to the web (the rest is counted in totalMatches). */

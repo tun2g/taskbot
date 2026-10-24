@@ -15,6 +15,8 @@ jest.mock('src/database/services/group.service');
 jest.mock('src/database/services/task.service');
 jest.mock('src/database/services/epic.service');
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
+// Non-members are re-checked against Telegram; never hit the network in tests.
+jest.mock('src/shared/services/member-sync.service', () => ({ memberSyncService: { verifyAndAddMember: jest.fn().mockResolvedValue(false) } }));
 
 const groupId = new mongoose.Types.ObjectId();
 const taskId = new mongoose.Types.ObjectId();
@@ -71,6 +73,7 @@ describe('requireTaskMember', () => {
   it('checks membership of the task group and sets req.task', async () => {
     const task = { _id: taskId, groupId };
     (taskService.getTaskById as jest.Mock).mockResolvedValue(task);
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ _id: groupId, status: 'active' });
     (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
     const { req, res, next } = createMockReqRes({ params: { taskId: taskId.toString() } });
 
@@ -110,6 +113,7 @@ describe('requireEpicMember', () => {
   it('checks membership of the epic group and sets req.epic', async () => {
     const epic = { _id: epicId, groupId, title: 'Login' };
     (epicService.findById as jest.Mock).mockResolvedValue(epic);
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ _id: groupId, status: 'active' });
     (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
     const { req, res, next } = createMockReqRes({ params: { epicId: epicId.toString() } });
 
@@ -140,5 +144,55 @@ describe('requireEpicMember', () => {
 
     expect(res.status).toHaveBeenCalledWith(404);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('groups without service (not approved / paused / removed)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it.each([
+    ['pending', null, "This group is waiting for approval from the bot owner. You'll see a message in the group when it's approved."],
+    ['suspended', 'Unpaid invoice', 'The bot is paused in this group by its owner. Your tasks are kept. Reason: Unpaid invoice'],
+    ['rejected', 'Private bot', "The bot's owner did not approve this group. Reason: Private bot"],
+    ['left', null, 'The bot is no longer in this group. Add it back to the Telegram group to use it again.'],
+    ['migrated', null, 'This group moved to a new Telegram chat. Open it again from your group list.'],
+  ])('%s → 403 with a plain explanation', async (status, statusReason, message) => {
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ _id: groupId, status, statusReason });
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
+    const { req, res, next } = createMockReqRes({ params: { groupId: groupId.toString() } });
+
+    await requireGroupMember()(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Group Unavailable', message, statusCode: 403 });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('non-members get "not a member", not the group status', async () => {
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ _id: groupId, status: 'pending' });
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(false);
+    const { req, res, next } = createMockReqRes({ params: { groupId: groupId.toString() } });
+
+    await requireGroupMember()(req, res, next);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: NOT_A_MEMBER_MESSAGE }));
+  });
+
+  it('task and epic routes of a pending group are refused too', async () => {
+    (taskService.getTaskById as jest.Mock).mockResolvedValue({ _id: taskId, groupId });
+    (epicService.findById as jest.Mock).mockResolvedValue({ _id: taskId, groupId });
+    (groupService.findGroupById as jest.Mock).mockResolvedValue({ _id: groupId, status: 'pending' });
+    (groupMemberService.isMember as jest.Mock).mockResolvedValue(true);
+
+    const task = createMockReqRes({ params: { taskId: taskId.toString() } });
+    await requireTaskMember()(task.req, task.res, task.next);
+    const epic = createMockReqRes({ params: { epicId: taskId.toString() } });
+    await requireEpicMember()(epic.req, epic.res, epic.next);
+
+    for (const { res, next } of [task, epic]) {
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('waiting for approval') }));
+      expect(next).not.toHaveBeenCalled();
+    }
   });
 });

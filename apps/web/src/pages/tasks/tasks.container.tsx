@@ -8,7 +8,7 @@ import type { EpicFormValues } from '@/components/epics/epic-form-dialog';
 import { flattenTaskPages, matchesTaskFilters } from '@/api/task-cache';
 import { type ApiTaskFilters, useCreateTask, useTaskCounts, useTaskPages } from '@/api/tasks';
 import { useToast } from '@/components/ui/toast';
-import { getErrorMessage, getErrorStatus } from '@/lib/api-client';
+import { getErrorMessage, getErrorStatus, isGroupUnavailableError } from '@/lib/api-client';
 import { haptic } from '@/lib/telegram';
 
 import { type BoardSearch, rememberBoardSearch, subtasksHidden } from './board-search';
@@ -175,6 +175,7 @@ export function TasksContainer() {
       groupName={group.data?.groupName}
       timeZone={group.data?.timezone}
       accessError={groupStatus === 403 || groupStatus === 404 ? getErrorMessage(groupError) : null}
+      groupUnavailable={isGroupUnavailableError(groupError)}
       search={search}
       view={view}
       groupBy={groupBy}

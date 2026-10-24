@@ -1,12 +1,22 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { configService } from 'src/configs/configuration';
 import logger from 'src/shared/logger/logger';
-import { AIProvider, ChatMessage, JsonGenerationRequest } from 'src/shared/services/ai/ai.interface';
+import {
+  AiCompletion,
+  AIProvider,
+  AiProviderError,
+  ChatMessage,
+  JsonGenerationRequest,
+  usageFromGemini,
+} from 'src/shared/services/ai/ai.interface';
+
+type GeminiResult = Awaited<ReturnType<ReturnType<GoogleGenerativeAI['getGenerativeModel']>['generateContent']>>;
 
 export class GeminiProvider implements AIProvider {
+  readonly name = 'gemini';
   private genAI: GoogleGenerativeAI;
   private model: ReturnType<GoogleGenerativeAI['getGenerativeModel']>;
-  private readonly modelName = configService.ai.model;
+  readonly modelName = configService.ai.model;
 
   constructor() {
     this.genAI = new GoogleGenerativeAI(configService.ai.apiKey);
@@ -38,7 +48,17 @@ export class GeminiProvider implements AIProvider {
     return 'Unknown error';
   }
 
-  async chat(messages: ChatMessage[]): Promise<string> {
+  /** Text + usage; the served model version when the API reports it. */
+  toCompletion(result: GeminiResult): AiCompletion {
+    const response = result.response as GeminiResult['response'] & { modelVersion?: string };
+    return {
+      text: response.text(),
+      usage: usageFromGemini(response.usageMetadata),
+      model: response.modelVersion || this.modelName,
+    };
+  }
+
+  async chat(messages: ChatMessage[]): Promise<AiCompletion> {
     try {
       const contents = messages.map((msg) => ({
         role: msg.role === 'user' ? ('user' as const) : ('model' as const),
@@ -46,17 +66,15 @@ export class GeminiProvider implements AIProvider {
       }));
 
       const result = await this.model.generateContent({ contents });
-
-      const response = result.response;
-      return response.text();
+      return this.toCompletion(result);
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in chat: ${error}`);
-      throw new Error(errorMessage);
+      throw new AiProviderError(errorMessage);
     }
   }
 
-  async generateJson(request: JsonGenerationRequest): Promise<string> {
+  async generateJson(request: JsonGenerationRequest): Promise<AiCompletion> {
     try {
       const model = this.genAI.getGenerativeModel({
         model: this.modelName,
@@ -69,11 +87,11 @@ export class GeminiProvider implements AIProvider {
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: request.user }] }],
       });
-      return result.response.text();
+      return this.toCompletion(result);
     } catch (error) {
       const errorMessage = this.parseError(error);
       logger.error(`Error in generateJson: ${error}`);
-      throw new Error(errorMessage);
+      throw new AiProviderError(errorMessage);
     }
   }
 }

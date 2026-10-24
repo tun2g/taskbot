@@ -1,4 +1,5 @@
-import { DEFAULT_TASK_TYPE } from '@tbot/shared';
+import { DEFAULT_TASK_TYPE, GroupStatus } from '@tbot/shared';
+import { Group } from 'src/database/models/group.model';
 import { Task } from 'src/database/models/task.model';
 import logger from 'src/shared/logger/logger';
 
@@ -8,6 +9,14 @@ import logger from 'src/shared/logger/logger';
  */
 export async function runMigrations(): Promise<void> {
   try {
+    // Groups from before owner approval existed keep working: they count as approved when they were created.
+    const legacyGroups = await Group.collection.updateMany({ status: { $exists: false } }, [
+      { $set: { status: GroupStatus.ACTIVE, approvedAt: '$createdAt', statusChangedAt: '$createdAt' } },
+    ]);
+    if (legacyGroups.modifiedCount > 0) {
+      logger.info(`[Migrations] Approved ${legacyGroups.modifiedCount} groups that predate owner approval`);
+    }
+
     // Tasks created before task types existed have no `type`, so type filters skip them
     const typed = await Task.updateMany({ type: { $exists: false } }, { $set: { type: DEFAULT_TASK_TYPE } });
     if (typed.modifiedCount > 0) {

@@ -109,7 +109,7 @@ beforeEach(() => {
     remaining: 5,
     retryAfterSeconds: 0,
   });
-  (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+  (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 1, retryAfterSeconds: 0 });
   (groupMemberService.getMembers as jest.Mock).mockResolvedValue([me, an]);
   (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
 });
@@ -214,13 +214,29 @@ describe('ask_taskbot', () => {
     await expectToolError(call(askTaskbotTool, { group: G, message: 'hi' }), /create_tasks/);
   });
 
+  it('AI turned off by the owner: says retrying won\'t help, no AI call', async () => {
+    (alpha as any).ai = { disabled: true };
+    try {
+      await expectToolError(call(askTaskbotTool, { group: G, message: 'hi' }), /turned off AI in this group.*Retrying won't help.*structured tools/);
+      expect(aiCommandService.plan).not.toHaveBeenCalled();
+    } finally {
+      (alpha as any).ai = undefined;
+    }
+  });
+
   it('per-user AI limit (same as /ai) → isError', async () => {
     (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({
       allowed: false,
       remaining: 0,
       retryAfterSeconds: 30,
     });
-    await expectToolError(call(askTaskbotTool, { group: G, message: 'hi' }), /Too many AI requests. Try again in 30s/);
+    await expectToolError(call(askTaskbotTool, { group: G, message: 'hi' }), /Too many AI requests in a row — try again in 30s/);
+  });
+
+  it("group's 10-minute AI limit → says how long to wait", async () => {
+    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 120, scope: 'minute' });
+    await expectToolError(call(askTaskbotTool, { group: G, message: 'hi' }), /in the last 10 minutes — try again in 2 min\./);
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
   });
 
   it('denies a group the user is not a member of', async () => {

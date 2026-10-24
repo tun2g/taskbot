@@ -308,6 +308,20 @@ describe('task callbacks', () => {
       expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining("not in its group"), { show_alert: true });
     });
 
+    it('a paused group: DM buttons explain instead of changing the task (they skip the group gate)', async () => {
+      (Group.findById as jest.Mock).mockResolvedValue({ ...group, groupName: 'Team Alpha', status: 'suspended', statusReason: 'Unpaid' });
+      (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ assigneeId: bob }));
+      const ctx = dmCtx(`tdm:in_progress:${taskId}`);
+
+      await handleTaskCallback(ctx);
+
+      expect(taskService.updateTaskStatus).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(
+        "⏸ The bot owner paused the bot in “Team Alpha”. Tasks are kept but can't be changed for now. Reason: Unpaid",
+        { show_alert: true },
+      );
+    });
+
     it('does not apply a stale step when the task moved meanwhile', async () => {
       (taskService.getTaskById as jest.Mock).mockResolvedValue(task({ status: 'in_review', assigneeId: bob }));
       const ctx = dmCtx(`tdm:in_progress:${taskId}`);
@@ -327,7 +341,7 @@ describe('task callbacks', () => {
     beforeEach(() => {
       (Group.findById as jest.Mock).mockResolvedValue(group);
       (checkUserAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 5, retryAfterSeconds: 0 });
-      (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+      (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 1, retryAfterSeconds: 0 });
       (aiCommandService.explainTaskById as jest.Mock).mockResolvedValue(explanation);
       (taskService.getTaskById as jest.Mock).mockResolvedValue(task());
     });
@@ -363,8 +377,19 @@ describe('task callbacks', () => {
       await handleTaskCallback(ctx);
 
       expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
-      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('Try again in 40s'), { show_alert: true });
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('try again in 40s'), { show_alert: true });
       expect(ctx.telegram.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("the group's 10-minute AI limit says exactly how long to wait", async () => {
+      (callbackDataStorageService.getCallbackData as jest.Mock).mockResolvedValue({ taskId, action: 'explain' });
+      (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 420, scope: 'minute' });
+      const ctx = ctxFor('explain');
+
+      await handleTaskCallback(ctx);
+
+      expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('try again in 7 min'), { show_alert: true });
     });
 
     function dmCtx() {
@@ -385,7 +410,7 @@ describe('task callbacks', () => {
       await handleTaskCallback(ctx);
 
       expect(ctx.telegram.getChatMember).toHaveBeenCalledWith(-100, bob.telegramUserId);
-      expect(checkUserAiRateLimit).toHaveBeenCalledWith(bob.telegramUserId, -100);
+      expect(checkUserAiRateLimit).toHaveBeenCalledWith(bob.telegramUserId, -100, bob);
       expect(aiCommandService.explainTaskById).toHaveBeenCalledWith(taskId.toString(), bob, group, { onCard: false });
       expect(ctx.editMessageReplyMarkup).not.toHaveBeenCalled();
       expect(ctx.telegram.sendMessage).toHaveBeenCalledWith(bob.telegramUserId, explanation.text, {
@@ -403,6 +428,16 @@ describe('task callbacks', () => {
 
       expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
       expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining('not in its group'), { show_alert: true });
+    });
+
+    it('from a DM: a group waiting for approval gets no AI', async () => {
+      (Group.findById as jest.Mock).mockResolvedValue({ ...group, groupName: 'Team Alpha', status: 'pending' });
+      const ctx = dmCtx();
+
+      await handleTaskCallback(ctx);
+
+      expect(aiCommandService.explainTaskById).not.toHaveBeenCalled();
+      expect(ctx.answerCbQuery).toHaveBeenCalledWith(expect.stringContaining("“Team Alpha” is waiting for the bot owner's approval"), { show_alert: true });
     });
   });
 

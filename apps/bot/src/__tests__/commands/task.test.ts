@@ -324,8 +324,10 @@ describe('TaskCommand', () => {
     expect(taskService.createTask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Fix the bug', assigneeId: anId }));
   });
 
-  it('rate limited /task N: asks to wait', async () => {
-    (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: false });
+  it("group's 10-minute AI limit on /task N: says exactly how long to wait", async () => {
+    (rateLimitService.checkRateLimit as jest.Mock).mockImplementation(async (_id: number, action: string) =>
+      action === 'ai_task_extract' ? { allowed: false, remaining: 0, retryAfterSeconds: 300 } : { allowed: true, remaining: 5, retryAfterSeconds: 0 },
+    );
     (messageBufferService.getRecent as jest.Mock).mockResolvedValue([
       { messageId: 1, chatId: -100123, text: 'a', fromUserId: 1, fromName: 'x', date: 1 },
     ]);
@@ -334,7 +336,22 @@ describe('TaskCommand', () => {
     await command.onTask(ctx);
 
     expect(taskService.createTask).not.toHaveBeenCalled();
-    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('Try again in a few minutes'), expect.anything());
+    expect(ctx.reply).toHaveBeenCalledWith(
+      '⏳ This group has made a lot of AI requests in the last 10 minutes — try again in 5 min. Or reply to a single message with /new to make one basic task now.',
+      expect.anything(),
+    );
+  });
+
+  it('own daily AI limit on /task N: names that limit, not the group one', async () => {
+    (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 3600 });
+    (messageBufferService.getRecent as jest.Mock).mockResolvedValue([
+      { messageId: 1, chatId: -100123, text: 'a', fromUserId: 1, fromName: 'x', date: 1 },
+    ]);
+    const ctx = createMockCtx({ message: { text: '/task 5' } });
+
+    await command.onTask(ctx);
+
+    expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("You've used all your AI requests for today"), expect.anything());
   });
 
   it('replies with a friendly error when something throws', async () => {

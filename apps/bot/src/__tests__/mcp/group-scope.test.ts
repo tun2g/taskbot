@@ -88,3 +88,27 @@ describe('requireGroup — group-scoped token', () => {
     );
   });
 });
+
+describe('requireGroup — groups without service', () => {
+  const pending = { _id: oid(), groupName: 'New Team', telegramGroupId: -5, status: 'pending' } as any;
+  const paused = { _id: oid(), groupName: 'Old Team', telegramGroupId: -6, status: 'suspended', statusReason: 'Unpaid' } as any;
+
+  it('a pending group by id → clear "waiting for approval" error', async () => {
+    (checkGroupAccess as jest.Mock).mockResolvedValue({ ok: false, status: 403, message: 'x', inactive: pending });
+    await expectToolError(requireGroup(ctx(), String(pending._id)), /"New Team" is waiting for the bot owner's approval/);
+  });
+
+  it('a suspended scoped group → "paused" error with the reason', async () => {
+    await expectToolError(requireGroup(ctx({ scopeGroup: paused })), /"Old Team" is paused by the bot owner.*Reason: Unpaid/);
+  });
+
+  it('without `group`, unusable groups are not candidates', async () => {
+    userIn(alpha, pending);
+    expect(await requireGroup(ctx())).toBe(alpha);
+  });
+
+  it("without `group` and only an unusable group → that group's explanation", async () => {
+    userIn(pending);
+    await expectToolError(requireGroup(ctx()), /waiting for the bot owner's approval/);
+  });
+});

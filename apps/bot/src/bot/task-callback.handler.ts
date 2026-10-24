@@ -61,7 +61,8 @@ import { taskSyncService } from 'src/shared/services/task-sync.service';
 import { taskButton } from 'src/shared/utils/app-links';
 import { Telegram } from 'telegraf';
 import { InlineKeyboardButton } from 'telegraf/types';
-import { formatRetryAfter } from 'src/shared/services/ai-quota';
+import { aiDisabledBy, aiDisabledText, aiGroupLimitText, aiUserLimitText } from 'src/shared/services/ai-quota';
+import { groupUnavailableToast, isGroupActive } from 'src/shared/utils/group-status';
 
 interface TaskCallbackData {
   taskId: string;
@@ -434,6 +435,11 @@ async function handleDmTaskCallback(ctx: BotContext, data: string) {
       await ctx.answerCbQuery("You can't change this task — you're not in its group anymore.", { show_alert: true });
       return;
     }
+    // DM buttons skip the group gate: a paused / unapproved group's tasks stay as they are until it is active.
+    if (!isGroupActive(group)) {
+      await ctx.answerCbQuery(groupUnavailableToast(group, { named: true }), { show_alert: true });
+      return;
+    }
 
     if (task.status === target) {
       await setDmButtons(ctx, dmTaskKeyboard(task));
@@ -493,18 +499,30 @@ async function handleExplain(ctx: BotContext, task: ITask, user: IUser, options:
   }
   // Pressing the card in its own group proves membership; anywhere else, check it.
   const inOwnGroup = chatId === group.telegramGroupId;
+  // From a DM the group gate never ran: a paused / unapproved group's tasks get no AI either.
+  if (!isGroupActive(group)) {
+    await ctx.answerCbQuery(groupUnavailableToast(group, { named: !inOwnGroup }), { show_alert: true });
+    return;
+  }
   if (!inOwnGroup && !(await canChangeFromDm(ctx.telegram, group, task, user))) {
     await ctx.answerCbQuery("You can't see this task — you're not in its group anymore.", { show_alert: true });
     return;
   }
 
-  const userLimit = await checkUserAiRateLimit(user.telegramUserId, group.telegramGroupId);
-  if (!userLimit.allowed) {
-    await ctx.answerCbQuery(`⏳ Too many AI requests. Try again in ${formatRetryAfter(userLimit.retryAfterSeconds)}.`, { show_alert: true });
+  const disabledBy = aiDisabledBy(group, user);
+  if (disabledBy) {
+    await ctx.answerCbQuery(`🚫 ${aiDisabledText(disabledBy)}`, { show_alert: true });
     return;
   }
-  if (!(await checkGroupAiRateLimit(group.telegramGroupId))) {
-    await ctx.answerCbQuery('⏳ AI is busy in this group — try again in a few minutes.', { show_alert: true });
+
+  const userLimit = await checkUserAiRateLimit(user.telegramUserId, group.telegramGroupId, user);
+  if (!userLimit.allowed) {
+    await ctx.answerCbQuery(`⏳ ${aiUserLimitText(userLimit, group)}`, { show_alert: true });
+    return;
+  }
+  const groupLimit = await checkGroupAiRateLimit(group.telegramGroupId, group);
+  if (!groupLimit.allowed) {
+    await ctx.answerCbQuery(`⏳ ${aiGroupLimitText(group, groupLimit)}`, { show_alert: true });
     return;
   }
 

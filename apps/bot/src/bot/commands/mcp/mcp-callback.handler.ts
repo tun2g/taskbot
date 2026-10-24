@@ -49,7 +49,7 @@ export async function handleMcpCallback(ctx: BotContext): Promise<void> {
     if (pick) {
       const access = await checkGroupAccess(pick, user);
       if (!access.ok) {
-        await answer(ctx, "You're not a member of that group anymore.");
+        await answer(ctx, access.inactive ? access.message : "You're not a member of that group anymore.");
         return;
       }
       group = access.group;

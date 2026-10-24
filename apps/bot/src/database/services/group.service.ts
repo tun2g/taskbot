@@ -1,3 +1,4 @@
+import { GroupStatus } from '@tbot/shared';
 import mongoose from 'mongoose';
 import { Group, IGroup } from 'src/database/models/group.model';
 import logger from 'src/shared/logger/logger';
@@ -30,9 +31,10 @@ export class GroupService {
     }
   }
 
+  /** Groups that get service (approved and not suspended / left). */
   async getAllActiveGroups(): Promise<IGroup[]> {
     try {
-      return await Group.find();
+      return await Group.find({ status: GroupStatus.ACTIVE });
     } catch (error) {
       logger.error(`Error getting all active groups: ${error}`);
       return [];

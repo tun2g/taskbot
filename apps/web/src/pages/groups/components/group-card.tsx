@@ -1,6 +1,8 @@
 import type { IGroupSummary } from '@tbot/shared';
 import { TaskStatusCategory } from '@tbot/shared';
 
+import { groupUnavailableInfo, isGroupUsable } from '@/lib/group-status';
+
 import type { BoardSearch } from '../../tasks/board-search';
 
 interface GroupCardProps {
@@ -13,6 +15,7 @@ export function GroupCard({ group, onOpen }: GroupCardProps) {
   const { counts, mine } = group;
   const overdue = group.overdue ?? 0;
   const name = group.groupName || 'Untitled group';
+  if (!isGroupUsable(group)) return <UnavailableGroupCard name={name} group={group} />;
   return (
     <section className="flex w-full flex-col rounded-lg border border-tg-separator bg-tg-section" aria-label={name}>
       <button
@@ -65,6 +68,23 @@ export function GroupCard({ group, onOpen }: GroupCardProps) {
       ) : (
         <p className="flex min-h-11 items-center px-4 pb-1 text-sm text-tg-hint">Nothing assigned to you</p>
       )}
+    </section>
+  );
+}
+
+/** Waiting for approval / paused / bot removed: not clickable, says why. */
+function UnavailableGroupCard({ name, group }: { name: string; group: IGroupSummary }) {
+  const { badge, text } = groupUnavailableInfo(group);
+  return (
+    <section
+      className="flex w-full flex-col gap-2 rounded-lg border border-tg-separator bg-tg-section px-4 py-3"
+      aria-label={`${name} — ${badge}`}
+    >
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <h2 className="truncate text-base font-semibold text-tg-hint">{name}</h2>
+        <span className="lozenge lozenge-pending shrink-0">{badge}</span>
+      </div>
+      <p className="text-sm text-tg-hint">{text}</p>
     </section>
   );
 }

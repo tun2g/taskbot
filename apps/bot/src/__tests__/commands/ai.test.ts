@@ -76,7 +76,7 @@ describe('AiCommand', () => {
     (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue(group);
     (groupMemberService.getMembers as jest.Mock).mockResolvedValue([user]);
     (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 5, retryAfterSeconds: 0 });
-    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue(true);
+    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: true, remaining: 1, retryAfterSeconds: 0 });
     (taskService.getTaskByCardMessage as jest.Mock).mockResolvedValue(null);
     (taskService.getTaskByNumber as jest.Mock).mockResolvedValue(null);
   });
@@ -154,6 +154,34 @@ describe('AiCommand', () => {
     expect(c.reply).toHaveBeenCalledWith(AI_UNAVAILABLE_MESSAGE, expect.any(Object));
   });
 
+  it('says so when the bot owner turned AI off for the group (no AI call, no limits counted)', async () => {
+    (groupService.findOrCreateGroup as jest.Mock).mockResolvedValue({ ...group, ai: { disabled: true, dailyLimit: null } });
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('🚫 The bot owner turned off AI in this group'), expect.any(Object));
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+    expect(rateLimitService.checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("the group's 10-minute AI limit says exactly how long to wait", async () => {
+    (checkGroupAiRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 180, scope: 'minute' });
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(
+      expect.stringContaining('⏳ This group has made a lot of AI requests in the last 10 minutes — try again in 3 min.'),
+      expect.any(Object),
+    );
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+  });
+
+  it('per-person AI switch', async () => {
+    (userService.findOrCreateUser as jest.Mock).mockResolvedValue({ ...user, ai: { disabled: true, dailyLimit: null } });
+    const c = ctx('/ai tôi còn task nào?');
+    await command.onAi(c);
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('🚫 The bot owner turned off AI for you'), expect.any(Object));
+    expect(aiCommandService.plan).not.toHaveBeenCalled();
+  });
+
   it('falls back when the AI fails', async () => {
     (aiCommandService.plan as jest.Mock).mockRejectedValue(new AIUnavailableError('invalid', 'bad json'));
     const c = ctx('/ai tôi còn task nào?');
@@ -218,7 +246,7 @@ describe('AiCommand', () => {
     (rateLimitService.checkRateLimit as jest.Mock).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSeconds: 30 });
     const c = ctx('/ai tôi còn task nào?');
     await command.onAi(c);
-    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('Try again in 30s'), expect.any(Object));
+    expect(c.reply).toHaveBeenCalledWith(expect.stringContaining('try again in 30s'), expect.any(Object));
     expect(aiCommandService.plan).not.toHaveBeenCalled();
   });
 

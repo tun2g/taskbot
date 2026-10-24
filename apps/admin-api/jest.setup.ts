@@ -1,0 +1,10 @@
+process.env.NODE_ENV = 'test';
+process.env.BOT_TOKEN = 'test-token';
+process.env.TELEGRAM_API_URL = 'https://api.telegram.org';
+process.env.BOT_OWNER_TELEGRAM_ID = '1001';
+process.env.ADMIN_PUBLIC_URL = 'https://admin.example.com';
+process.env.ADMIN_SESSION_SECRET = 'test-secret-test-secret-test-secret-123';
+process.env.REDIS_HOST = 'localhost';
+process.env.REDIS_PORT = '6379';
+process.env.REDIS_DATABASE = '0';
+process.env.MONGODB_URI = 'mongodb://localhost:27017/tbot-test';

@@ -6,6 +6,7 @@ import {
   taskExtractionService,
 } from 'src/shared/services/task-extraction.service';
 import { aiService } from 'src/shared/services/ai/ai.service';
+import { EMPTY_USAGE } from 'src/shared/services/ai/ai.interface';
 
 jest.mock('src/shared/services/redis.service', () => ({ redisService: {} }));
 jest.mock('src/shared/logger/logger', () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn() }));
@@ -154,11 +155,12 @@ describe('TaskExtractionService.extract', () => {
 
   let isConfigured: jest.SpyInstance;
   let generateJsonText: jest.SpyInstance;
+  const reply = (text: string) => ({ text, usage: EMPTY_USAGE, model: 'gemini-3.5-flash-lite' });
 
   beforeEach(() => {
     jest.restoreAllMocks();
     isConfigured = jest.spyOn(aiService, 'isConfigured');
-    generateJsonText = jest.spyOn(aiService, 'generateJsonText');
+    generateJsonText = jest.spyOn(aiService, 'generateJsonCompletion');
   });
 
   it('uses the fallback when AI is not configured', async () => {
@@ -172,8 +174,8 @@ describe('TaskExtractionService.extract', () => {
   it('retries once on invalid JSON', async () => {
     isConfigured.mockReturnValue(true);
     generateJsonText
-      .mockResolvedValueOnce('oops')
-      .mockResolvedValueOnce('{"tasks":[{"title":"Fix login","type":"bug","sourceMessageIds":[1]}]}');
+      .mockResolvedValueOnce(reply('oops'))
+      .mockResolvedValueOnce(reply('{"tasks":[{"title":"Fix login","type":"bug","sourceMessageIds":[1]}]}'));
     const result = await taskExtractionService.extract(input);
     expect(generateJsonText).toHaveBeenCalledTimes(2);
     expect(result.source).toBe('ai');
@@ -182,7 +184,7 @@ describe('TaskExtractionService.extract', () => {
 
   it('falls back after two invalid responses', async () => {
     isConfigured.mockReturnValue(true);
-    generateJsonText.mockResolvedValue('oops');
+    generateJsonText.mockResolvedValue(reply('oops'));
     const result = await taskExtractionService.extract(input);
     expect(generateJsonText).toHaveBeenCalledTimes(2);
     expect(result).toEqual(expect.objectContaining({ source: 'fallback', fallbackReason: 'failed' }));

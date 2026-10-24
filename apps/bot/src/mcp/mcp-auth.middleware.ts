@@ -75,7 +75,10 @@ export async function mcpAuthMiddleware(req: McpRequest, res: Response, next: Ne
       { id: String(result.user._id), action: 'mcp_user', max: MCP_USER_RATE_LIMIT, per: 'per user (all tokens)' },
     ];
     for (const { id, action, max, per } of limits) {
-      const limit = await rateLimitService.checkRateLimit(id, action, max, MCP_RATE_WINDOW_SECONDS);
+      const limit = await rateLimitService.checkRateLimit(id, action, max, MCP_RATE_WINDOW_SECONDS, {
+        userId: result.user._id,
+        channel: 'mcp',
+      });
       if (limit.allowed) continue;
       res.setHeader('Retry-After', String(limit.retryAfterSeconds));
       res.status(429).json({
@@ -91,7 +94,8 @@ export async function mcpAuthMiddleware(req: McpRequest, res: Response, next: Ne
 
     let scopeGroup: IGroup | null = null;
     if (result.token.groupId) {
-      const access = await checkGroupAccess(String(result.token.groupId), result.user);
+      // A paused / pending group keeps the connection; its tools explain why they can't run (requireGroup).
+      const access = await checkGroupAccess(String(result.token.groupId), result.user, { allowInactive: true });
       if (!access.ok) {
         res.status(403).json({ jsonrpc: '2.0', error: { code: -32003, message: SCOPE_LOST_MESSAGE }, id: null });
         return;

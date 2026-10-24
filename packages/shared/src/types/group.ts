@@ -1,9 +1,15 @@
+import type { GroupStatus } from '../constants/group.js';
+
 export interface IGroup {
   _id: string;
   telegramGroupId: number;
   groupName: string;
   taskCounter: number;
   timezone: string;
+  /** Only ACTIVE groups can be used (board, tasks, MCP). Missing = active (older API responses). */
+  status?: GroupStatus;
+  /** Owner's reason for a suspension / rejection, shown to members. */
+  statusReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

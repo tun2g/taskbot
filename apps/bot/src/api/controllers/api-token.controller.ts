@@ -64,7 +64,7 @@ export class ApiTokenController {
     if (groupId) {
       const access = await checkGroupAccess(groupId, user);
       if (!access.ok) {
-        sendError(res, 400, TOKEN_GROUP_NOT_ALLOWED_MESSAGE, 'Validation error');
+        sendError(res, 400, access.inactive ? access.message : TOKEN_GROUP_NOT_ALLOWED_MESSAGE, 'Validation error');
         return;
       }
     }

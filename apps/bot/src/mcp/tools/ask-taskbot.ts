@@ -9,6 +9,8 @@ import { resolveTask } from 'src/mcp/resolve/task';
 import { defineTool, groupArg } from 'src/mcp/tools/types';
 import { CardEditor } from 'src/shared/services/ai-command.service';
 import { handleWebChat } from 'src/shared/services/ai-command/web-chat';
+import { WEB_AI_STILL_WORKS } from 'src/shared/services/ai-command/web.renderer';
+import { aiDisabledBy, aiDisabledText } from 'src/shared/services/ai-quota';
 import { z } from 'zod';
 
 export const ASK_MESSAGE_MAX = 2000;
@@ -92,6 +94,13 @@ export const askTaskbotTool = defineTool({
   handler: async ({ group: groupRef, message, conversationId, taskNumber }, ctx) => {
     const group = await requireGroup(ctx, groupRef);
     const userId = String(ctx.user._id);
+    // Turned off by the owner is not "unavailable right now": say retrying won't help.
+    const disabledBy = aiDisabledBy(group, ctx.user);
+    if (disabledBy) {
+      throw new McpToolError(
+        `${aiDisabledText(disabledBy)} Retrying won't help — only the bot owner can turn it back on; tell the user. ${STRUCTURED_FALLBACK}`,
+      );
+    }
 
     let id = conversationId?.trim() || '';
     let restarted = false;
@@ -123,7 +132,7 @@ export const askTaskbotTool = defineTool({
 
     const data = outcome.data;
     if (data.kind === 'unavailable')
-      throw new McpToolError(`TaskBot's AI is unavailable right now (${data.text}). ${STRUCTURED_FALLBACK}`);
+      throw new McpToolError(`TaskBot's AI can't answer right now: ${data.text.replace(WEB_AI_STILL_WORKS, '').trim()} ${STRUCTURED_FALLBACK}`);
 
     await saveConversation(userId, id, conversation, { user: message, assistant: data.text });
 

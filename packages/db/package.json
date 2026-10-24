@@ -1,0 +1,23 @@
+{
+  "name": "@tbot/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Mongoose models shared by the bot and the admin API",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@tbot/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "mongoose": "^9.3.3"
+  },
+  "devDependencies": {
+    "mongoose": "^9.3.3",
+    "typescript": "^5"
+  }
+}

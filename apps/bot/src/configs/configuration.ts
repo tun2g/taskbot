@@ -2,6 +2,11 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+function parseOwnerId(raw: string | undefined): number | null {
+  const id = Number(raw?.trim());
+  return raw?.trim() && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 class ConfigService {
   botToken = process.env.BOT_TOKEN!;
   botUsername: string | undefined = process.env.BOT_USERNAME;
@@ -33,6 +38,18 @@ class ConfigService {
     dailyLimit: parseInt(process.env.AI_DAILY_LIMIT || '0', 10) || 0,
   };
   timezone = process.env.TIMEZONE || 'UTC';
+  /**
+   * Telegram user id of the bot owner, who approves new groups (DM buttons + admin app).
+   * Unset = no approval step: new groups are approved automatically (self-hosting without an owner).
+   */
+  botOwnerTelegramId: number | null = parseOwnerId(process.env.BOT_OWNER_TELEGRAM_ID);
+  /**
+   * Optional public URL of the admin app (same value as the admin API's ADMIN_PUBLIC_URL). When set, the owner's
+   * Telegram DMs (new-group cards, AI alerts) link straight to the right admin page.
+   */
+  adminUrl = (process.env.ADMIN_URL || '').replace(/\/+$/, '');
+  /** Optional: how groups can reach the owner (e.g. "@tun2g"), shown on the rejected / paused notices. */
+  ownerContact = (process.env.OWNER_CONTACT || '').trim();
   devMode = process.env.NODE_ENV === 'development';
   /** Public base URL of this server (Telegram webhook mode). */
   webhookUrl = process.env.WEBHOOK_URL || '';

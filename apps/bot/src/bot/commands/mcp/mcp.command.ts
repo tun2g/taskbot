@@ -15,6 +15,7 @@ import { groupService } from 'src/database/services/group.service';
 import { userService } from 'src/database/services/user.service';
 import logger from 'src/shared/logger/logger';
 import { botStartLink } from 'src/shared/utils/app-links';
+import { isGroupActive } from 'src/shared/utils/group-status';
 
 /** `/start mcp_<groupId>` — issued from a group when the bot couldn't DM the user yet. */
 export const MCP_GROUP_START_PREFIX = 'mcp_';
@@ -97,7 +98,7 @@ export class McpCommand {
 
       const access = await checkGroupAccess(payload.slice(MCP_GROUP_START_PREFIX.length), user);
       if (!access.ok) {
-        await ctx.reply(NOT_A_MEMBER_TEXT);
+        await ctx.reply(access.inactive ? access.message : NOT_A_MEMBER_TEXT);
         return true;
       }
       const message = await buildTokenMessage(user, access.group);
@@ -111,7 +112,8 @@ export class McpCommand {
 
   private async showPicker(ctx: BotContext, user: IUser) {
     const ids = await groupMemberService.getUserGroups(user._id as mongoose.Types.ObjectId);
-    const groups = ids.length ? await Group.find({ _id: { $in: ids } }).sort({ groupName: 1 }) : [];
+    // Only groups that get service can have a token.
+    const groups = (ids.length ? await Group.find({ _id: { $in: ids } }).sort({ groupName: 1 }) : []).filter(isGroupActive);
     if (groups.length === 0) {
       const add = addToGroupButton();
       await ctx.reply(NO_GROUPS_TEXT, {

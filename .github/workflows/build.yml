@@ -24,6 +24,10 @@ jobs:
             file: Dockerfile
           - app: web
             file: apps/web/Dockerfile
+          - app: admin-api
+            file: apps/admin-api/Dockerfile
+          - app: admin
+            file: apps/admin/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

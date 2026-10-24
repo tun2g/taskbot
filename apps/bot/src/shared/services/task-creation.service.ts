@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import mongoose from 'mongoose';
-import { EpicStatus, TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
+import { AiFeature, EpicStatus, TASK_TYPE_LABELS, TaskType } from '@tbot/shared';
 import { BotContext } from 'src/bot/interface/context';
 import { buildTaskButtons, formatTaskCard } from 'src/bot/task-card.renderer';
 import { configService } from 'src/configs/configuration';
@@ -16,7 +16,19 @@ import { TASK_POPULATE } from 'src/database/services/task-populate';
 import { taskService } from 'src/database/services/task.service';
 import logger from 'src/shared/logger/logger';
 import { aiService } from 'src/shared/services/ai/ai.service';
-import { checkUserAiDailyLimit } from 'src/shared/services/ai-quota';
+import {
+  aiDisabledBy,
+  aiDisabledText,
+  aiGroupLimitText,
+  aiLimitText,
+  AiLimitResult,
+  AiOverrides,
+  aiTimezone,
+  checkUserAiDailyLimit,
+  utcDayWindow,
+  withAiScope,
+} from 'src/shared/services/ai-quota';
+import { noteGroup } from 'src/shared/services/telemetry/request-context';
 import { epicLabel, epicOf } from 'src/shared/services/ai-command/format';
 import { callbackDataStorageService } from 'src/shared/services/callback-data-storage.service';
 import { buildMessageLink, groupMessengerService, isForumChat } from 'src/shared/services/group-messenger.service';
@@ -92,10 +104,20 @@ export function messageLink(chatId: number, messageId: number, threadId?: number
   return buildMessageLink(chatId, messageId, threadId) ?? '';
 }
 
-/** Per-group AI rate limit shared by /task and /ai. True when the call is allowed. */
-export async function checkGroupAiRateLimit(chatId: number): Promise<boolean> {
+/**
+ * Per-group AI rate limit shared by /task and /ai. `allowed` when the call may go ahead; otherwise the result
+ * says which limit it was and how long until it frees up (for aiGroupLimitText). When the owner set a daily
+ * limit for the group (group.ai.dailyLimit) it replaces the 10-minute window with that many requests per UTC day.
+ */
+export async function checkGroupAiRateLimit(chatId: number, group?: AiOverrides | null): Promise<AiLimitResult> {
+  const daily = group?.ai?.dailyLimit;
+  if (typeof daily === 'number') {
+    const today = utcDayWindow('ai_group_daily');
+    const result = await rateLimitService.checkRateLimit(chatId, today.action, daily, today.seconds);
+    return { ...result, scope: 'day', limit: daily };
+  }
   const result = await rateLimitService.checkRateLimit(chatId, 'ai_task_extract', AI_RATE_LIMIT, AI_RATE_WINDOW_SECONDS);
-  return result.allowed;
+  return { ...result, scope: 'minute', limit: AI_RATE_LIMIT };
 }
 
 /**
@@ -210,8 +232,8 @@ export type CreateTasksResult =
       batchId: string;
       source: 'ai' | 'fallback';
     }
-  /** multiMessage only: the group AI limit was hit. */
-  | { status: 'rate_limited' }
+  /** multiMessage only: the group AI limit was hit (`message` says how long to wait). */
+  | { status: 'rate_limited'; message: string }
   /** multiMessage only: the AI found no action items. */
   | { status: 'no_items' }
   | { status: 'save_failed' };
@@ -238,6 +260,7 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
   const { messages, note, requester, group, origin } = input;
   const warnings = [...(input.warnings ?? [])];
   const chatId = input.chatId ?? group.telegramGroupId;
+  noteGroup(group._id);
 
   const members = await groupMemberService.getMembers(group._id);
   if (!members.some((m) => m.telegramUserId === requester.telegramUserId)) members.push(requester);
@@ -251,21 +274,28 @@ export async function createTasks(input: CreateTasksCoreInput): Promise<CreateTa
   };
 
   let result: ExtractionResult;
+  // The owner turned AI off for this group / person: a basic task, no AI call, no AI limits counted.
+  const disabledBy = aiService.isConfigured() ? aiDisabledBy(group, requester) : null;
   const userAllowed =
     !aiService.isConfigured() ||
+    !!disabledBy ||
     input.userAiLimitChecked ||
-    (await checkUserAiDailyLimit(requester.telegramUserId)).allowed;
-  const allowed = userAllowed && (!aiService.isConfigured() || (await checkGroupAiRateLimit(chatId)));
-  if (!allowed) {
-    if (input.multiMessage) return { status: 'rate_limited' };
+    (await checkUserAiDailyLimit(requester.telegramUserId, requester)).allowed;
+  const groupLimit = userAllowed && aiService.isConfigured() && !disabledBy ? await checkGroupAiRateLimit(chatId, group) : null;
+  const allowed = userAllowed && (groupLimit?.allowed ?? true);
+  if (disabledBy) {
     result = { tasks: [buildFallbackTask(extractionInput)], source: 'fallback' };
-    warnings.push(
-      userAllowed
-        ? 'ℹ️ AI limit reached for this group, so I made a basic task.'
-        : "ℹ️ You've reached your daily AI limit, so I made a basic task.",
-    );
+    warnings.push(`ℹ️ ${aiDisabledText(disabledBy)} I made a basic task from the text instead.`);
+  } else if (!allowed) {
+    const why = userAllowed ? aiGroupLimitText(group, groupLimit) : aiLimitText('user', { scope: 'day', retryAfterSeconds: 0 }, aiTimezone(group));
+    if (input.multiMessage) return { status: 'rate_limited', message: why };
+    result = { tasks: [buildFallbackTask(extractionInput)], source: 'fallback' };
+    warnings.push(`ℹ️ ${why} I made a basic task from the text instead.`);
   } else {
-    result = await taskExtractionService.extract(extractionInput);
+    const channel = input.activityVia === 'mcp' ? 'mcp' : origin === 'app' ? 'app' : 'telegram';
+    result = await withAiScope(AiFeature.EXTRACT, { group, user: requester, channel }, () =>
+      taskExtractionService.extract(extractionInput),
+    );
     if (result.source === 'fallback') {
       warnings.push(
         result.fallbackReason === 'unconfigured'
@@ -393,9 +423,7 @@ export async function createTasksFromInput(ctx: BotContext, input: CreateTasksIn
     const result = await createTasks({ ...input, origin: 'telegram', chatId });
     switch (result.status) {
       case 'rate_limited':
-        await progress.finish(
-          '⏳ AI is busy in this group — too many requests in the last 10 minutes. Try again in a few minutes, or reply to a single message with /new.',
-        );
+        await progress.finish(`⏳ ${result.message} Or reply to a single message with /new to make one basic task now.`);
         return;
       case 'no_items':
         await progress.finish(

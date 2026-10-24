@@ -63,7 +63,10 @@ interface TaskDetailContentProps {
   groupId: string;
   task: ITask | null;
   isLoading: boolean;
-  notFound: { status?: number; message: string } | null;
+  /** `groupUnavailable`: the task is fine but its group can't be used right now (pending / paused). */
+  notFound: { status?: number; message: string; groupUnavailable?: boolean } | null;
+  /** The group list — the way out when the whole group is unavailable. */
+  onBackToGroups: () => void;
   loadError: string | null;
   onRetry: () => void;
   timeZone?: string | null;
@@ -115,6 +118,23 @@ export function TaskDetailContent(props: TaskDetailContentProps) {
           <Skeleton className="h-11 w-full" />
           <Skeleton className="h-11 w-full" />
         </div>
+      </Layout>
+    );
+  }
+
+  if (notFound?.groupUnavailable) {
+    return (
+      <Layout title="Task" onBack={onBack} nativeBack={!quickLook}>
+        <StateMessage
+          icon="⏸"
+          title="This group can't be used right now"
+          body={notFound.message}
+          action={
+            <Button variant="primary" onClick={props.onBackToGroups}>
+              Back to your groups
+            </Button>
+          }
+        />
       </Layout>
     );
   }

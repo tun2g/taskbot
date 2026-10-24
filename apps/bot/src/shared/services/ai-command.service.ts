@@ -1,5 +1,5 @@
 import type { AiChatTurn } from '@tbot/shared';
-import { EpicStatus, isClosedStatus } from '@tbot/shared';
+import { AiFeature, EpicStatus, isClosedStatus, UsageChannel } from '@tbot/shared';
 import mongoose from 'mongoose';
 import {
   buildTaskButtons,
@@ -80,7 +80,7 @@ import { AIUnavailableError, aiService } from 'src/shared/services/ai/ai.service
 import { TaskActivityVia } from 'src/database/models/task-activity.model';
 import { BufferedMention } from 'src/shared/services/message-buffer.service';
 import { notificationService } from 'src/shared/services/notification.service';
-import { checkUserAiDailyLimit } from 'src/shared/services/ai-quota';
+import { AiOverrides, checkUserAiDailyLimit, withAiScope } from 'src/shared/services/ai-quota';
 import { rateLimitService } from 'src/shared/services/rate-limit.service';
 import { resolveMember } from 'src/shared/services/task-extraction.service';
 import type { TaskChange } from 'src/shared/services/task-sync.service';
@@ -208,16 +208,30 @@ export const AI_HISTORY_TURNS = 8;
  */
 export const EXPLAIN_WORDING = /giải thích|giai thich|là gì|la gi\b|làm gì|lam gi\b|tóm tắt|tom tat|explain|what is|what's/i;
 
-/** Per-user AI limits: the per-minute burst in this group, then the daily quota across all groups. */
-export async function checkUserAiRateLimit(telegramUserId: number, chatId: number) {
+/** Usage channel of an AI request: MCP (ask_taskbot), the web chat, or Telegram. */
+export function aiChannelOf(c: Pick<AiRequestContext, 'channel' | 'activityVia'>): UsageChannel {
+  if (c.activityVia === 'mcp') return 'mcp';
+  return c.channel === 'web' ? 'app' : 'telegram';
+}
+
+/** Runs `fn` as `feature` for this request (cost tagging + the owner's AI switches). */
+export function withRequestAiScope<T>(feature: AiFeature, c: AiRequestContext, fn: () => T): T {
+  return withAiScope(feature, { group: c.group, user: c.requester, channel: aiChannelOf(c) }, fn);
+}
+
+/**
+ * Per-user AI limits: the per-minute burst in this group, then the daily quota across all groups
+ * (`user` carries the owner's per-person override).
+ */
+export async function checkUserAiRateLimit(telegramUserId: number, chatId: number, user?: AiOverrides | null) {
   const burst = await rateLimitService.checkRateLimit(
     telegramUserId,
     `ai_command:${chatId}`,
     AI_USER_RATE_LIMIT,
     AI_USER_RATE_WINDOW_SECONDS,
   );
-  if (!burst.allowed) return burst;
-  return checkUserAiDailyLimit(telegramUserId);
+  if (!burst.allowed) return { ...burst, scope: 'minute' as const };
+  return checkUserAiDailyLimit(telegramUserId, user);
 }
 
 export interface AiContextInput {
@@ -297,9 +311,11 @@ export class AiCommandService {
       channel: c.channel,
       epics: (c.openEpics ?? []).map((e) => e.title),
     });
-    return aiService.generateJson({ system: AI_COMMAND_SYSTEM_PROMPT, user, temperature: 0.1 }, aiPlanSchema, {
-      retries: 1,
-    });
+    return withRequestAiScope(AiFeature.PLANNER, c, () =>
+      aiService.generateJson({ system: AI_COMMAND_SYSTEM_PROMPT, user, temperature: 0.1 }, aiPlanSchema, {
+        retries: 1,
+      }),
+    );
   }
 
   /** Telegram: validates and runs the plan, then renders exactly one HTML reply (or a create hand-off). */
@@ -507,10 +523,10 @@ export class AiCommandService {
     });
 
     try {
-      const { text } = await aiService.generateJson(
-        { system: EXPLAIN_TASK_SYSTEM_PROMPT, user, temperature: 0.3 },
-        explanationSchema,
-        { retries: 1 },
+      const { text } = await withRequestAiScope(AiFeature.EXPLAIN, c, () =>
+        aiService.generateJson({ system: EXPLAIN_TASK_SYSTEM_PROMPT, user, temperature: 0.3 }, explanationSchema, {
+          retries: 1,
+        }),
       );
       return { task, text: tidyExplanation(text, task.taskNumber) || null, assignee, fromReply, subtasks };
     } catch (error) {
