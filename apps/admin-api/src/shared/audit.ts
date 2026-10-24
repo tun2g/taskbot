@@ -1,5 +1,6 @@
 import { AdminAuditLog } from '@tbot/db';
 import type { AdminAuditEntry } from '@tbot/shared';
+import { AI_BUILT_IN_PRICING, aiSettingsChangeLines, backgroundJobInfo } from '@tbot/shared';
 import type { Request } from 'express';
 import logger from 'src/shared/logger';
 
@@ -41,6 +42,12 @@ export function auditSummary(action: string, targetLabel: string | null | undefi
       return 'Signed in to the admin app';
     case 'auth.logout_all':
       return 'Signed out of all admin sessions';
+    case 'auth.logout':
+      return 'Signed out of the admin app';
+    case 'auth.session_revoke':
+      return 'Signed out another browser';
+    case 'system.job.run':
+      return `Ran “${targetLabel ?? 'a background job'}” now`;
     case 'group.approve':
       return withTarget('Approved', 'group');
     case 'group.reject':
@@ -61,6 +68,8 @@ export function auditSummary(action: string, targetLabel: string | null | undefi
       return `Revoked all MCP tokens of ${targetLabel ?? 'a user'}`;
     case 'settings.ai.update':
       return 'Changed AI settings';
+    case 'settings.ai.restore':
+      return 'Restored earlier AI settings';
     default:
       return `${action}${q ? ` ${q}` : ''}`;
   }
@@ -76,7 +85,6 @@ const count = (v: unknown, one: string, many = `${one}s`) => {
   return `${x.toLocaleString('en-US')} ${x === 1 ? one : many}`;
 };
 const limitText = (v: unknown, none: string) => (num(v) === null ? none : num(v)!.toLocaleString('en-US'));
-const usdText = (v: unknown, none: string) => (num(v) === null ? none : `$${num(v)!.toFixed(2)}`);
 
 function aiOverrideChanges(details: Obj): string[] {
   const before = isObj(details.before) ? details.before : {};
@@ -89,30 +97,18 @@ function aiOverrideChanges(details: Obj): string[] {
   return out.length ? out : ['Nothing changed'];
 }
 
-const SETTING_FIELDS: { key: string; label: string; fmt: (v: unknown) => string }[] = [
-  { key: 'dailyBudgetUsd', label: 'Daily budget', fmt: (v) => usdText(v, 'none') },
-  { key: 'alertAtPercent', label: 'Alert at', fmt: (v) => (num(v) === null ? '—' : `${num(v)}%`) },
-  { key: 'dailyCallLimit', label: 'Daily call limit', fmt: (v) => limitText(v, 'server default') },
-  { key: 'userDailyLimit', label: 'Per-person daily limit', fmt: (v) => limitText(v, 'server default') },
-];
-
 function settingsChanges(details: Obj): string[] {
-  const before = isObj(details.before) ? details.before : {};
-  const after = isObj(details.after) ? details.after : {};
-  const out: string[] = [];
-  for (const f of SETTING_FIELDS) {
-    const b = before[f.key] ?? null;
-    const a = after[f.key] ?? null;
-    if (b !== a) out.push(`${f.label}: ${f.fmt(b)} → ${f.fmt(a)}`);
-  }
-  const pb = isObj(before.pricing) ? before.pricing : {};
-  const pa = isObj(after.pricing) ? after.pricing : {};
-  for (const model of new Set([...Object.keys(pb), ...Object.keys(pa)])) {
-    if (!(model in pb)) out.push(`Price added for ${model}`);
-    else if (!(model in pa)) out.push(`Price removed for ${model}`);
-    else if (JSON.stringify(pb[model]) !== JSON.stringify(pa[model])) out.push(`Price changed for ${model}`);
-  }
+  const out = aiSettingsChangeLines(details.before, details.after, AI_BUILT_IN_PRICING);
   return out.length ? out : ['Nothing changed'];
+}
+
+/** "Safari on iPhone · 1.2.3.4" for sign-in entries. */
+function deviceLine(details: Obj): string[] {
+  const parts = [
+    typeof details.browser === 'string' ? details.browser : null,
+    typeof details.ip === 'string' ? details.ip : null,
+  ].filter(Boolean);
+  return parts.length ? [parts.join(' · ')] : [];
 }
 
 /** Lines such as "Daily call limit: 500 → 200" or "Removed 12 tasks…" built from an entry's details. */
@@ -125,7 +121,20 @@ export function auditChanges(action: string, details: Obj | null | undefined): s
       out.push(...aiOverrideChanges(details));
       break;
     case 'settings.ai.update':
+    case 'settings.ai.restore':
       out.push(...settingsChanges(details));
+      break;
+    case 'auth.login':
+    case 'auth.logout':
+    case 'auth.session_revoke':
+      out.push(...deviceLine(details));
+      break;
+    case 'auth.logout_all':
+      if (num(details.sessions) !== null) out.push(`${count(details.sessions, 'browser')} signed out`);
+      break;
+    case 'system.job.run':
+      if (typeof details.name === 'string')
+        out.push(backgroundJobInfo(details.name, (details.cron as string | null) ?? null).what);
       break;
     case 'group.delete':
       out.push(

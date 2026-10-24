@@ -5,7 +5,7 @@ export interface IAdminAuditLog extends Document {
   createdAt: Date;
   /** e.g. "group.approve", "group.suspend", "group.delete", "settings.ai.update", "auth.login". */
   action: string;
-  targetType: 'group' | 'user' | 'settings' | 'session' | null;
+  targetType: 'group' | 'user' | 'settings' | 'session' | 'system' | null;
   targetId?: string | null;
   targetLabel?: string | null;
   reason?: string | null;

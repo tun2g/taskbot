@@ -59,3 +59,12 @@ export type {
   AdminSystemStatus,
   AdminAuditEntry,
 } from './admin.js';
+// System/Audit/Settings review
+export type {
+  AdminLoginLinkStatus,
+  AdminSessionRow,
+  AdminJobFailure,
+  AdminJobFailures,
+  AdminRunJobInput,
+  AdminRunJobResult,
+} from './admin.js';

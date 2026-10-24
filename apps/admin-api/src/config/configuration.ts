@@ -56,15 +56,6 @@ export const config = {
       database: parseInt(env('REDIS_DATABASE') || '0', 10),
     };
   },
-  /** Read-only defaults shown on the settings page (the bot owns these env vars). */
-  get ai() {
-    const provider = env('AI_PROVIDER') || 'gemini';
-    return {
-      provider,
-      model: env('AI_MODEL') || (provider.toLowerCase() === 'openai' ? 'gpt-5-mini' : 'gemini-3.5-flash-lite'),
-      envDailyCallLimit: parseInt(env('AI_DAILY_LIMIT') || '0', 10) || 0,
-    };
-  },
 };
 
 /** Problems that must stop the server from starting (empty = OK). */

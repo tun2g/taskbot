@@ -48,7 +48,7 @@ export function ErrorState({
   message,
   onRetry,
   retrying,
-  title = 'Couldn’t load this',
+  title = 'Couldn’t load this page',
 }: {
   message: string;
   onRetry?: () => void;
@@ -57,8 +57,8 @@ export function ErrorState({
 }) {
   return (
     <div role="alert" className="flex flex-col items-center px-6 py-16 text-center">
-      <p className="text-sm font-medium text-text">{title}</p>
-      <p className="mt-1 max-w-md text-sm text-text-3">{message}</p>
+      <p className="text-base font-semibold text-text">{title}</p>
+      <p className="mt-1.5 max-w-md text-[15px] leading-relaxed text-text-3">{message}</p>
       {onRetry && (
         <Button className="mt-4" onClick={onRetry} loading={retrying}>
           Try again

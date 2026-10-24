@@ -126,3 +126,26 @@ export function personName(p: { name: string; username: string | null } | null |
   if (!p) return 'Unknown person';
   return p.name || (p.username ? `@${p.username}` : 'Unknown person');
 }
+
+/** "24 Oct 2026, 14:05 UTC" — an exact, unambiguous time (audit log, sign-ins). */
+export function formatDateTimeUtc(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  const d = parse(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${formatTimeUtc(d)}`;
+}
+
+/** "10:20 UTC" */
+export function formatTimeUtc(value: string | Date): string {
+  const d = parse(value);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+}
+
+/** "3 days" / "5 hours" / "12 min" — how long since a time, without "ago". */
+export function formatSince(value: string | Date, now: Date = new Date()): string {
+  const s = Math.max(0, (now.getTime() - parse(value).getTime()) / 1000);
+  if (s < 90) return 'a minute';
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86400) return plural(Math.round(s / 3600), 'hour');
+  return plural(Math.floor(s / 86400), 'day');
+}

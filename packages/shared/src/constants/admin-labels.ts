@@ -9,6 +9,13 @@ export interface BackgroundJobInfo {
   what: string;
   /** What the owner notices when it fails. */
   ifFailing: string;
+  /**
+   * The schedule in words when the cron alone would mislead (jobs that check hourly but act at a local time per
+   * group). Without it the admin app describes the cron.
+   */
+  schedule?: string;
+  /** What pressing "Run now" does, for the confirmation. */
+  runNow?: string;
 }
 
 /** Keyed by job name, or `name|cron` when one job runs on several schedules. */
@@ -17,26 +24,37 @@ export const BACKGROUND_JOBS: Record<string, BackgroundJobInfo> = {
     label: 'Due-date reminders',
     what: 'Pings assignees about tasks due today or tomorrow, from 9:00 in each group’s timezone.',
     ifFailing: 'People stop getting reminders about due tasks.',
+    schedule: 'Checks every hour; reminds from 9:00 local time per group',
+    runNow:
+      'Checks now for tasks due today or tomorrow and reminds their assignees, but only in groups where it’s already past 9:00. Nobody is reminded about the same task twice.',
   },
   'daily-digest': {
     label: 'Morning digest',
     what: 'Posts each group’s summary of due and overdue tasks at 9:00 in that group’s timezone.',
     ifFailing: 'Groups don’t get their morning summary.',
+    schedule: 'Checks every hour; sends at 9:00 local time per group',
+    runNow:
+      'Checks every group now. Only groups where it’s 9:00 right now and that haven’t had today’s digest get one — at any other hour it sends nothing.',
   },
   'stats-rollup': {
     label: 'Dashboard numbers',
     what: 'Adds up usage, AI and task numbers for this dashboard.',
     ifFailing: 'Charts on this dashboard stop updating.',
+    runNow: 'Recounts the numbers for this dashboard now. Nothing is sent to anyone; safe to run any time.',
   },
   'stats-rollup|10 0 * * *': {
     label: 'Dashboard numbers — daily close',
     what: 'Finalises yesterday’s usage, AI and task numbers for this dashboard.',
     ifFailing: 'Yesterday’s numbers on this dashboard stay incomplete.',
+    runNow:
+      'Recounts yesterday’s and today’s numbers for this dashboard now. Nothing is sent to anyone; safe to run any time.',
   },
   'stats-rollup|20 * * * *': {
     label: 'Dashboard numbers & alerts — hourly',
     what: 'Updates today’s numbers, sends you AI budget / spike alerts and reminds you about groups waiting for approval.',
     ifFailing: 'Today’s numbers go stale and you stop getting AI and approval alerts in Telegram.',
+    runNow:
+      'Recounts today’s numbers now and checks the AI budget and waiting groups. You may get an alert in Telegram, but never the same alert twice in a day.',
   },
 };
 

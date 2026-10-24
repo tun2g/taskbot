@@ -3,7 +3,7 @@ import type { AdminOverview } from '@tbot/shared';
 import { GROUP_STATUS_VALUES, GroupStatus } from '@tbot/shared';
 import { Request, Response, Router } from 'express';
 import { Types } from 'mongoose';
-import { config } from 'src/config/configuration';
+import { loadBotRuntime } from 'src/shared/runtime';
 import { GROUP_FIELDS, groupRows, LeanGroup } from 'src/routes/group-rows';
 import { loadAiSettings } from 'src/routes/settings.routes';
 import { readQueue } from 'src/routes/system.routes';
@@ -74,7 +74,7 @@ overviewRouter.get(
     const topActivity = topBy([...activity.entries()], (a) => a.events, 5);
     const topCost = topBy([...activity.entries()], (a) => a.aiCostUsd, 5);
     const refs = await loadGroupRefs([...topActivity, ...topCost].map(([id]) => id));
-    const envLimit = config.ai.envDailyCallLimit;
+    const envLimit = (await loadBotRuntime())?.envDailyCallLimit ?? 0;
     const callLimit = settings.dailyCallLimit ?? (envLimit > 0 ? envLimit : null);
     // "Needs attention" must never break the overview: on an error it's left out (the UI then shows nothing).
     const attention = await (async () => {

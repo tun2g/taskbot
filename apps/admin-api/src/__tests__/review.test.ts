@@ -41,7 +41,33 @@ describe('auditChanges — readable "what changed" lines', () => {
       before: { dailyCallLimit: 500, dailyBudgetUsd: null, alertAtPercent: 80, userDailyLimit: null, pricing: { a: { input: 1, output: 2 } } },
       after: { dailyCallLimit: 200, dailyBudgetUsd: 5, alertAtPercent: 80, userDailyLimit: null, pricing: { b: { input: 1, output: 2 } } },
     });
-    expect(lines).toEqual(['Daily budget: none → $5.00', 'Daily call limit: 500 → 200', 'Price removed for a', 'Price added for b']);
+    expect(lines).toEqual([
+      'Daily AI call limit: 500 → 200',
+      'Daily budget: none → $5.00',
+      'a: price removed — its calls count as unpriced ($0)',
+      'b: price added — input $1.00, output $2.00 per 1M tokens',
+    ]);
+  });
+
+  it('shows the old and new price per changed field, and "back to built-in" when an override goes', () => {
+    const lines = auditChanges('settings.ai.update', {
+      before: { pricing: { 'gemini-2.5-pro': { input: 2, output: 10 } } },
+      after: { pricing: { 'gemini-2.5-flash': { input: 0.35, cachedInput: 0.075, output: 2.5 } } },
+    });
+    expect(lines).toEqual([
+      'gemini-2.5-flash input: $0.30 → $0.35 per 1M tokens',
+      'gemini-2.5-pro: back to built-in price (input $1.25, cached input $0.31, output $10.00 per 1M tokens)',
+    ]);
+    expect(
+      auditChanges('settings.ai.update', {
+        before: { pricing: { 'gemini-2.5-flash': { input: 0.3, output: 2.5 } } },
+        after: { pricing: { 'gemini-2.5-flash': { input: 0.3, cachedInput: 0.03, output: 2.75 } } },
+      }),
+    ).toEqual(['gemini-2.5-flash cached input: $0.30 → $0.03 per 1M tokens', 'gemini-2.5-flash output: $2.50 → $2.75 per 1M tokens']);
+  });
+
+  it('shows the browser and address of sign-ins', () => {
+    expect(auditChanges('auth.login', { browser: 'Safari on iPhone', ip: '1.2.3.4' })).toEqual(['Safari on iPhone · 1.2.3.4']);
   });
 
   it('describes a delete and Telegram problems', () => {
