@@ -31,19 +31,19 @@ export function GroupsTable({
       <THead>
         <Th>Group</Th>
         <Th>Status</Th>
-        <Th align="right" hint="used bot / in chat">
+        <Th align="right" hint="used bot / in chat" hintWidth="fit">
           Members
         </Th>
-        <Th align="right" hint="open / total">
+        <Th align="right" hint="open / total" hintWidth="fit">
           Tasks
         </Th>
         {period && (
-          <Th align="right" hint="requests · tasks created">
+          <Th align="right" hint="requests · tasks created" hintWidth="wrap">
             In the period
           </Th>
         )}
         <Th>Last activity</Th>
-        <Th align="right" hint={period ? RANGE_LABELS[period].toLowerCase() : 'last 30 days'}>
+        <Th align="right" hint={period ? RANGE_LABELS[period].toLowerCase() : 'last 30 days'} hintWidth="fit">
           AI cost
         </Th>
         <Th>
@@ -85,9 +85,8 @@ export function GroupsTable({
               <span className="text-text-3"> / {formatNumber(g.tasks)}</span>
             </Td>
             {period && (
-              <Td align="right" className="whitespace-nowrap" stop>
-                <span className="text-text">{formatNumber(g.inPeriod?.events ?? 0)}</span>
-                <span className="text-text-3"> · </span>
+              <Td align="right" stop>
+                <span className="block text-text">{formatNumber(g.inPeriod?.events ?? 0)}</span>
                 <TextLink to="/groups/$groupId" params={{ groupId: g.id }} search={{ tab: 'tasks', view: 'all', createdIn: period }}>
                   {plural(g.inPeriod?.tasksCreated ?? 0, 'task')}
                 </TextLink>
@@ -99,7 +98,7 @@ export function GroupsTable({
             <Td align="right" stop>
               <AiCostCell group={g} period={period} />
             </Td>
-            <Td align="right" stop>
+            <Td align="right" stop className="pl-1.5">
               <GroupRowActions group={g} onAction={onAction} busy={busyId === g.id} />
             </Td>
           </Tr>

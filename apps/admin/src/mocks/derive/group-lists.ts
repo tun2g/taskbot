@@ -1,4 +1,4 @@
-/** Deterministic people / tasks / epics for one mock group (see groups-review.ts for the routes). */
+/** Deterministic people / tasks / epics for one mock group (the group detail tabs). */
 import type {
   AdminGroupEpicRow,
   AdminGroupMemberRow,
@@ -10,19 +10,7 @@ import type {
 } from '@tbot/shared';
 import { GroupStatus, TaskStatus } from '@tbot/shared';
 
-import { aiCalls, iso, type MockGroup, now, people, personRef } from './fixtures';
-
-const DAY = 86_400_000;
-const RANGE_DAYS: Record<AdminRange, number> = { '7d': 7, '30d': 30, '90d': 90 };
-
-function hash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-const noise = (key: string, max: number) => hash(key) % (max + 1);
-
-export const since = (range: AdminRange) => now - RANGE_DAYS[range] * DAY;
+import { aiCalls, DAY, iso, type MockGroup, noise, now, people, personRef, since } from '../fixtures';
 
 // ── people ──────────────────────────────────────────────────────────────────
 

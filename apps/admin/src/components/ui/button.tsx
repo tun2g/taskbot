@@ -4,7 +4,7 @@ import { type AnchorHTMLAttributes, type ButtonHTMLAttributes, forwardRef } from
 import { cn } from '@/lib/cn';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-outline';
-export type ButtonSize = 'sm' | 'md';
+export type ButtonSize = 'xs' | 'sm' | 'md';
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-on-accent hover:bg-accent-hover border border-transparent',
@@ -15,6 +15,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
+  /** Compact row actions inside tables. */
+  xs: 'h-7 px-2.5 text-[13px] gap-1 rounded-lg',
   sm: 'h-8 px-3 text-sm gap-1.5 rounded-lg',
   md: 'h-10 px-4 text-[15px] gap-2 rounded-xl',
 };
