@@ -15,7 +15,7 @@ import { handleBatchCallback } from 'src/bot/ai-batch-callback.handler';
 import { CREATE_FROM_REPLY_PREFIX, handleCreateFromReplyCallback } from 'src/bot/create-from-reply';
 import { handleGroupApprovalCallback } from 'src/bot/group-approval.handler';
 import { handleHelpCallback } from 'src/bot/help-callback.handler';
-import { handleTaskCallback } from 'src/bot/task-callback.handler';
+import { handleTaskCallback } from 'src/bot/task-callback';
 import { authMiddleware } from 'src/bot/middlewares/auth.middleware';
 import { groupGateMiddleware } from 'src/bot/middlewares/group-gate.middleware';
 import { groupLifecycleMiddleware } from 'src/bot/middlewares/group-lifecycle.middleware';

@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { handleTaskCallback } from 'src/bot/task-callback.handler';
+import { handleTaskCallback } from 'src/bot/task-callback';
 import { configService } from 'src/configs/configuration';
 import { Group } from 'src/database/models/group.model';
 import { User } from 'src/database/models/user.model';
