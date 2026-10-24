@@ -150,6 +150,7 @@ export function AiContent({
                     data={chartData}
                     series={[{ key: 'cost', label: 'Estimated cost', color: 'var(--series-1)' }]}
                     format={(v) => formatMoney(v, { compact: true })}
+                axisFormat={(v) => formatMoney(v, { axis: true, compact: true })}
                     trackedFrom={trackingSince ?? undefined}
                   />
                 )}

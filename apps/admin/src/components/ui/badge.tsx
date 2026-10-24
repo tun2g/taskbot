@@ -5,6 +5,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { AI_STATUS_HINTS, AI_STATUS_LABELS } from '@/lib/labels';
 
+import { Tooltip } from './tooltip';
+
 export type Tone = 'good' | 'warn' | 'danger' | 'neutral' | 'accent';
 
 const TONES: Record<Tone, string> = {
@@ -26,19 +28,20 @@ const DOTS: Record<Tone, string> = {
 export function Badge({ tone = 'neutral', children, title, dot = true, className }: {
   tone?: Tone;
   children: ReactNode;
+  /** What the badge means; shown as a tooltip. */
   title?: string;
   dot?: boolean;
   className?: string;
 }) {
-  return (
+  const badge = (
     <span
-      title={title}
       className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] leading-none font-medium whitespace-nowrap', TONES[tone], className)}
     >
       {dot && <span aria-hidden className={cn('size-1.5 rounded-full', DOTS[tone])} />}
       {children}
     </span>
   );
+  return title ? <Tooltip content={title}>{badge}</Tooltip> : badge;
 }
 
 export const GROUP_STATUS_TONES: Record<GroupStatus, Tone> = {
@@ -79,8 +82,8 @@ export function AiOverrideBadge({ disabled, dailyLimit }: { disabled: boolean; d
       </Badge>
     );
   return (
-    <span className="text-[13px] text-text-3" title="Uses the default limits from Settings.">
-      Default
-    </span>
+    <Tooltip content="Uses the default limits from Settings.">
+      <span className="text-[13px] text-text-3">Default</span>
+    </Tooltip>
   );
 }

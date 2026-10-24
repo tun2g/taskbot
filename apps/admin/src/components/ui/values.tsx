@@ -4,13 +4,17 @@ import { Link } from '@tanstack/react-router';
 import { cn } from '@/lib/cn';
 import { formatDateTime, formatRelative, personName } from '@/lib/format';
 
+import { Tooltip } from './tooltip';
+
 /** "3 hours ago" with the exact time on hover. */
 export function RelativeTime({ value, never = 'Never' }: { value: string | null | undefined; never?: string }) {
   if (!value) return <span className="text-text-3">{never}</span>;
   return (
-    <time dateTime={value} title={formatDateTime(value)} className="whitespace-nowrap">
-      {formatRelative(value)}
-    </time>
+    <Tooltip content={formatDateTime(value)}>
+      <time dateTime={value} className="whitespace-nowrap">
+        {formatRelative(value)}
+      </time>
+    </Tooltip>
   );
 }
 

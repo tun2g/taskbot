@@ -12,14 +12,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.9.2",
     "@tanstack/react-query": "^5.96.0",
     "@tanstack/react-router": "^1.168.10",
     "@tbot/shared": "workspace:*",
     "axios": "^1.7.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-hook-form": "^7.91.0",
     "react-is": "19.2.4",
-    "recharts": "3.2.1"
+    "recharts": "3.2.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

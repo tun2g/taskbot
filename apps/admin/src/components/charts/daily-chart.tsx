@@ -28,6 +28,7 @@ export function DailyChart({
   kind = 'bar',
   stacked = false,
   format = (v) => formatNumber(v),
+  axisFormat,
   height = 200,
   trackedFrom,
   ariaLabel,
@@ -37,6 +38,8 @@ export function DailyChart({
   kind?: 'bar' | 'line';
   stacked?: boolean;
   format?: (value: number) => string;
+  /** Y-axis ticks, when they should be shorter than `format` (e.g. money without trailing zeros). */
+  axisFormat?: (value: number) => string;
   height?: number;
   /** First tracked day ("YYYY-MM-DD"); earlier days show as gaps. Omit for metrics that exist before tracking. */
   trackedFrom?: string | null;
@@ -117,7 +120,7 @@ export function DailyChart({
         tickLine={false}
         axisLine={false}
         width={52}
-        tickFormatter={(v: number) => format(v)}
+        tickFormatter={(v: number) => (axisFormat ?? format)(v)}
         domain={[0, 'auto']}
         allowDecimals={fractional}
       />

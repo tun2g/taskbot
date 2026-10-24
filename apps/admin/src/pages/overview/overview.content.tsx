@@ -169,6 +169,7 @@ export function OverviewContent({
                 data={overview.daily}
                 series={[{ key: 'aiCostUsd', label: 'Estimated cost', color: 'var(--series-1)' }]}
                 format={(v) => formatMoney(v)}
+                axisFormat={(v) => formatMoney(v, { axis: true, compact: true })}
                 trackedFrom={tracked}
               />
             </CardBody>

@@ -2,14 +2,20 @@
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** $0.0123 for amounts under a dollar, $12.34 otherwise, $12.3K for big totals in tight spots. */
-export function formatMoney(value: number | null | undefined, opts: { compact?: boolean } = {}): string {
+/**
+ * $0.0120 for amounts under a dollar (always 4 decimals so a column lines up), $12.34 otherwise, $12.3K for big
+ * totals in tight spots. `axis` trims trailing zeros for chart ticks.
+ */
+export function formatMoney(value: number | null | undefined, opts: { compact?: boolean; axis?: boolean } = {}): string {
   if (value == null || Number.isNaN(value)) return '—';
   const abs = Math.abs(value);
   const sign = value < 0 ? '-' : '';
   if (abs === 0) return '$0';
   if (abs < 0.0001) return `${sign}<$0.0001`;
-  if (abs < 1) return `${sign}$${abs.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}`;
+  if (abs < 1) {
+    const fixed = abs.toFixed(4);
+    return `${sign}$${opts.axis ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed}`;
+  }
   if (opts.compact && abs >= 10_000) return `${sign}$${compact(abs)}`;
   return `${sign}$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

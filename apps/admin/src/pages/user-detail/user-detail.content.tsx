@@ -138,6 +138,7 @@ export function UserDetailContent(props: {
                 data={user.daily}
                 series={[{ key: 'aiCostUsd', label: 'AI cost', color: 'var(--series-1)' }]}
                 format={(v) => formatMoney(v)}
+                axisFormat={(v) => formatMoney(v, { axis: true, compact: true })}
                 trackedFrom={props.trackingSince}
               />
             </CardBody>
