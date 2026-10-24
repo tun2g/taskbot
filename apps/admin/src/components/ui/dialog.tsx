@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type ReactNode, useEffect, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 
 import { Form, FormTextareaField, FormTextField } from '@/components/form/form';
@@ -105,13 +105,15 @@ export function ConfirmDialog({
 }) {
   const schema = useMemo(() => confirmSchema(options), [options]);
   const form = useForm<ConfirmValues>({ resolver: zodResolver(schema), mode: 'onChange', defaultValues: { reason: '', typed: '' } });
+  // Validity from the live values: formState.isValid isn't recomputed after reset(), which left confirm disabled.
+  const values = useWatch({ control: form.control });
   const { reset } = form;
   useEffect(() => {
     if (open) reset({ reason: '', typed: '' });
   }, [open, reset]);
 
   if (!options) return null;
-  const disabled = !form.formState.isValid || !!options.loadingBody;
+  const disabled = !schema.safeParse(values).success || !!options.loadingBody;
   const submit = form.handleSubmit(({ reason }) => {
     if (!pending) onConfirm(reason.trim() || undefined);
   });
