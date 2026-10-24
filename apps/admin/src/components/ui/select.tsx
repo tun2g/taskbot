@@ -107,12 +107,12 @@ export function Select<T extends string>({
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={onTriggerKey}
         className={cn(
-          'inline-flex h-10 w-full max-w-full cursor-pointer items-center gap-2 rounded-xl border bg-surface pr-2.5 pl-3.5 text-left text-[15px] transition-colors',
-          open ? 'border-accent ring-[3px] ring-accent/20' : 'border-border-strong hover:border-text-3/60 hover:bg-surface-2/60',
+          'inline-flex h-10 w-full max-w-full cursor-pointer items-center gap-2 rounded-lg border bg-surface pr-2.5 pl-3.5 text-left text-[15px] transition-colors',
+          open ? 'border-brand ring-1 ring-brand' : 'border-border-strong hover:border-text-3/60',
         )}
       >
         {showLabel && <span className="shrink-0 text-text-3">{label}</span>}
-        <span className="min-w-0 flex-1 truncate font-medium text-text">{selected?.label}</span>
+        <span className="min-w-0 flex-1 truncate font-bold text-text">{selected?.label}</span>
         <Chevron open={open} />
       </button>
       {open && (
@@ -138,12 +138,12 @@ export function Select<T extends string>({
                 onClick={() => pick(i)}
                 className={cn(
                   'flex cursor-pointer items-start gap-2.5 rounded-lg py-2 pr-3 pl-2.5 whitespace-nowrap',
-                  i === active && 'bg-surface-2',
+                  i === active && 'bg-brand-soft',
                 )}
               >
                 <CheckMark visible={isSelected} />
                 <span className="min-w-0">
-                  <span className={cn('block text-[15px]', isSelected ? 'font-semibold text-accent-text' : 'text-text')}>
+                  <span className={cn('block text-[15px]', isSelected ? 'font-bold text-accent-text' : 'text-text')}>
                     {o.label}
                   </span>
                   {o.hint && <span className="mt-0.5 block text-[13px] whitespace-normal text-text-3">{o.hint}</span>}

@@ -1,118 +1,130 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens. Everything in the UI reads these variables (via the Tailwind theme below), so light and
- * dark are one switch. Dark follows the OS unless the owner picks a theme (html[data-theme]).
- * Palette: cool slate neutrals with an iris accent; text-3 >= 4.5:1 on surface, surface-2 and bg, and white
- * button text on accent >= 4.5:1.
+ * Design tokens, modelled on Metabase (frontend/src/metabase/ui/colors): its #509EE3 brand blue, cool near-white
+ * page, near-black blue-grey text and the accent0..7 chart palette. Everything in the UI reads these variables (via
+ * the Tailwind theme below), so light and dark are one switch. Dark follows the OS unless the owner picks a theme
+ * (html[data-theme]).
+ * `--brand` is the Metabase blue for marks (active nav, tab underline, charts, focus); `--accent` is the same hue
+ * darkened so white button text and accent-coloured text stay >= 4.5:1. text-3 >= 4.5:1 on surface and bg.
  */
 :root {
   color-scheme: light;
-  --bg: #f5f6fa;
+  --bg: #f9fbfc;
+  --sidebar: #f9fbfc;
   --surface: #ffffff;
-  --surface-2: #f3f4f8;
-  --surface-3: #e7e9f0;
-  --border: #e4e6ee;
-  --border-strong: #cdd1dd;
-  --text: #161827;
-  --text-2: #474b5e;
-  --text-3: #5f6577;
-  --accent: #5b5bd6;
-  --accent-hover: #4f4fcb;
-  --accent-soft: #eef0ff;
-  --accent-text: #4343b8;
+  --surface-2: #f4f6f8;
+  --surface-3: #eaedf0;
+  --border: #e3e7eb;
+  --border-strong: #ccd3d9;
+  --text: #2e353b;
+  --text-2: #4c5773;
+  --text-3: #66707d;
+  --brand: #509ee3;
+  --brand-soft: #e9f2fc;
+  --accent: #2b78c5;
+  --accent-hover: #2270bd;
+  --accent-soft: #edf5fd;
+  --accent-text: #2270bd;
   --on-accent: #ffffff;
-  --good: #16794c;
-  --good-soft: #e8f6ee;
-  --warn: #9a5800;
-  --warn-soft: #fff3df;
-  --danger: #c62a2f;
-  --danger-hover: #ad2227;
-  --danger-soft: #feebec;
-  --neutral-soft: #eceef4;
-  --focus: #5b5bd6;
-  --shadow: 0 1px 2px rgb(22 24 39 / 0.05);
-  --shadow-lg: 0 12px 32px rgb(22 24 39 / 0.12), 0 2px 6px rgb(22 24 39 / 0.06);
-  /* Charts — categorical slots in fixed order, plus a recessive grid. */
-  --series-1: #5b5bd6;
-  --series-2: #f0712c;
-  --series-3: #12a594;
-  --series-muted: #c6cad6;
-  --chart-grid: #eceef4;
+  --good: #3f7a1c;
+  --good-soft: #eef7e5;
+  --warn: #8c5d00;
+  --warn-soft: #fef6dc;
+  --danger: #c43c3f;
+  --danger-hover: #ad2f33;
+  --danger-soft: #fdeeee;
+  --neutral-soft: #eef0f3;
+  --focus: #509ee3;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.07);
+  --shadow-lg: 0 0 0 0.5px rgb(0 0 0 / 0.07), 0 5px 15px rgb(0 0 0 / 0.1), 0 20px 40px rgb(0 0 0 / 0.08);
+  /* Charts — Metabase accent0 / accent5 / accent1 (slightly deepened so bars hold 3:1 on white), plus grid. */
+  --series-1: #509ee3;
+  --series-2: #ef8d4f;
+  --series-3: #6fa83a;
+  --series-muted: #d3dae1;
+  --chart-grid: #edf0f3;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --bg: #101118;
-    --surface: #181a24;
-    --surface-2: #1f2230;
-    --surface-3: #2a2d3d;
-    --border: #2a2d3b;
-    --border-strong: #3a3e51;
-    --text: #eef0f8;
-    --text-2: #c2c6d6;
-    --text-3: #8b90a7;
-    --accent: #5b5bf0;
-    --accent-hover: #6e6ef5;
-    --accent-soft: #24264a;
-    --accent-text: #a5a5ff;
+    --bg: #071722;
+    --sidebar: #0a1a25;
+    --surface: #0f202c;
+    --surface-2: #152838;
+    --surface-3: #1d3242;
+    --border: #213444;
+    --border-strong: #32495b;
+    --text: #f1f4f6;
+    --text-2: #c3ccd3;
+    --text-3: #93a1ac;
+    --brand: #509ee3;
+    --brand-soft: #12304a;
+    --accent: #2f80d1;
+    --accent-hover: #3c8bdb;
+    --accent-soft: #112c45;
+    --accent-text: #7cb9f0;
     --on-accent: #ffffff;
-    --good: #4cc38a;
-    --good-soft: #132a20;
-    --warn: #f1a94a;
-    --warn-soft: #2f2414;
-    --danger: #f2777b;
-    --danger-hover: #f59195;
-    --danger-soft: #361a1d;
-    --neutral-soft: #262938;
-    --focus: #8b8bff;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
-    --series-1: #7c7cf5;
-    --series-2: #f0712c;
-    --series-3: #1fbfa8;
-    --series-muted: #464a5e;
-    --chart-grid: #262938;
+    --good: #93c96a;
+    --good-soft: #17301c;
+    --warn: #f2c650;
+    --warn-soft: #2f2812;
+    --danger: #f08385;
+    --danger-hover: #f49a9c;
+    --danger-soft: #3a1b20;
+    --neutral-soft: #1d3040;
+    --focus: #6aaeea;
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+    --shadow-lg: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 5px 15px rgb(0 0 0 / 0.3), 0 20px 40px rgb(0 0 0 / 0.35);
+    --series-1: #5fa8e8;
+    --series-2: #f2a26f;
+    --series-3: #8cc35a;
+    --series-muted: #34495a;
+    --chart-grid: #1b2e3d;
   }
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #101118;
-  --surface: #181a24;
-  --surface-2: #1f2230;
-  --surface-3: #2a2d3d;
-  --border: #2a2d3b;
-  --border-strong: #3a3e51;
-  --text: #eef0f8;
-  --text-2: #c2c6d6;
-  --text-3: #8b90a7;
-  --accent: #5b5bf0;
-  --accent-hover: #6e6ef5;
-  --accent-soft: #24264a;
-  --accent-text: #a5a5ff;
+  --bg: #071722;
+  --sidebar: #0a1a25;
+  --surface: #0f202c;
+  --surface-2: #152838;
+  --surface-3: #1d3242;
+  --border: #213444;
+  --border-strong: #32495b;
+  --text: #f1f4f6;
+  --text-2: #c3ccd3;
+  --text-3: #93a1ac;
+  --brand: #509ee3;
+  --brand-soft: #12304a;
+  --accent: #2f80d1;
+  --accent-hover: #3c8bdb;
+  --accent-soft: #112c45;
+  --accent-text: #7cb9f0;
   --on-accent: #ffffff;
-  --good: #4cc38a;
-  --good-soft: #132a20;
-  --warn: #f1a94a;
-  --warn-soft: #2f2414;
-  --danger: #f2777b;
-  --danger-hover: #f59195;
-  --danger-soft: #361a1d;
-  --neutral-soft: #262938;
-  --focus: #8b8bff;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
-  --series-1: #7c7cf5;
-  --series-2: #f0712c;
-  --series-3: #1fbfa8;
-  --series-muted: #464a5e;
-  --chart-grid: #262938;
+  --good: #93c96a;
+  --good-soft: #17301c;
+  --warn: #f2c650;
+  --warn-soft: #2f2812;
+  --danger: #f08385;
+  --danger-hover: #f49a9c;
+  --danger-soft: #3a1b20;
+  --neutral-soft: #1d3040;
+  --focus: #6aaeea;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+  --shadow-lg: 0 0 0 0.5px rgb(255 255 255 / 0.06), 0 5px 15px rgb(0 0 0 / 0.3), 0 20px 40px rgb(0 0 0 / 0.35);
+  --series-1: #5fa8e8;
+  --series-2: #f2a26f;
+  --series-3: #8cc35a;
+  --series-muted: #34495a;
+  --chart-grid: #1b2e3d;
 }
 
 @theme inline {
   --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
@@ -121,6 +133,8 @@
   --color-text: var(--text);
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
@@ -134,8 +148,17 @@
   --color-danger-hover: var(--danger-hover);
   --color-danger-soft: var(--danger-soft);
   --color-neutral-soft: var(--neutral-soft);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: 'Lato', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /*
+   * Lato ships 400/700/900 only, so a 500 would silently render as regular. `font-medium` marks emphasis (names,
+   * titles, key numbers) everywhere in this app — render it bold, like Metabase's regular/bold scheme.
+   */
+  --font-weight-medium: 700;
+  /* Metabase's radius scale: 6px controls, 8px cards and panels (was 12/16px). */
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 html,

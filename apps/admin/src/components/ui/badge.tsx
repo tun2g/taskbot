@@ -22,7 +22,7 @@ const DOTS: Record<Tone, string> = {
   warn: 'bg-warn',
   danger: 'bg-danger',
   neutral: 'bg-text-3',
-  accent: 'bg-accent',
+  accent: 'bg-brand',
 };
 
 export function Badge({ tone = 'neutral', children, title, dot = true, className }: {
@@ -35,7 +35,7 @@ export function Badge({ tone = 'neutral', children, title, dot = true, className
 }) {
   const badge = (
     <span
-      className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] leading-none font-medium whitespace-nowrap', TONES[tone], className)}
+      className={cn('inline-flex items-center gap-1.5 rounded px-2 py-1 text-[13px] leading-none font-bold whitespace-nowrap', TONES[tone], className)}
     >
       {dot && <span aria-hidden className={cn('size-1.5 rounded-full', DOTS[tone])} />}
       {children}

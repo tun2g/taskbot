@@ -29,10 +29,10 @@ export function UserMenu() {
         triggerClassName="h-10 gap-2.5 rounded-full py-1 pr-3 pl-1"
         trigger={
           <>
-            <span className="flex size-8 items-center justify-center rounded-full bg-accent text-sm text-on-accent font-semibold text-accent-text">
+            <span className="flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
               {initials}
             </span>
-            <span className="hidden max-w-40 truncate text-[15px] font-medium text-text sm:block">
+            <span className="hidden max-w-40 truncate text-[15px] font-bold text-text sm:block">
               {owner?.name ?? 'Owner'}
             </span>
           </>

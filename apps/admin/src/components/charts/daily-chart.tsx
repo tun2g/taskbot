@@ -168,7 +168,7 @@ export function DailyChart({
                 fill={s.color}
                 stroke="var(--surface)"
                 strokeWidth={stacked ? 1 : 0}
-                radius={!stacked || i === series.length - 1 ? [3, 3, 0, 0] : 0}
+                radius={!stacked || i === series.length - 1 ? [2, 2, 0, 0] : 0}
                 maxBarSize={28}
                 isAnimationActive={false}
               />
