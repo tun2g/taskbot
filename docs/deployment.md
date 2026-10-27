@@ -35,6 +35,9 @@ push to `main` and publishes them to GHCR:
 
 - `ghcr.io/tun2g/taskbot-bot:latest` (also tagged `sha-<commit>`)
 - `ghcr.io/tun2g/taskbot-web:latest` (also tagged `sha-<commit>`)
+- `ghcr.io/tun2g/taskbot-landing:latest`: the optional product landing page (`apps/landing`, static nginx, no runtime
+  env). Its "Add to Telegram" buttons use the `VITE_BOT_USERNAME` build arg. Serve it on its own domain; the Mini App
+  keeps its own.
 
 ## Production checklist
 
