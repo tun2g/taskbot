@@ -3,19 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TaskBot: tasks from your Telegram group chat</title>
+    <title>TaskBot: turn Telegram group chats into tracked tasks</title>
     <meta
       name="description"
-      content="TaskBot turns Telegram group messages into tracked tasks with AI, a Kanban board Mini App and an MCP server for Claude Code and Cursor. Open source."
+      content="TaskBot turns Telegram group messages into tracked tasks with AI, a Kanban board Mini App and an MCP server for Claude Code and Cursor. Free and open source."
     />
-    <meta property="og:title" content="TaskBot: tasks from your Telegram group chat" />
+    <meta
+      name="keywords"
+      content="Telegram bot, task management, Telegram Mini App, Kanban, AI task extraction, MCP, Claude Code, Cursor, open source"
+    />
+    <meta name="author" content="TaskBot" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="%VITE_SITE_URL%/" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#fbfcfd" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b141c" media="(prefers-color-scheme: dark)" />
+
+    <!-- Open Graph (Telegram, Facebook, LinkedIn, Slack link previews) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TaskBot" />
+    <meta property="og:url" content="%VITE_SITE_URL%/" />
+    <meta property="og:title" content="TaskBot: say it in the group, track it on the board" />
     <meta
       property="og:description"
-      content="Say it in the group, track it on the board. AI task extraction, a Kanban Mini App and MCP for your coding agent."
+      content="Telegram group messages become tracked tasks, with AI, a Kanban Mini App and an MCP server for your coding agent. Open source."
     />
-    <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#1e7fd0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:image" content="%VITE_SITE_URL%/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TaskBot turning a Telegram group message into a task card" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="vi_VN" />
+
+    <!-- X / Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="TaskBot: say it in the group, track it on the board" />
+    <meta
+      name="twitter:description"
+      content="Telegram group messages become tracked tasks, with AI, a Kanban Mini App and MCP. Open source."
+    />
+    <meta name="twitter:image" content="%VITE_SITE_URL%/og-image.png" />
+    <meta name="twitter:image:alt" content="TaskBot turning a Telegram group message into a task card" />
+
+    <!-- Structured data for search engines -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TaskBot",
+        "url": "%VITE_SITE_URL%/",
+        "image": "%VITE_SITE_URL%/og-image.png",
+        "description": "A Telegram bot and Mini App that turns group chat messages into tracked tasks, with AI task extraction, a Kanban board and an MCP server for coding agents.",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Telegram (iOS, Android, desktop, web)",
+        "inLanguage": ["en", "vi"],
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "sameAs": ["https://github.com/tun2g/taskbot"]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

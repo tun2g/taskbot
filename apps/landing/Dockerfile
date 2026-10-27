@@ -11,6 +11,9 @@ COPY apps/landing/ ./apps/landing/
 # Bot username (no "@") for the "Add to Telegram" buttons.
 ARG VITE_BOT_USERNAME=
 ENV VITE_BOT_USERNAME=$VITE_BOT_USERNAME
+# Public URL for canonical / Open Graph tags and the sitemap. Empty = the vite.config default.
+ARG VITE_SITE_URL=
+ENV VITE_SITE_URL=$VITE_SITE_URL
 RUN pnpm --filter @tbot/landing build
 
 FROM nginx:1.27-alpine

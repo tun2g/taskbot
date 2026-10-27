@@ -1,0 +1,13 @@
+{
+  "name": "TaskBot",
+  "short_name": "TaskBot",
+  "description": "Turn Telegram group chats into tracked tasks.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#fbfcfd",
+  "theme_color": "#1e7fd0",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}
