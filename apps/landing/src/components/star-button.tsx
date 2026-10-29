@@ -8,17 +8,19 @@ const CACHE_KEY = 'taskbot-stars';
 
 /** Reads the star count once per session (the unauthenticated GitHub API allows 60 requests an hour per IP). */
 function useStarCount() {
-  const [stars, setStars] = useState<number | null>(() => {
-    try {
-      const cached = sessionStorage.getItem(CACHE_KEY);
-      return cached ? Number(cached) : null;
-    } catch {
-      return null;
-    }
-  });
+  // Starts empty so the pre-rendered HTML and the first client render match; the cache is read after hydration.
+  const [stars, setStars] = useState<number | null>(null);
 
   useEffect(() => {
-    if (stars !== null) return;
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      if (cached) {
+        setStars(Number(cached));
+        return;
+      }
+    } catch {
+      // Storage blocked: fall through to the API.
+    }
     const ctrl = new AbortController();
     fetch(REPO_API, { signal: ctrl.signal })
       .then((res) => (res.ok ? res.json() : null))
@@ -33,7 +35,7 @@ function useStarCount() {
       })
       .catch(() => {});
     return () => ctrl.abort();
-  }, [stars]);
+  }, []);
 
   return stars;
 }

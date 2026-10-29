@@ -27,6 +27,17 @@ const FAQ = [
   },
 ];
 
+// FAQPage structured data, built from the same list so it never drifts from the visible answers.
+const FAQ_JSON_LD = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: { '@type': 'Answer', text: item.a },
+  })),
+}).replace(/</g, '\\u003c');
+
 export function Faq() {
   return (
     <section id="faq" className="border-t border-line bg-surface py-24">
@@ -49,6 +60,7 @@ export function Faq() {
           ))}
         </div>
       </Container>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: FAQ_JSON_LD }} />
     </section>
   );
 }

@@ -1,7 +1,8 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs/promises';
 import path from 'path';
-import { defineConfig, type Plugin } from 'vite';
+import { createServer, defineConfig, type Plugin } from 'vite';
 
 // Absolute site URL for canonical / Open Graph tags, robots.txt and sitemap.xml (no trailing slash).
 // Vite exposes VITE_* from process.env and replaces %VITE_SITE_URL% in index.html.
@@ -28,8 +29,40 @@ function seoFiles(): Plugin {
   };
 }
 
+/**
+ * Renders the React app into dist/index.html after the build, so search engines and link-preview bots that don't run
+ * JS still see the full page (headings, copy, FAQ). The client then hydrates it (see src/main.tsx).
+ */
+function prerender(): Plugin {
+  let outDir = '';
+  return {
+    name: 'prerender',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      const server = await createServer({
+        server: { middlewareMode: true, hmr: false },
+        appType: 'custom',
+        logLevel: 'error',
+      });
+      try {
+        const { render } = (await server.ssrLoadModule('/src/entry-server.tsx')) as { render: () => string };
+        const file = path.join(outDir, 'index.html');
+        const html = await fs.readFile(file, 'utf8');
+        const marker = '<div id="root"></div>';
+        if (!html.includes(marker)) throw new Error(`prerender: ${marker} not found in ${file}`);
+        await fs.writeFile(file, html.replace(marker, `<div id="root">${render()}</div>`));
+      } finally {
+        await server.close();
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), seoFiles()],
+  plugins: [react(), tailwindcss(), seoFiles(), prerender()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
